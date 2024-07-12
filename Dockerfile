@@ -4,7 +4,7 @@ ARG REGISTRY_PREFIX=
 FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:8.0 AS sdk8
 FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/aspnet:8.0 AS aspnet8
 FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/runtime:8.0 AS runtime8
-FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.6.0 as curl
+FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.6.0 AS curl
 
 #
 #  Nuget config image
@@ -74,7 +74,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # BUILD
 #
-FROM restore as build
+FROM restore AS build
 COPY . .
 ARG VERSION=0.0.0-local
 RUN echo dotnet build -p:VERSION=${VERSION} --no-restore -c Release
@@ -84,7 +84,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # TEST
 #
-FROM build as test
+FROM build AS test
 COPY --from=docker:cli /usr/local/bin/docker /usr/bin/docker
 COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 ARG DOCKER_HOST=
@@ -103,7 +103,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # PACKAGE
 #
-FROM build as package
+FROM build AS package
 ARG VERSION
 RUN echo dotnet pack -p:VERSION=${VERSION} --no-build --no-restore -c Release -o /nuget/
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
@@ -113,7 +113,7 @@ RUN ls -l /nuget
 #
 # NUGET PUSH
 #
-FROM package as nugetpush
+FROM package AS nugetpush
 ARG TARGET_NUGET
 ARG TARGET_NUGET_APIKEY
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
@@ -130,7 +130,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # PUBLISH TESTCONTAINER
 #
-FROM build as publish-testcontainer
+FROM build AS publish-testcontainer
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
@@ -149,7 +149,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # PUBLISH HOST
 #
-FROM build as publish-host
+FROM build AS publish-host
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
@@ -168,7 +168,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 ##
 ## PUBLISH BENCHMARK TOOL
 ##
-FROM build as publish-benchmark
+FROM build AS publish-benchmark
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
@@ -187,7 +187,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 ##
 ## PUBLISH BENCHMARK TOOL
 ##
-FROM build as publish-reader-benchmark
+FROM build AS publish-reader-benchmark
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
@@ -214,7 +214,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 #  Final image - shared base
 #
-FROM aspnet8 as final-dtoserver-base
+FROM aspnet8 AS final-dtoserver-base
 
 # import curl from current repository image
 COPY --from=curl /bin/curl /bin/curl
@@ -232,7 +232,7 @@ EXPOSE 18080/tcp
 #
 #  Final image - BENCHMARK TOOL
 #
-FROM aspnet8 as final-benchmark
+FROM aspnet8 AS final-benchmark
 
 ENV COMPlus_EnableDiagnostics=0
 
@@ -243,7 +243,7 @@ ENTRYPOINT ["/bin/DtoServerBenchmark/DtoServerBenchmark"]
 #
 #  Final image - BENCHMARK TOOL
 #
-FROM aspnet8 as final-reader-benchmark
+FROM aspnet8 AS final-reader-benchmark
 
 ENV COMPlus_EnableDiagnostics=0
 
@@ -254,7 +254,7 @@ ENTRYPOINT ["/bin/DtoServerReaderBenchmark/DtoServerReaderBenchmark"]
 #
 #  Final image - Host
 #
-FROM final-dtoserver-base as final-host
+FROM final-dtoserver-base AS final-host
 
 COPY --from=publish-host /pub/Host/ /bin/dtoserver/
 
@@ -266,7 +266,7 @@ ENTRYPOINT ["/bin/dtoserver/Host"]
 #
 #  Final image - Testcontainer
 #
-FROM final-dtoserver-base as final-testcontainer
+FROM final-dtoserver-base AS final-testcontainer
 
 COPY --from=publish-testcontainer /pub/Host.Testserver/ /bin/dtoserver/
 
