@@ -1,0 +1,33 @@
+services:
+  server:
+    build:
+      context: .
+      target: final-host
+    ports:
+      - 10080:10080 # http2 (grpc)
+      - 18080:18080 # http1 (grpc-web)
+    environment:
+      - ALLOWEDHOSTS=*
+      - KESTREL__PROTOCOLS=Http2
+      - DTO__BUCKETNAME=dto-server-generated
+      - DTO__SNAPSHOTINTERVAL=5
+      - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
+      - MINIOS3__ACCESSKEY=ROOTUSER
+      - MINIOS3__SECRETKEY=MINIOPASSWORD
+      - MINIOS3__SERVICEURL=minio:9000
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  minio:
+    image: docker.io/bitnami/minio
+    ports:
+      - 9000:9000
+    environment:
+      MINIO_ROOT_USER: ROOTUSER
+      MINIO_ROOT_PASSWORD: MINIOPASSWORD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 250ms
+      timeout: 1s
+      retries: 10

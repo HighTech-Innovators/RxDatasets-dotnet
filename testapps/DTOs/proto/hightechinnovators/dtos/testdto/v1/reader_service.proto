@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.testdto.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "ReaderServiceProto";
+option java_package = "com.hightechinnovators.dtos.testdto.v1";
+option csharp_namespace = "Hightechinnovators.Dtos.TestdtoV1";
+
+import "hightechinnovators/dtos/type/reader_service_types.proto";
+import "hightechinnovators/dtos/testdto/v1/testdto.proto";
+
+service ReaderService {
+    // Retrieve a single testdto
+    rpc GetTestdto(GetTestdtoRequest) returns (Testdto);
+
+    // Retrieve a batch of testdtos
+    rpc BatchGetTestdtos(BatchGetTestdtosRequest) returns (BatchGetTestdtosResponse);
+
+    // Retrieve a batch of testdtos with a common parent
+    rpc ListTestdtos(ListTestdtosRequest) returns (ListTestdtosResponse);
+
+    // Returns the names of changed entities since the last dataset_version
+    rpc ListChanges(hightechinnovators.dtos.type.ListChangesRequest) returns (hightechinnovators.dtos.type.ListChangesResponse);
+}
+
+message GetTestdtoRequest {
+  // The name of the testdto to retrieve.
+  string name = 1;
+}
+
+message BatchGetTestdtosRequest {
+  // The parent resource shared by all testdtos being retrieved.
+  // If this is set, the parent of all of the testdtos specified in `names`
+  // must match this field.
+  string parent = 1;
+
+  // The names of the testdtos to retrieve.
+  // A maximum of 1000 testdtos can be retrieved in a batch.
+  repeated string names = 2;
+}
+
+message BatchGetTestdtosResponse {
+  repeated Testdto testdtos = 1;
+}
+
+message ListTestdtosRequest {
+  // The parent, which owns this collection of testdtos.
+  string parent = 1;
+
+  // The maximum number of testdtos to return. The service may return fewer than
+  // this value, which does NOT imply there are no more items. Only the absence of a
+  // page_token indicates that BatchGetTestdtosRequest has completed.
+  // If unspecified, the amount of testdtos returned is at the server's discretion.
+  int32 page_size = 2;
+
+  // A page token, received from a previous `ListTestdtos` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListTestdtos` must match
+  // the call that provided the page token.
+  string page_token = 3;
+}
+
+message ListTestdtosResponse {
+  repeated Testdto testdtos = 1;
+
+  // A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
+}

@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.type;
+
+option java_multiple_files = true;
+option java_outer_classname = "ReaderServiceTypesProto";
+option java_package = "com.hightechinnovators.dtos.type";
+option csharp_namespace = "Hightechinnovators.Dtos.Type";
+
+// Reader API
+message ListChangesRequest {
+    uint64 from_dataset_version = 1;
+
+    // The maximum number of changes to return. The service *may* return fewer than
+    // this value, which does NOT imply there are no more items. Only the absence of a
+    // page_token indicates the paging has completed.
+    // If unspecified, the amount of changes returned is at the server's discretion.
+    int32 page_size = 2;
+
+    // A page token, received from a previous `ListChanges` call.
+    // Provide this to retrieve the subsequent page.
+    //
+    // When paginating, all other parameters provided to `ListChanges` *should* match
+    // the call that provided the page token; the server is free to ignore or reject changes to them.
+    string page_token = 3;
+
+
+    // When there are no changes, wait for them and don't return until then or when cancellation token is triggered
+    bool wait_for_changes = 4;
+}
+
+message ListChangesResponse {
+    // This is the dataset version the client is 'up to date' with when it has _finished_ following
+    // the paging until there is no more next_page_token.
+    // The server *should* only send this when there is no more next_page_token.
+    uint64 to_dataset_version = 2;
+
+    // The names of newly appeared entities since from_dataset_version
+    repeated string new_entities = 3;
+
+    // The names of changed entities since from_dataset_version
+    repeated string changed_entities = 4;
+
+    // The names of deletes entities since from_dataset_version and to_dataset_version
+    repeated string deleted_entities = 5;
+
+    // A token, which can be sent as `page_token` to retrieve the next page.
+    // If this field is omitted, there are no subsequent pages.
+    string next_page_token = 6;
+}

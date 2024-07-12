@@ -1,0 +1,37 @@
+using HTI.RxDatasets.Abstractions;
+using HTI.RxDatasets.DatasetUpdateNotifications;
+using HTI.RxDatasets.StorageProviders;
+using HTI.RxDatasets.Tests.Common;
+using Microsoft.Extensions.Logging;
+using Moq;
+
+namespace HTI.RxDatasets.Tests.SpecTests;
+
+public class InMemoryDatasetTests : StorageTestSpec
+{
+    DatasetUpdateNotifierSync<object> datasetUpdateNotifier;
+    private IStorageProvider<object> _storageProvider;
+    public InMemoryDatasetTests()
+    {
+       datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
+        _storageProvider = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, datasetUpdateNotifier);
+    }
+
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
+    {
+        DtoOptions.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+
+        var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
+        var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
+
+        
+        var datasetReader = new DatasetReader<object>(datasetUpdateNotifier, DtoOptions, readerLogger.Object, _storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(datasetUpdateNotifier, DtoOptions, writerLogger.Object, _storageProvider, false);
+
+        await datasetReader.StartAsync(CancellationToken.None);
+        await datasetWriter.StartAsync(CancellationToken.None);
+
+        return (datasetReader, datasetWriter);
+    }
+
+}

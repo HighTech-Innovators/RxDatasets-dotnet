@@ -1,0 +1,127 @@
+# variables JAR_FILE_ARTIFACTORY_URL, JAR_FILE_TARGET_DIRECTORY, PROJECT_IMAGE are required by the shared .gitlab-ci config file:
+variables:
+  REGISTRY_PREFIX: "${REGISTRY_PREFIX:-}"
+  PRIVATE_NUGET: "${PRIVATE_NUGET:-}"
+  NUGET_PROXY: "${NUGET_PROXY:-}"
+  TARGET_NUGET: "${TARGET_NUGET:-}"
+  TARGET_NUGET_APIKEY: "${TARGET_NUGET_APIKEY:-}"
+  DOCKER_BUILD_IMAGE: "${REGISTRY_PREFIX}docker:cli"
+
+stages:
+  - restore
+  - build
+  - test
+  - publish
+  - push
+  - preprod
+  - production
+
+.only_tagged:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    # If this a pipeline for a git tag build docker image too:
+    - if: $CI_COMMIT_TAG
+    # If no tag, then do not build docker image:
+    - when: never
+
+.docker_build_target:
+  cache: []
+  script:   
+    - test -n "$DOCKER_HOST" || ( echo "Error in gitlab-ci config - variable DOCKER_HOST is required but is blank" && exit 1 )
+    - test -n "$DOCKERFILE_TARGET" || ( echo "Error in gitlab-ci config - variable DOCKERFILE_TARGET is required but is blank" && exit 1 )
+    - test -n "$REGISTRY_PREFIX" || ( echo "Info, in gitlab-ci config - variable REGISTRY_PREFIX is not filled")
+    - test -n "$PRIVATE_NUGET" || ( echo "Info, in gitlab-ci config - variable PRIVATE_NUGET is not filled")
+    - test -n "$NUGET_PROXY" || ( echo "Info, in gitlab-ci config - variable NUGET_PROXY is not filled")
+    - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild }"
+    - >
+      docker build
+      --pull
+      --build-arg DOCKER_HOST=$DOCKER_HOST
+      --build-arg VERSION=$VERSION
+      --build-arg REGISTRY_PREFIX=$REGISTRY_PREFIX
+      --build-arg PRIVATE_NUGET=$PRIVATE_NUGET
+      --build-arg NUGET_PROXY=$NUGET_PROXY
+      --build-arg TARGET_NUGET=$TARGET_NUGET
+      --build-arg TARGET_NUGET_APIKEY=$TARGET_NUGET_APIKEY
+      --target ${DOCKERFILE_TARGET}
+      .
+  image: ${DOCKER_BUILD_IMAGE}
+
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
+###                                               BUILD & TEST                                         ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
+
+dotnet restore:
+  extends:
+    - .docker_build_target
+  variables:
+    DOCKERFILE_TARGET: restore
+  stage: restore
+
+dotnet build:
+  extends:
+    - .docker_build_target
+  variables:
+    DOCKERFILE_TARGET: build
+  stage: build
+  needs:
+    - dotnet restore
+
+dotnet test:
+  extends:
+    - .docker_build_target
+  variables:
+    DOCKERFILE_TARGET: test
+  stage: test
+  needs:
+    - dotnet build
+
+
+e2e test:
+  stage: test
+  needs:
+    - dotnet build
+  script:
+    - cd end-to-end-tests
+    - chmod +x ./run.sh
+    - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild}" ./run.sh
+  image: ${DOCKER_BUILD_IMAGE}
+
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
+###                                               NUGET PACKAGING                                      ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
+
+dotnet pack:
+  extends:
+    - .only_tagged
+    - .docker_build_target
+  variables:
+    DOCKERFILE_TARGET: package
+  stage: publish
+  needs:
+    - dotnet build
+
+dotnet nuget push:
+  before_script:
+  - test -n "$TARGET_NUGET" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET is not filled" && exit 1)
+  - test -n "$TARGET_NUGET_APIKEY" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET_APIKEY is not filled" && exit 1)
+  extends:
+    - .only_tagged
+    - .docker_build_target
+  variables:
+    DOCKERFILE_TARGET: nugetpush
+  stage: push
+  needs:
+    - dotnet pack
+    - dotnet test
+    - e2e test
+    

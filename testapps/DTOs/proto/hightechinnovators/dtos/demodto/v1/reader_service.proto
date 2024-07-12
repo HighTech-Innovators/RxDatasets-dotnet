@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.demodto.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "ReaderServiceProto";
+option java_package = "com.hightechinnovators.dtos.demodto.v1";
+option csharp_namespace = "Hightechinnovators.Dtos.DemodtoV1";
+
+import "hightechinnovators/dtos/type/reader_service_types.proto";
+import "hightechinnovators/dtos/demodto/v1/demodto.proto";
+
+service ReaderService {
+    // Retrieve a single demodto
+    rpc GetDemodto(GetDemodtoRequest) returns (Demodto);
+
+    // Retrieve a batch of demodtos
+    rpc BatchGetDemodtos(BatchGetDemodtosRequest) returns (BatchGetDemodtosResponse);
+
+    // Retrieve a batch of demodtos with a common parent
+    rpc ListDemodtos(ListDemodtosRequest) returns (ListDemodtosResponse);
+
+    // Returns the names of changed entities since the last dataset_version
+    rpc ListChanges(hightechinnovators.dtos.type.ListChangesRequest) returns (hightechinnovators.dtos.type.ListChangesResponse);
+}
+
+message GetDemodtoRequest {
+  // The name of the demodto to retrieve.
+  string name = 1;
+}
+
+message BatchGetDemodtosRequest {
+  // The parent resource shared by all demodtos being retrieved.
+  // If this is set, the parent of all of the demodtos specified in `names`
+  // must match this field.
+  string parent = 1;
+
+  // The names of the demodtos to retrieve.
+  // A maximum of 1000 demodtos can be retrieved in a batch.
+  repeated string names = 2;
+}
+
+message BatchGetDemodtosResponse {
+  repeated Demodto demodtos = 1;
+}
+
+message ListDemodtosRequest {
+  // The parent, which owns this collection of demodtos.
+  string parent = 1;
+
+  // The maximum number of demodtos to return. The service may return fewer than
+  // this value, which does NOT imply there are no more items. Only the absence of a
+  // page_token indicates that BatchGetDemodtosRequest has completed.
+  // If unspecified, the amount of demodtos returned is at the server's discretion.
+  int32 page_size = 2;
+
+  // A page token, received from a previous `ListDemodtos` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListDemodtos` must match
+  // the call that provided the page token.
+  string page_token = 3;
+}
+
+message ListDemodtosResponse {
+  repeated Demodto demodtos = 1;
+
+  // A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
+}

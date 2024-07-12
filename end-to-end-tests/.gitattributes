@@ -1,0 +1,11 @@
+*.sh -crlf
+Dockerfile -crlf
+*.Dockerfile -crlf
+
+# Specify binary files
+*.meta binary
+
+# Set specific attributes for minio-data directory if needed
+TestData/** -diff
+TestData/** -merge
+TestData/** -text

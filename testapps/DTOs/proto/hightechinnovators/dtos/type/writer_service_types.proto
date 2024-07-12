@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.type;
+
+option java_multiple_files = true;
+option java_outer_classname = "WriterServiceTypesProto";
+option java_package = "com.hightechinnovators.dtos.type";
+option csharp_namespace = "Hightechinnovators.Dtos.Type";
+
+message WriteResponse {
+    uint64 new_dataset_version = 1;
+    uint32 num_added_entities = 2;
+    uint32 num_updated_entities = 3;
+    uint32 num_deleted_entities = 4;
+}
+
+message DeleteRequest {
+    string name = 1;
+}

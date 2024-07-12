@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup Condition="'$(CI)' != 'true'">
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <NuGetAudit>false</NuGetAudit>
+    <RestoreLockedMode>true</RestoreLockedMode>
+  </PropertyGroup>
+
+</Project>

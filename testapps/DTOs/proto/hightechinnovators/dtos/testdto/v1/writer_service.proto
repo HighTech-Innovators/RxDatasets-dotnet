@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.testdto.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "WriterServiceProto";
+option java_package = "com.hightechinnovators.dtos.testdto.v1";
+option csharp_namespace = "Hightechinnovators.Dtos.TestdtoV1";
+
+import "hightechinnovators/dtos/type/writer_service_types.proto";
+import "hightechinnovators/dtos/testdto/v1/testdto.proto";
+
+service WriterService {
+    rpc PutAll(stream Testdto) returns (hightechinnovators.dtos.type.WriteResponse);
+    rpc Put(Testdto) returns (hightechinnovators.dtos.type.WriteResponse);
+    rpc Delete(hightechinnovators.dtos.type.DeleteRequest) returns (hightechinnovators.dtos.type.WriteResponse);
+}

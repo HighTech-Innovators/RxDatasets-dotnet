@@ -1,0 +1,13 @@
+﻿*
+
+!src/
+!tst/
+!testapps/
+!*.sln
+!Directory.Build.props
+
+#For E2e tests to build host images
+!Dockerfile
+
+**/[Bb]in/
+**/[Oo]bj/

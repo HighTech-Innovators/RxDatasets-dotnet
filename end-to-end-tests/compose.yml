@@ -1,0 +1,74 @@
+services:
+  tests:
+    build:
+      context: .
+      target: end-to-end-test
+      args:
+        REGISTRY_PREFIX: $REGISTRY_PREFIX
+    depends_on:
+      dtoserver-actual:
+        condition: service_healthy
+      dtoserver-expected:
+        condition: service_healthy
+    deploy:
+      replicas: 0
+
+  dtoserver-actual:
+    build:
+      context: ..
+      target: final-host
+      args:
+        DOCKERHOST: $DOCKER_HOST
+        VERSION: $VERSION
+        REGISTRY_PREFIX: $REGISTRY_PREFIX
+        PRIVATE_NUGET: $PRIVATE_NUGET
+        NUGET_PROXY: $NUGET_PROXY
+    environment:
+      - DTO__BUCKETNAME=dto-server-generated
+      - DTO__SNAPSHOTINTERVAL=5
+      - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
+      - MINIOS3__ACCESSKEY=ROOTUSER
+      - MINIOS3__SECRETKEY=MINIOPASSWORD
+      - MINIOS3__SERVICEURL=minio:9000
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  dtoserver-expected:
+    build:
+      context: ..
+      target: final-host
+      args:
+        DOCKERHOST: $DOCKER_HOST
+        VERSION: $VERSION
+        REGISTRY_PREFIX: $REGISTRY_PREFIX
+        PRIVATE_NUGET: $PRIVATE_NUGET
+        NUGET_PROXY: $NUGET_PROXY
+    environment:
+      - DTO__BUCKETNAME=dto-server-expected
+      - DTO__SNAPSHOTINTERVAL=5
+      - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
+      - MINIOS3__ACCESSKEY=ROOTUSER
+      - MINIOS3__SECRETKEY=MINIOPASSWORD
+      - MINIOS3__SERVICEURL=minio:9000
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  minio:
+    build:
+      context: .
+      target: minio-container
+      args:
+        REGISTRY_PREFIX: $REGISTRY_PREFIX
+    ports:
+        - 9000:9000
+    user: "0"
+    environment:
+      MINIO_ROOT_USER: ROOTUSER
+      MINIO_ROOT_PASSWORD: MINIOPASSWORD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 250ms
+      timeout: 1s
+      retries: 10

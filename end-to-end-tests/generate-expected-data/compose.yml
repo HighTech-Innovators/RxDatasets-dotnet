@@ -1,0 +1,41 @@
+services:
+  generate:
+    build:
+      context: ..
+      dockerfile: generate-expected-data/generate.Dockerfile
+      target: generate-tests-data
+    depends_on:
+      dtoserver:
+        condition: service_healthy
+    deploy:
+      replicas: 0
+
+  dtoserver:
+    build:
+      context: ../..
+      target: final-host
+    environment:
+      - DTO__BUCKETNAME=dto-server-expected
+      - DTO__SNAPSHOTINTERVAL=5
+      - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
+      - MINIOS3__ACCESSKEY=ROOTUSER
+      - MINIOS3__SECRETKEY=MINIOPASSWORD
+      - MINIOS3__SERVICEURL=minio:9000
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  minio:
+    image:
+      docker.io/bitnami/minio
+    volumes:
+      - ./generated-minio-data:/bitnami/minio/data/
+    user: "0"
+    environment:
+      MINIO_ROOT_USER: ROOTUSER
+      MINIO_ROOT_PASSWORD: MINIOPASSWORD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 250ms
+      timeout: 1s
+      retries: 10

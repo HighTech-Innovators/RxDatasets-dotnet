@@ -1,0 +1,97 @@
+﻿using HTI.RxDatasets.Abstractions;
+using HTI.RxDatasets.Models;
+
+namespace HTI.RxDatasets;
+
+public static class DatasetExtensions
+{
+    public static ulong GetLatestEntityVersion(this ImmutableEntity entity)
+    {
+        return Math.Max(entity.LastUpdatedVersion, Math.Max(entity.LastDeletedVersion.LastOrDefault(), entity.LastInsertedVersion.LastOrDefault()));
+    }
+
+    public static ChangeType GetLatestChangeType(this ImmutableEntity entity)
+    {
+        ulong latestVersion = entity.GetLatestEntityVersion();
+
+        if (latestVersion == entity.LastInsertedVersion.LastOrDefault())
+            return ChangeType.New;
+
+        if (latestVersion == entity.LastUpdatedVersion)
+            return ChangeType.Changed;
+
+        return ChangeType.Deleted;
+    }
+
+    /// <summary>
+    /// Applies the provided DeltaIndex to the provided SnapshotIndex
+    /// </summary>
+    /// <param name="snapshotIndex"></param>
+    /// <param name="delta"></param>
+    public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState snapshotIndex, DeltaIndex delta)
+    {
+        var tempSnapshotEntities = snapshotIndex.Entities;
+
+        foreach (var newEntity in delta.NewEntities)
+        {
+            if (!snapshotIndex.Entities.TryGetValue(newEntity.Name, out var existingEntity))
+            {
+                existingEntity = ImmutableEntity.FromProto(new SnapshotEntity());
+            }
+
+            var updatedEntity = new ImmutableEntity(
+                existingEntity.LastDeletedVersion,
+                existingEntity.LastInsertedVersion.Add(delta.DeltaVersion),
+                existingEntity.LastUpdatedVersion,
+                newEntity.Position,
+                newEntity.Length,
+                newEntity.Hashcode);
+
+            tempSnapshotEntities = tempSnapshotEntities.SetItem(newEntity.Name, updatedEntity);
+        }
+
+        foreach (var changedEntity in delta.ChangedEntities)
+        {
+            var existingEntity = snapshotIndex.Entities[changedEntity.Name];
+
+            var updatedEntity = new ImmutableEntity(
+                existingEntity.LastDeletedVersion,
+                existingEntity.LastInsertedVersion,
+                delta.DeltaVersion,
+                changedEntity.Position,
+                changedEntity.Length,
+                changedEntity.Hashcode);
+
+            tempSnapshotEntities = tempSnapshotEntities.SetItem(changedEntity.Name, updatedEntity);
+        }
+
+        foreach (var deletedName in delta.DeletedNames)
+        {
+            var existingEntity = snapshotIndex.Entities[deletedName];
+
+            var updatedEntity = new ImmutableEntity(
+                existingEntity.LastDeletedVersion.Add(delta.DeltaVersion),
+                existingEntity.LastInsertedVersion,
+                existingEntity.LastUpdatedVersion,
+                0,
+                0,
+                existingEntity.HashCode);
+
+            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
+        }
+
+        return new ImmutableDatasetState(tempSnapshotEntities, snapshotIndex.LatestSnapshotVersion, delta.DeltaVersion);
+    }
+
+    public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState snapshotIndex, IEnumerable<DeltaIndex> deltas)
+    {
+        var tempSnapshotIndex = snapshotIndex;
+
+        foreach (var delta in deltas)
+        {
+            tempSnapshotIndex = tempSnapshotIndex.ApplyDelta(delta);
+        }
+
+        return tempSnapshotIndex;
+    }
+}
