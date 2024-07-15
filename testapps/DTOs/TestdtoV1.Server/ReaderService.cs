@@ -1,7 +1,6 @@
 using Grpc.Core;
 using Hightechinnovators.Dtos.Type;
 using Hightechinnovators.Dtos.TestdtoV1;
-using HTI.RxDatasets;
 
 namespace RxDatasets.TestdtoV1.Server;
 

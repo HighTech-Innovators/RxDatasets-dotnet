@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HTI.RxDatasets\HTI.RxDatasets.csproj" />
+    <ProjectReference Include="..\..\..\src\RxDatasets\RxDatasets.csproj" />
     <ProjectReference Include="..\Grpc\DemodtoV1.Grpc.csproj" />
   </ItemGroup>
 

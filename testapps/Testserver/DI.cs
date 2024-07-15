@@ -6,8 +6,8 @@ public static class DI
     {
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
         RxDatasets.TestdtoV1.Server.DI.ConfigureServices(builderServices);
-        HTI.RxDatasets.InMemoryDataset.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
-        HTI.RxDatasets.InMemoryDataset.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();

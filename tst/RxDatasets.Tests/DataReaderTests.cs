@@ -4,8 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Hightechinnovators.Dtos.DemodtoV1;
-using HTI.RxDatasets;
-using HTI.RxDatasets.InMemoryDataset;
+using RxDatasets.InMemoryDataset;
 
 namespace RxDatasets.Tests;
 

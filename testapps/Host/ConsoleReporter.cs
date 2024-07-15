@@ -1,4 +1,4 @@
-﻿using HTI.RxDatasets.Abstractions;
+﻿using RxDatasets.Abstractions;
 
 namespace Host
 {
