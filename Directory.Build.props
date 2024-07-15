@@ -11,6 +11,7 @@
 
   <PropertyGroup>
     <PackageLicenseExpression>CPAL-1.0</PackageLicenseExpression>
+    <Copyright>HighTech Innovators © 2024</Copyright>
     <Authors>Bart de Boer,Subhi Hamidi,Teun van Zon</Authors>
     <Company>HighTech Innovators</Company>
     <Description>A set of libraries that allow the development of Reactive Dataset-servers, using protobuf files a backing storage. Inspired by Netflix Hollow.</Description>
