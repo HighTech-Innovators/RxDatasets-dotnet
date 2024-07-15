@@ -75,8 +75,11 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 # BUILD
 #
 FROM restore AS build
-COPY . .
 ARG VERSION=0.0.0-local
+COPY src src
+COPY tst tst
+COPY testapps testapps
+RUN ls -l
 RUN echo dotnet build -p:VERSION=${VERSION} --no-restore -c Release
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet build -p:VERSION=${VERSION} --no-restore -c Release
@@ -105,6 +108,8 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 FROM build AS package
 ARG VERSION
+COPY icon.png .
+COPY README.md .
 RUN echo dotnet pack -p:VERSION=${VERSION} --no-build --no-restore -c Release -o /nuget/
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet pack -p:VERSION=${VERSION} --no-build --no-restore -c Release -o /nuget/
