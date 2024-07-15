@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models;
 
@@ -13,7 +14,7 @@ namespace RxDatasets;
 
 public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
 {
-    private readonly IOptions<DtoConfig> _dtoConfig;
+    private readonly IOptions<StorageConfig> _dtoConfig;
     private readonly ILogger<DatasetWriter<T>> _logger;
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
@@ -22,7 +23,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
 
-    public DatasetWriter(IDatasetUpdateNotifier<T> datasetUpdateNotifier, IOptions<DtoConfig> dtoConfig, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
+    public DatasetWriter(IDatasetUpdateNotifier<T> datasetUpdateNotifier, IOptions<StorageConfig> dtoConfig, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
     {
         _storageProvider = storageProvider;
         datasetUpdateNotifier.Subscribe(OnDatasetUpdate);

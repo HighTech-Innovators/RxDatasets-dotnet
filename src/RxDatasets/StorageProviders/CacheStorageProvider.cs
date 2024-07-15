@@ -10,7 +10,6 @@ namespace RxDatasets.StorageProviders;
 public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptions<DtoStorageCacheConfig> cacheConfig, ILogger<CacheStorageProvider<T>> logger) : IStorageProvider<T>
 {
     private const int MB_BYTES = 1024 * 1024;
-    private readonly int _cacheDuration = cacheConfig.Value.CacheDurationSec;
     private readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions()
     {
         SizeLimit = cacheConfig.Value.CacheSizeMB * MB_BYTES

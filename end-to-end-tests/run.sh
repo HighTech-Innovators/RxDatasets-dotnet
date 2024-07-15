@@ -15,7 +15,7 @@ cleanup_and_exit() {
     docker compose --project-name $CI_JOB_ID down -v
     exit $exit_code
 }
-    
+
 # Run Docker Compose up with the specified options, capturing the exit code
 docker compose --project-name $CI_JOB_ID build || cleanup_and_exit 'Test BUILD failed'
 docker compose --project-name $CI_JOB_ID up -d || cleanup_and_exit 'Test SETUP failed'
