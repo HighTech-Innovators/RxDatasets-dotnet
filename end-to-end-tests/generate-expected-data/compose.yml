@@ -15,12 +15,13 @@ services:
       context: ../..
       target: final-host
     environment:
-      - DTO__BUCKETNAME=dto-server-expected
-      - DTO__SNAPSHOTINTERVAL=5
+      - Storage__CustomRootFolder=Test/
+      - SnapshotCreation__SNAPSHOTINTERVAL=5
       - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
       - MINIOS3__ACCESSKEY=ROOTUSER
       - MINIOS3__SECRETKEY=MINIOPASSWORD
       - MINIOS3__SERVICEURL=minio:9000
+      - MINIOS3__BUCKETNAME=dto-server-expected
     depends_on:
       minio:
         condition: service_healthy

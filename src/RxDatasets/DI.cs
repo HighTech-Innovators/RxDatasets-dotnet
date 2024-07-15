@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models.Config;
 using RxDatasets.StorageProviders;
@@ -26,7 +27,7 @@ public static class DI
         builderServices.AddValidatedConfigSection<CleanupConfig>();
         builderServices.AddValidatedConfigSection<SnapshotCreationConfig>();
         builderServices.AddSingleton<IScheduler>(_ => Scheduler.Default);
-        builderServices.AddValidatedConfigSection<DtoConfig>();
+        builderServices.AddValidatedConfigSection<StorageConfig>();
     }
 
     private static void AddSingletonsForDataset<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>

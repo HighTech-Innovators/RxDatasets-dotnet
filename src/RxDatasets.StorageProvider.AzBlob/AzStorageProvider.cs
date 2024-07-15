@@ -12,19 +12,16 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
 {
     private readonly BlobContainerClient _containerClient;
     private readonly ILogger<AzStorageProvider<T>> _logger;
-    private readonly IOptions<DtoConfig> _dtoConfig;
 
-    public AzStorageProvider(ILogger<AzStorageProvider<T>> logger, IOptions<AzStorageConfig> azStorageConfig,
-        IOptions<DtoConfig> dtoConfig, bool retryInitialization = true)
+    public AzStorageProvider(ILogger<AzStorageProvider<T>> logger, IOptions<AzStorageConfig> azStorageConfig, bool retryInitialization = true)
     {
         _logger = logger;
-        _dtoConfig = dtoConfig;
         _containerClient = new BlobServiceClient(
             azStorageConfig.Value.ConnectionString, 
             new BlobClientOptions
             {
                 RetryPolicy = new RetryPolicy(2)
-            }).GetBlobContainerClient(dtoConfig.Value.BucketName);
+            }).GetBlobContainerClient(azStorageConfig.Value.ContainerName);
         if (retryInitialization) InitializationLoop(); else Initialize();
     }
     private void Initialize()
@@ -227,7 +224,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
-            var pages = _containerClient.GetBlobsAsync(prefix: $"{typeof(T).Name}/{prefix}/").AsPages();
+            var pages = _containerClient.GetBlobsAsync(prefix: $"{prefix}").AsPages();
             var results = new List<(string Key, DateTimeOffset CreatedOn)>();
 
             await foreach (var page in pages)

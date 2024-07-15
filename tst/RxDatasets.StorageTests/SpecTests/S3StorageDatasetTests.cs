@@ -41,16 +41,15 @@ public class S3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestCon
     
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
-        DtoOptions.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-
+        _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
         var storageLogger = new Mock<ILogger<MinioS3StorageProvider<object>>>();
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
-        DatasetUpdateNotifierSync<object> datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
+        var datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
 
-        IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, DtoOptions, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, (s3StorageProvider), datasetUpdateNotifier);
+        IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), datasetUpdateNotifier);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
@@ -68,9 +67,7 @@ public class S3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestCon
     [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_After_Initialization()
     {
-        var config = DtoOptions;
-
-        config.Value.BucketName = new string(
+        _s3Config!.Value.BucketName = new string(
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
         var (_, datasetWriter) = await SetupStorageAsync();

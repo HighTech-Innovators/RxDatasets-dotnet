@@ -11,7 +11,9 @@ using Hightechinnovators.Dtos.Type;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
+using RxDatasets.Configs;
 using RxDatasets.Models;
+using RxDatasets.StorageProviders;
 using RxDatasets.StorageProvider.Minio;
 
 namespace RxDatasets.StorageTests
@@ -31,7 +33,7 @@ namespace RxDatasets.StorageTests
         private static readonly List<string> SomeStrings =
             ["deserunt1", "deserunt2", "deserunt3", "deserunt4", "deserunt5", "deserunt6", "deserunt7"];
 
-        private IOptions<MinioS3Config> _s3Config;
+        private IOptions<MinioS3Config>? _s3Config;
 
 
         public async Task InitializeAsync()
@@ -55,7 +57,7 @@ namespace RxDatasets.StorageTests
         private async Task StartHostContainer([CallerMemberName] string memberName = "")
         {
             _bucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-            await hostContainer.StartContainer(_s3Config.Value, minioContainer.Network, _bucketName);
+            await hostContainer.StartContainer(_s3Config?.Value, minioContainer.Network, _bucketName);
             _healthCheckUri = new UriBuilder("http", hostContainer.DemoDtoHostContainerInstance?.Hostname,
                 hostContainer.DemoDtoHostContainerInstance!.GetMappedPublicPort(18080), "/healthz").Uri;
             _appUri = new UriBuilder("http", hostContainer.DemoDtoHostContainerInstance.Hostname,
@@ -103,10 +105,10 @@ namespace RxDatasets.StorageTests
             await hostContainer.DemoDtoHostContainerInstance?.StopAsync()!;
             using var resultStream = new MemoryStream();
             await _minioClient?.GetObjectAsync(new GetObjectArgs()
-                        .WithBucket(_bucketName)
-                        .WithObject(GetObjectName(5, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT))
-                        .WithCallbackStream(x => x.CopyTo(resultStream))
-            );
+                .WithBucket(_bucketName)
+                .WithObject(ObjectStorageProvider<Demodto>.GetObjectName(5, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig{CustomRootFolder = "customRootFolder/" }))
+                .WithCallbackStream(x => x.CopyTo(resultStream))
+            )!;
 
             resultStream.Position = 0;
 
@@ -164,25 +166,25 @@ namespace RxDatasets.StorageTests
                 // Verify response
                 VerifyResponseIsExpected(response, 0, 1).Should().BeTrue();
             }
-            var fetchSnapshots = new Task(async () =>
+            var fetchSnapshots = Task.Run(async () =>
             {
                 while (true)
                 {
                     var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix("Demodto/snapshot/")
+                        .WithPrefix("customRootFolder/Demodto/snapshot/")
                         .WithRecursive(true));
 
                     var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();
 
                     if (snapshots.Count == 2) //based on fixture config, every 5 deltas, a snapshot is created
                     {
-                        break;
+                        return 2;
                     }
                 }
             });
-            fetchSnapshots.Start();
-            await fetchSnapshots.WaitAsync(TimeSpan.FromSeconds(5));
+            var count = await fetchSnapshots.WaitAsync(TimeSpan.FromSeconds(5));
+            count.Should().Be(2);
             // action 
             await hostContainer.DemoDtoHostContainerInstance?.StopAsync()!;
 
@@ -218,27 +220,6 @@ namespace RxDatasets.StorageTests
             var numUpdated = response.NumUpdatedEntities;
 
             return numAdded == expectedAdded && numUpdated == expectedUpdated;
-        }
-
-        private string GetObjectName(ulong version, ObjectNameIndexOrDataEnum indexOrData, ObjectNameTypeEnum deltaOrSnapshot)
-        {
-            var extension = indexOrData == ObjectNameIndexOrDataEnum.INDEX ? "pb" : "pbs";
-
-            var deltaOrSnapshotString = deltaOrSnapshot switch
-            {
-                ObjectNameTypeEnum.DELTA => "deltas",
-                ObjectNameTypeEnum.SNAPSHOT => "snapshot",
-                _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
-            };
-
-            var indexOrDataString = indexOrData switch
-            {
-                ObjectNameIndexOrDataEnum.INDEX => "index",
-                ObjectNameIndexOrDataEnum.DATA => "data",
-                _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameIndexOrDataEnum))
-            };
-
-            return $"Demodto/{deltaOrSnapshotString}/{version}/{indexOrDataString}.{extension}";
         }
     }
 }

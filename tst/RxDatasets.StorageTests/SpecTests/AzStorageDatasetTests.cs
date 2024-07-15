@@ -28,7 +28,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
 
         _azConfig = Options.Create(new AzStorageConfig()
         {
-            ConnectionString = _azuriteContainer.Container.GetConnectionString(),
+            ConnectionString = _azuriteContainer.Container.GetConnectionString()
 
         });
     }
@@ -40,20 +40,17 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
 
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
-        DtoOptions.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+        _azConfig!.Value.ContainerName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+        _azConfig.Value.ConnectionString = _azuriteContainer.Container.GetConnectionString(); 
 
-        _azConfig = Options.Create(new AzStorageConfig()
-        {
-            ConnectionString = _azuriteContainer.Container.GetConnectionString(),
-        });
         var storageLogger = new Mock<ILogger<AzStorageProvider<object>>>();
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         DatasetUpdateNotifierSync<object> datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
 
-        IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, DtoOptions, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, azStorageProvider, datasetUpdateNotifier);
+        IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, datasetUpdateNotifier);
 
         var datasetReader = new DatasetReader<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         var datasetWriter = new DatasetWriter<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
@@ -73,7 +70,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
     {
         var config = DtoOptions;
 
-        config.Value.BucketName = new string(
+        _azConfig!.Value.ContainerName = new string(
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();

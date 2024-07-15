@@ -14,23 +14,26 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
     private readonly IMinioClient _s3Client;
 
     private readonly ILogger<MinioS3StorageProvider<T>> _logger;
-    private readonly IOptions<DtoConfig> _dtoConfig;
+    private readonly IOptions<MinioS3Config> _s3Config;
 
-    public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config, IOptions<DtoConfig> dtoConfig, bool retryInitialization = true)
+    public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config, bool retryInitialization = true)
     {
-        this._logger = logger;
-        _dtoConfig = dtoConfig;
-        _s3Client = new MinioClient()
-            .WithEndpoint(s3Config.Value.ServiceURL)
-            .WithCredentials(s3Config.Value.AccessKey, s3Config.Value.SecretKey)
-            .Build();
+        _logger = logger;
+        _s3Config = s3Config;
+        var minioClient = new MinioClient().WithEndpoint(s3Config.Value.ServiceURL).WithCredentials(s3Config.Value.AccessKey, s3Config.Value.SecretKey);
+        if (!string.IsNullOrWhiteSpace(s3Config.Value.AwsRegion))
+        {
+            minioClient = minioClient.WithRegion(s3Config.Value.AwsRegion);
+        }
+        minioClient.Build();
+        _s3Client = minioClient;
         if (retryInitialization) InitializationLoop(); else Initialize();
     }
     private void Initialize()
     {
         try
         {
-            EnsureBucketExists(_dtoConfig.Value.BucketName).Wait();
+            EnsureBucketExists(_s3Config.Value.BucketName).Wait();
         }
         catch (AggregateException ex)
         {
@@ -80,7 +83,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _s3Client.GetObjectAsync(new GetObjectArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
+                .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey)
                 .WithCallbackStream(x => x.CopyTo(resultStream)));
         }
@@ -118,7 +121,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _s3Client.GetObjectAsync(new GetObjectArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
+                .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey)
                 .WithOffsetAndLength(position, length)
                 .WithCallbackStream(x => x.CopyTo(resultStream)));
@@ -154,7 +157,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _s3Client.GetObjectAsync(new GetObjectArgs()
-               .WithBucket(_dtoConfig.Value.BucketName)
+               .WithBucket(_s3Config.Value.BucketName)
                .WithObject(objectKey)
                .WithCallbackStream(callback));
         }
@@ -188,7 +191,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         {
             await DeleteFile(objectKey);
             await _s3Client.PutObjectAsync(new PutObjectArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
+                .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey)
                 .WithStreamData(new MemoryStream(bytes))
                 .WithObjectSize(bytes.Length));
@@ -205,7 +208,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _s3Client.RemoveObjectAsync(new RemoveObjectArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
+                .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey));
         }
         catch (ConnectionException ex)
@@ -222,7 +225,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _s3Client.PutObjectAsync(new PutObjectArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
+                .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey)
                 .WithStreamData(stream)
                 .WithObjectSize(stream.Length));
@@ -239,8 +242,8 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             var observable = _s3Client.ListObjectsAsync(new ListObjectsArgs()
-                .WithBucket(_dtoConfig.Value.BucketName)
-                .WithPrefix($"{typeof(T).Name}/{prefix}/")
+                .WithBucket(_s3Config.Value.BucketName)
+                .WithPrefix($"{prefix}")
                 .WithRecursive(true));
 
             return (await observable

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models;
 
@@ -22,7 +23,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
 
     public DatasetReader(IDatasetUpdateNotifier<T> datasetUpdateNotifier,
-        IOptions<DtoConfig> dtoConfig,
+        IOptions<StorageConfig> dtoConfig,
         ILogger<DatasetReader<T>> logger,
         IStorageProvider<T> storageProvider,
         bool retryInitialization = true)

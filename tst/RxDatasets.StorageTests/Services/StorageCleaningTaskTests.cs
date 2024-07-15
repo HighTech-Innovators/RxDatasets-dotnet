@@ -7,6 +7,7 @@ using Microsoft.Reactive.Testing;
 using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.StorageProviders;
 
@@ -14,43 +15,31 @@ namespace RxDatasets.StorageTests.Services;
 
 public class StorageCleanTaskTests 
 {
-    private readonly IOptions<DtoConfig> _dtoConfigOptions;
-    private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions;
-    private IOptions<CleanupConfig> _storageCleanupConfig;
-    private readonly DatasetUpdateNotifierSync<object> _datasetUpdateNotifier;
+    private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
+    private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions = Options.Create(new SnapshotCreationConfig
+    {
+        SnapshotInterval = 5
+    });
+    private IOptions<CleanupConfig> _storageCleanupConfig = Options.Create(new CleanupConfig());
+    private readonly DatasetUpdateNotifierSync<object> _datasetUpdateNotifier = new();
     private const ulong UNIT_KB = 1024;
     private const ulong UNIT_MB = 1024 * UNIT_KB;
 
 
-    public StorageCleanTaskTests()
+    private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
-        _storageCleanupConfig = Options.Create(new CleanupConfig());
-        _datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
-        _snapshotsOptions = Options.Create<SnapshotCreationConfig>(new()
-        {
-            SnapshotInterval = 5
-        });
-        _dtoConfigOptions = Options.Create<DtoConfig>(new());
-    }
-
-    private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts,
-        [CallerMemberName] string memberName = "")
-    {
-        _dtoConfigOptions.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-
         IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _datasetUpdateNotifier);
         
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
         var storageCleanerLogger = new Mock<ILogger<StorageCleaningService<object>>>();
-        var SnapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationService<object>>>();
+        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationService<object>>>();
         
         var configMonitor = new Mock<IOptionsMonitor<CleanupConfig>>();
         var configMonitorSnapshotCreationMock = new Mock<IOptionsMonitor<SnapshotCreationConfig>>();
         configMonitor.SetupGet((c) => c.CurrentValue).Returns(_storageCleanupConfig.Value);
-        
-        var snapshotCreationConfig = _snapshotsOptions;
-        configMonitorSnapshotCreationMock.SetupGet((c) => c.CurrentValue).Returns(snapshotCreationConfig.Value);
+
+        configMonitorSnapshotCreationMock.SetupGet((c) => c.CurrentValue).Returns(_snapshotsOptions.Value);
 
 
         var datasetReader = new DatasetReader<object>(_datasetUpdateNotifier, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
@@ -59,7 +48,7 @@ public class StorageCleanTaskTests
         var storageCleaningTask = new StorageCleaningService<object>(_datasetUpdateNotifier, inMemoryStorage, ts, configMonitor.Object, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);
 
-        var snapshotCreationTask = new SnapshotCreationService<object>(SnapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, configMonitorSnapshotCreationMock.Object, _dtoConfigOptions);
+        var snapshotCreationTask = new SnapshotCreationService<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, configMonitorSnapshotCreationMock.Object);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
 
         await datasetReader.StartAsync(CancellationToken.None);

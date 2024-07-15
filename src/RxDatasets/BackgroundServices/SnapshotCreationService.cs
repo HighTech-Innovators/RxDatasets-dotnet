@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models;
 
@@ -26,9 +27,7 @@ public class SnapshotCreationService<T> : IHostedService, IDisposable
         ILogger<SnapshotCreationService<T>> logger,
         IStorageProvider<T> storageProvider,
         IDatasetUpdateNotifier<T> datasetUpdateNotifier,
-        IOptionsMonitor<SnapshotCreationConfig> configMonitor,
-
-        IOptions<DtoConfig> dtoConfig)
+        IOptionsMonitor<SnapshotCreationConfig> configMonitor)
     {
         _logger = logger;
         _storageProvider = storageProvider;
@@ -39,9 +38,9 @@ public class SnapshotCreationService<T> : IHostedService, IDisposable
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Snapshot Hosted Service is starting.");
+        _logger.LogInformation($"Snapshot Hosted of type {nameof(T)} Service is starting.");
         _datasetUpdateNotifier.Subscribe(OnDatasetUpdated);
-        var creationPeriod = _configMonitor.CurrentValue.PeriodIntervalAsTimespan;
+        var givenCreationInterval = _configMonitor.CurrentValue.PeriodIntervalAsTimespan;
         _timer = new Timer(async (s) => {
             var latestSnapshotVersion = 0ul;
 
@@ -49,13 +48,13 @@ public class SnapshotCreationService<T> : IHostedService, IDisposable
             if (snapshots.Count > 0)
             {
                 var latestSnapshot = snapshots.MaxBy(snapshot => snapshot.version);
-                var utcNow = DateTime.UtcNow;
-                if (utcNow - latestSnapshot.DateTime.UtcDateTime < creationPeriod) return;
+                var timePassedSinceLastSnapshotWasCreated = DateTime.UtcNow - latestSnapshot.DateTime.UtcDateTime;
+                if (timePassedSinceLastSnapshotWasCreated < givenCreationInterval) return;
                 latestSnapshotVersion = latestSnapshot.version;
             }
 
             await CreateASnapshot(newestDelta, latestSnapshotVersion); 
-        }, null, TimeSpan.Zero, creationPeriod);
+        }, null, TimeSpan.Zero, givenCreationInterval);
 
         return Task.CompletedTask;
     }

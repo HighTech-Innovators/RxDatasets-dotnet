@@ -2,12 +2,13 @@
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 
 namespace RxDatasets.StorageTests.Common;
 
 public abstract class StorageTestSpec
 {
-    protected IOptions<DtoConfig> DtoOptions = Options.Create(new DtoConfig());
+    protected IOptions<StorageConfig> DtoOptions = Options.Create(new StorageConfig());
     protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig());
     private const ulong UNIT_KB = 1024;
     private const ulong UNIT_MB = 1024 * UNIT_KB;

@@ -6,4 +6,7 @@ public class AzStorageConfig
 {
     [Required]
     public string ConnectionString { get; set; } = "";
+
+    [Required]
+    public string ContainerName { get; set; } = "";
 }

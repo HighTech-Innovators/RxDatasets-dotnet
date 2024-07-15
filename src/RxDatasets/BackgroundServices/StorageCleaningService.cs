@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 
 namespace RxDatasets.BackgroundServices

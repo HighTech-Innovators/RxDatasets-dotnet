@@ -9,8 +9,8 @@ services:
     environment:
       - ALLOWEDHOSTS=*
       - KESTREL__PROTOCOLS=Http2
-      - DTO__BUCKETNAME=dto-server-generated
-      - DTO__SNAPSHOTINTERVAL=5
+      - MINIOS3__BUCKETNAME=dto-server-generated
+      - Storage__CustomRootFolder="customRootFolder/"
       - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
       - MINIOS3__ACCESSKEY=ROOTUSER
       - MINIOS3__SECRETKEY=MINIOPASSWORD

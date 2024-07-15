@@ -1,7 +1,7 @@
 #
 #  EndToEndTest - base
 #
-FROM debian:latest as tests-base
+FROM debian:latest AS tests-base
 
 # Install curl, grpcurl, and jq
 RUN apt-get update && \
@@ -18,6 +18,6 @@ COPY ./put_request.json .
 #
 #  EndToEndTest - generate-data
 #
-FROM tests-base as generate-tests-data
+FROM tests-base AS generate-tests-data
 # Default command for generate data
 CMD ["./e2e_tests.sh", "dtoserver:10080", "--generate-data"]
