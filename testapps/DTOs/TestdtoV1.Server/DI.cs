@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Builder;
 using Google.Protobuf;
 using Hightechinnovators.Dtos.TestdtoV1;
-using HTI.RxDatasets;
 
 namespace RxDatasets.TestdtoV1.Server;
 

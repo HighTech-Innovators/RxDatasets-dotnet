@@ -1,4 +1,4 @@
-using HTI.RxDatasets.Abstractions;
+using RxDatasets.Abstractions;
 
 namespace Host;
 
@@ -7,15 +7,15 @@ public static class DI
     public static void ConfigureServices(IServiceCollection builderServices)
     { 
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        HTI.RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices); 
-        HTI.RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
-        HTI.RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
+        RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices); 
+        RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
+        RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
 
         //new testdto
         RxDatasets.TestdtoV1.Server.DI.ConfigureServices(builderServices);
-        HTI.RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
-        HTI.RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
-        HTI.RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
+        RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
+        RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
+        RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();
