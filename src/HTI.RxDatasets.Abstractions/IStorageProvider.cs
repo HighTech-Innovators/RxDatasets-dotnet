@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace HTI.RxDatasets.Abstractions;
+﻿namespace HTI.RxDatasets.Abstractions;
 
 public interface IStorageProvider
 {

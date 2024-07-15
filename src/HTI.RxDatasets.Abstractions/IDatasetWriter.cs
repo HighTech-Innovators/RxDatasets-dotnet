@@ -1,7 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
-
-namespace HTI.RxDatasets.Abstractions;
-
+﻿namespace HTI.RxDatasets.Abstractions;
 
 public interface IDatasetWriter<T>
 {
@@ -9,5 +6,4 @@ public interface IDatasetWriter<T>
     Task<WriteResponse> Delete(string name, CancellationToken ct = default);
     Task<WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default);
     Task<WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default);
-    
 }

@@ -2,10 +2,7 @@ using Grpc.Core;
 using HTI.RxDatasets.Abstractions;
 using Hightechinnovators.Dtos.Type;
 using Hightechinnovators.Dtos.DemodtoV1;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 using Google.Protobuf;
-using System.Data;
 
 namespace RxDatasets.DemodtoV1.Server;
 

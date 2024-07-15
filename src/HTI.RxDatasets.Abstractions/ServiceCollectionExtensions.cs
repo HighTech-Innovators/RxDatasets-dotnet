@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using System.ComponentModel.DataAnnotations;
 
 namespace HTI.RxDatasets.Abstractions
 {
@@ -52,53 +51,6 @@ namespace HTI.RxDatasets.Abstractions
                     .ValidateOnStart();
 
             return services;
-        }
-    }
-
-    public static class ConfigurationExtensions
-    {
-        /// <summary>
-        /// Gets and binds a configuration section.
-        /// </summary>
-        /// <typeparam name="TConfig">The configuration class type.</typeparam>
-        /// <param name="configuration">The configuration instance.</param>
-        /// <returns>The configuration class instance.</returns>
-        public static TConfig GetConfigSection<TConfig>(this IConfiguration configuration) where TConfig : class
-        {
-            string key = typeof(TConfig).Name.Replace("Config", "");
-            return configuration.GetConfigSection<TConfig>(key);
-        }
-
-        /// <summary>
-        /// Gets and binds a configuration section with a specified key.
-        /// </summary>
-        /// <typeparam name="TConfig">The configuration class type.</typeparam>
-        /// <param name="configuration">The configuration instance.</param>
-        /// <param name="key">The configuration section key.</param>
-        /// <returns>The configuration class instance.</returns>
-        public static TConfig GetConfigSection<TConfig>(this IConfiguration configuration, string key) where TConfig : class
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                throw new ArgumentException("Configuration section key cannot be null or empty.", nameof(key));
-            }
-
-            var section = configuration.GetSection(key) ?? throw new Exception($"Configuration section '{key}' is missing.");
-            var config = section.Get<TConfig>() ?? throw new Exception($"Couldn't bind configuration section '{key}' to type '{typeof(TConfig)}'.");
-            ValidateConfig(config);
-
-            return config;
-        }
-
-        /// <summary>
-        /// Validates the configuration using data annotations.
-        /// </summary>
-        /// <typeparam name="TConfig">The configuration class type.</typeparam>
-        /// <param name="config">The configuration instance.</param>
-        private static void ValidateConfig<TConfig>(TConfig config) where TConfig : class
-        {
-            var validationContext = new ValidationContext(config);
-            Validator.ValidateObject(config, validationContext, validateAllProperties: true);
         }
     }
 }
