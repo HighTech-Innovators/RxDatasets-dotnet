@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>HTI.RxDatasets.StorageProvider.Minio</PackageId>
+    <PackageId>HighTechInnovators.RxDatasets.StorageProvider.Minio</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
