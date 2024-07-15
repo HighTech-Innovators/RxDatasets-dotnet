@@ -16,6 +16,12 @@
     <Description>A set of libraries that allow the development of Reactive Dataset-servers, using protobuf files a backing storage. Inspired by Netflix Hollow.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  
+  <PropertyGroup>
+    <!-- Enable PDB embedding -->
+    <DebugType>embedded</DebugType>
+    <EmbedAllSources>true</EmbedAllSources>
+  </PropertyGroup>
 
   <ItemGroup>
     <None Include="$(SolutionDir)/README.md" Pack="true" PackagePath="/"/>
