@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
     <PackageLicenseExpression>CPAL-1.0</PackageLicenseExpression>
     <Copyright>HighTech Innovators © 2024</Copyright>
     <Authors>Bart de Boer,Subhi Hamidi,Teun van Zon</Authors>
