@@ -185,11 +185,6 @@
           "Docker.DotNet": "3.125.15"
         }
       },
-      "FluentValidation": {
-        "type": "Transitive",
-        "resolved": "11.0.0",
-        "contentHash": "cD0VaOQfVZGxp3UFBDET5KztMe1W0QUgk7vP/e1zus0ofALqab5/B5S319+XEFvhw0KEStS3yfCDGpvQM10C6A=="
-      },
       "Google.Protobuf": {
         "type": "Transitive",
         "resolved": "3.26.1",
@@ -206,15 +201,6 @@
         "contentHash": "7htYm01A2GCNFq6iamv1NjPycs0nslsYrDD01VAy71k8aSDISBklGJwH7iXZ+ScHdhz+qE0WVvZYVTFsfMPZzQ==",
         "dependencies": {
           "Grpc.Core.Api": "2.61.0"
-        }
-      },
-      "IL.FluentValidation.Extensions.Options": {
-        "type": "Transitive",
-        "resolved": "11.0.2",
-        "contentHash": "Zj423m4RfNAbOONrt6t3byEeVZWLHznz8w+4whtpyA5S0NHQF/sahUQBMh1AE1eeQXQpDTXU5HgVWkhe2D/uAg==",
-        "dependencies": {
-          "FluentValidation": "11.0.0",
-          "Microsoft.Extensions.Options": "6.0.0"
         }
       },
       "Microsoft.Bcl.AsyncInterfaces": {
@@ -733,7 +719,7 @@
         "dependencies": {
           "Google.ProtoBuf": "[3.26.1, )",
           "Grpc.Core.Api": "[2.61.0, )",
-          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Caching.Memory": "[8.0.0, )",
           "Microsoft.Extensions.Configuration": "[8.0.0, )",
@@ -748,12 +734,9 @@
       "HighTechInnovators.RxDatasets.Abstractions": {
         "type": "Project",
         "dependencies": {
-          "IL.FluentValidation.Extensions.Options": "[11.0.2, )",
           "Microsoft.Extensions.Configuration": "[8.0.0, )",
           "Microsoft.Extensions.Configuration.Binder": "[8.0.1, )",
           "Microsoft.Extensions.DependencyInjection": "[8.0.0, )",
-          "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": "[8.0.3, )",
-          "Microsoft.Extensions.Hosting.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Options": "[8.0.2, )",
           "Microsoft.Extensions.Options.DataAnnotations": "[8.0.0, )"
         }
@@ -762,7 +745,7 @@
         "type": "Project",
         "dependencies": {
           "Azure.Storage.Blobs": "[12.19.1, )",
-          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Options": "[8.0.2, )",
@@ -772,7 +755,7 @@
       "HighTechInnovators.RxDatasets.StorageProvider.Minio": {
         "type": "Project",
         "dependencies": {
-          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Options": "[8.0.2, )",

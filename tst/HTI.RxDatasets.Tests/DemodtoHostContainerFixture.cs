@@ -4,7 +4,6 @@ using HTI.RxDatasets.StorageProvider.Minio;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Networks;
-using Minio.DataModel.Notification;
 
 namespace HTI.RxDatasets.Tests;
 

@@ -1,6 +1,4 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Channels;
 using FluentAssertions;
 using HTI.RxDatasets.Abstractions;
 using Microsoft.Extensions.Options;

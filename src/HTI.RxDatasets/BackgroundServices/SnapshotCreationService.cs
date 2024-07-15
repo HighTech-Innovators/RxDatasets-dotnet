@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Buffers.Binary;
 using System.Collections.Immutable;
 using Google.Protobuf;
 using HTI.RxDatasets.Abstractions;
