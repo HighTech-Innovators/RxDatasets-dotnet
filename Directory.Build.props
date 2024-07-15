@@ -16,6 +16,7 @@
     <Company>HighTech Innovators</Company>
     <Description>A set of libraries that allow the development of Reactive Dataset-servers, using protobuf files a backing storage. Inspired by Netflix Hollow.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
   
   <PropertyGroup>
@@ -26,6 +27,7 @@
 
   <ItemGroup>
     <None Include="$(SolutionDir)/README.md" Pack="true" PackagePath="/"/>
+    <None Include="$(SolutionDir)/icon.png" Pack="true" PackagePath="/"/>
   </ItemGroup>
 
 </Project>
