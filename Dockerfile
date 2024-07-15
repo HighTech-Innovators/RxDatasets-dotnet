@@ -79,7 +79,6 @@ ARG VERSION=0.0.0-local
 COPY src src
 COPY tst tst
 COPY testapps testapps
-RUN ls -l
 RUN echo dotnet build -p:VERSION=${VERSION} --no-restore -c Release
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet build -p:VERSION=${VERSION} --no-restore -c Release
@@ -88,6 +87,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 # TEST
 #
 FROM build AS test
+COPY Dockerfile .
 COPY --from=docker:cli /usr/local/bin/docker /usr/bin/docker
 COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 ARG DOCKER_HOST=
