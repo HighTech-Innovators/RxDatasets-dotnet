@@ -411,7 +411,7 @@
           "System.Text.Encodings.Web": "8.0.0"
         }
       },
-      "hti.rxdatasets.abstractions": {
+      "HighTechInnovators.RxDatasets.Abstractions": {
         "type": "Project",
         "dependencies": {
           "IL.FluentValidation.Extensions.Options": "[11.0.2, )",

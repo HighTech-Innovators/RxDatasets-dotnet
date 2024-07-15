@@ -728,12 +728,12 @@
           "Grpc.Core.Api": "[2.61.0, )"
         }
       },
-      "hti.rxdatasets": {
+      "HighTechInnovators.RxDatasets": {
         "type": "Project",
         "dependencies": {
           "Google.ProtoBuf": "[3.26.1, )",
           "Grpc.Core.Api": "[2.61.0, )",
-          "HTI.RxDatasets.Abstractions": "[1.0.0, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Caching.Memory": "[8.0.0, )",
           "Microsoft.Extensions.Configuration": "[8.0.0, )",
@@ -745,7 +745,7 @@
           "System.Reactive": "[6.0.0, )"
         }
       },
-      "hti.rxdatasets.abstractions": {
+      "HighTechInnovators.RxDatasets.Abstractions": {
         "type": "Project",
         "dependencies": {
           "IL.FluentValidation.Extensions.Options": "[11.0.2, )",
@@ -758,21 +758,21 @@
           "Microsoft.Extensions.Options.DataAnnotations": "[8.0.0, )"
         }
       },
-      "hti.rxdatasets.storageprovider.azblob": {
+      "HighTechInnovators.RxDatasets.StorageProvider.AzBlob": {
         "type": "Project",
         "dependencies": {
           "Azure.Storage.Blobs": "[12.19.1, )",
-          "HTI.RxDatasets.Abstractions": "[1.0.0, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Options": "[8.0.2, )",
           "System.Reactive": "[6.0.0, )"
         }
       },
-      "hti.rxdatasets.storageprovider.minio": {
+      "HighTechInnovators.RxDatasets.StorageProvider.Minio": {
         "type": "Project",
         "dependencies": {
-          "HTI.RxDatasets.Abstractions": "[1.0.0, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[0.0.1-uploadtest.1, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
           "Microsoft.Extensions.Options": "[8.0.2, )",

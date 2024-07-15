@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>HTI.RxDatasets.StorageProvider.AzBlob</PackageId>
+    <PackageId>HighTechInnovators.RxDatasets.StorageProvider.AzBlob</PackageId>
   </PropertyGroup>
 
   <ItemGroup>

@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>HTI.RxDatasets.InMemoryDataset</PackageId>
+    <PackageId>HighTechInnovators.RxDatasets.InMemoryDataset</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
