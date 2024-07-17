@@ -20,10 +20,17 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
     {
         _logger = logger;
         _s3Config = s3Config;
-        var minioClient = new MinioClient().WithEndpoint(s3Config.Value.ServiceURL).WithCredentials(s3Config.Value.AccessKey, s3Config.Value.SecretKey);
+        var minioClient = new MinioClient().WithCredentials(s3Config.Value.AccessKey, s3Config.Value.SecretKey);
         if (!string.IsNullOrWhiteSpace(s3Config.Value.AwsRegion))
         {
             minioClient = minioClient.WithRegion(s3Config.Value.AwsRegion);
+            var endpoint = $"s3.{s3Config.Value.AwsRegion}.amazonaws.com";
+            minioClient = minioClient.WithEndpoint(endpoint);
+            _logger.LogInformation($"Region was provided for aws S3, hence, using the following as the endpoint: {endpoint}");
+        }
+        else
+        {
+            minioClient = minioClient.WithEndpoint(s3Config.Value.ServiceURL);
         }
         minioClient.Build();
         _s3Client = minioClient;
