@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
 namespace RxDatasets.StorageProvider.Minio;
-
+[RegionOrEndpointRequiredAttribute]
 public class MinioS3Config
 {
     [Required]
@@ -10,7 +10,6 @@ public class MinioS3Config
     [Required]
     public string SecretKey { get; set; } = "";
 
-    [Required]
     public string ServiceURL { get; set; } = "";
 
     public string AwsRegion { get; set; } = "";
