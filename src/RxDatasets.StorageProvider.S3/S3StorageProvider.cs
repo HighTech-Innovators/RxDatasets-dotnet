@@ -15,18 +15,18 @@ namespace RxDatasets.StorageProvider.S3
         private readonly ILogger<S3StorageProvider<T>> _logger;
         private readonly string _bucketName;
 
-        public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> minioS3Config,
+        public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> s3Config,
             bool retryInitialization = true)
         {
             _logger = logger;
-            _bucketName = minioS3Config.Value.BucketName;
+            _bucketName = s3Config.Value.BucketName;
             AmazonS3Config config;
 
-            if (string.IsNullOrWhiteSpace(minioS3Config.Value.Region))
+            if (string.IsNullOrWhiteSpace(s3Config.Value.Region))
             {
                 config = new AmazonS3Config
                 {
-                    ServiceURL = minioS3Config.Value.ServiceUrl,
+                    ServiceURL = s3Config.Value.ServiceUrl,
                     ForcePathStyle = true
                 };
             }
@@ -34,13 +34,12 @@ namespace RxDatasets.StorageProvider.S3
             {
                 config = new AmazonS3Config
                 {
-                    RegionEndpoint = RegionEndpoint.GetBySystemName(minioS3Config.Value.Region),
-                    AuthenticationRegion = minioS3Config.Value.Region,
+                    RegionEndpoint = RegionEndpoint.GetBySystemName(s3Config.Value.Region)
                 };
             }
             
 
-            _s3Client = new AmazonS3Client(minioS3Config.Value.AccessKey, minioS3Config.Value.SecretKey, config);
+            _s3Client = new AmazonS3Client(s3Config.Value.AccessKey, s3Config.Value.SecretKey, config);
 
             if (retryInitialization) InitializationLoop();
             else Initialize();
