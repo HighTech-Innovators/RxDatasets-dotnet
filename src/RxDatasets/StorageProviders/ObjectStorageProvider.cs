@@ -24,7 +24,7 @@ public class ObjectStorageProvider<T>(
     private bool _cleanupDone;
     private readonly SemaphoreSlim _semaphore = new(1);
 
-    private static string GetObjectNamePrefix(StorageConfig storageConfig) =>
+    public static string GetObjectNamePrefix(StorageConfig storageConfig) =>
         $"{storageConfig.CustomRootFolder}{typeof(T).Name}/";
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -174,7 +174,7 @@ public class ObjectStorageProvider<T>(
         {
             DtoName = typeof(T).Name,
             Version = _versionIndex.LatestDeltaVersion,
-            SnapshotVersion = snapshotVersion,
+            SnapshotVersion = _versionIndex.SnapshotVersions.Max(sv => sv.Version),
         });
     }
 

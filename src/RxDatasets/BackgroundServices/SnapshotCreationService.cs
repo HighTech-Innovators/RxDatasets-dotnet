@@ -1,6 +1,4 @@
-﻿using System.Buffers;
-using System.Collections.Immutable;
-using Google.Protobuf;
+﻿using Google.Protobuf;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,141 +6,229 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models;
+using System.Buffers;
+using System.Collections.Immutable;
+using System.Reactive.Concurrency;
 
 namespace RxDatasets.BackgroundServices;
 
-public class SnapshotCreationService<T> : IHostedService, IDisposable
+public class SnapshotCreationService<T> : BackgroundService
 {
     private const int MaxStackAllocSize = 8 * 1024;
     private readonly ILogger<SnapshotCreationService<T>> _logger;
-    private readonly SemaphoreSlim _semaphore = new(1);
-    private readonly IOptionsMonitor<SnapshotCreationConfig> _configMonitor;
+    private readonly IOptions<SnapshotCreationConfig> _config;
 
     private readonly IStorageProvider<T> _storageProvider;
     private readonly DatasetHelper _datasetHelper;
     private readonly IDatasetUpdateNotifier<T> _datasetUpdateNotifier;
-    private Timer? _timer;
+    private readonly IScheduler _scheduler;
+    private readonly TimeSpan _currentValuePeriodIntervalAsTimespan;
+    private volatile TaskCompletionSource _newSnapshotMayBeNeeded = new();
+    private volatile int iteration = 0;
 
     public SnapshotCreationService(
         ILogger<SnapshotCreationService<T>> logger,
         IStorageProvider<T> storageProvider,
         IDatasetUpdateNotifier<T> datasetUpdateNotifier,
-        IOptionsMonitor<SnapshotCreationConfig> configMonitor)
+        IOptions<SnapshotCreationConfig> config, IScheduler scheduler)
     {
         _logger = logger;
         _storageProvider = storageProvider;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _datasetUpdateNotifier = datasetUpdateNotifier;
-        _configMonitor = configMonitor;
+        _config = config;
+        _scheduler = scheduler;
+        _currentValuePeriodIntervalAsTimespan = _config.Value.PeriodIntervalAsTimespan;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation($"Snapshot Hosted of type {nameof(T)} Service is starting.");
-        _datasetUpdateNotifier.Subscribe(OnDatasetUpdated);
-        var givenCreationInterval = _configMonitor.CurrentValue.PeriodIntervalAsTimespan;
-        _timer = new Timer(async (s) => {
-            var latestSnapshotVersion = 0ul;
+        _logger.LogInformation($"SnapshotCreationService<{typeof(T).Name}> Started");
+        var subscription = _datasetUpdateNotifier.Subscribe(OnDatasetUpdated);
+        try
+        {
+            await WorkAndWaitLoop(stoppingToken);
+        }
+        finally
+        {
+            _logger.LogInformation($"SnapshotCreationService<{typeof(T).Name}> Stopped");
+            subscription?.Dispose();
+        }
+    }
 
-            var (oldestDelta, newestDelta, snapshots) = await _storageProvider.ListVersions();
-            if (snapshots.Count > 0)
+    private async Task CreateSnapshotIfNecessary(CancellationToken stoppingToken)
+    {
+        var (_, newestDelta, snapshots) = await _storageProvider.ListVersions();
+        var conditionsAreMet = AreSnapshotCreationConditionsMet(newestDelta, snapshots);
+        if (!conditionsAreMet)
+            return;
+
+        var latestSnapshot = snapshots.Count > 0 ? snapshots.Max(s => s.version) : 0;
+        await CreateASnapshot(newestDelta, latestSnapshot, stoppingToken);
+    }
+
+    private async Task WorkAndWaitLoop(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
             {
-                var latestSnapshot = snapshots.MaxBy(snapshot => snapshot.version);
-                var timePassedSinceLastSnapshotWasCreated = DateTime.UtcNow - latestSnapshot.DateTime.UtcDateTime;
-                if (timePassedSinceLastSnapshotWasCreated < givenCreationInterval) return;
-                latestSnapshotVersion = latestSnapshot.version;
+              
+                await CreateSnapshotIfNecessary(stoppingToken);
+                Interlocked.Increment(ref iteration);
+                await _newSnapshotMayBeNeeded.Task.WaitAsync(stoppingToken);
+                _newSnapshotMayBeNeeded = new TaskCompletionSource();
             }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                _logger.LogWarning(e, "Exception during snapshot creation or check");
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
+    }
 
-            await CreateASnapshot(newestDelta, latestSnapshotVersion); 
-        }, null, TimeSpan.Zero, givenCreationInterval);
+    private bool AreSnapshotCreationConditionsMet(ulong newestDelta,
+        List<(ulong version, DateTimeOffset Datetime)> snapshots)
+    {
+        var (lastSnapshotVersion, lastSnapshotTime)  =
+            snapshots.Count > 0 
+                ? snapshots.MaxBy(s => s.version)
+                : (0UL,(DateTimeOffset?)null);
 
-        return Task.CompletedTask;
+        // Don't do or schedule anything if there is no delta since the last snapshot (or no data at all)
+        if (newestDelta <= lastSnapshotVersion)
+            return false;
+
+        // If the delta gap is large enough, make a snapshot, no need to schedule anything
+        if (IsDeltaGapConditionMet(newestDelta, lastSnapshotVersion, _config.Value.SnapshotInterval))
+            return true;
+
+        // Calculate how much time we have until the next snapshot should be scheduled - can be 0 or negative.
+        var timeUntilNext = CalculateTimeUntilNextSnapshot(_scheduler, lastSnapshotTime, _currentValuePeriodIntervalAsTimespan);
+
+        // If overdue, let's go
+        if (timeUntilNext.Ticks <= 0)
+            return true;
+
+        // If not, schedule for later
+        _scheduler.Schedule(timeUntilNext, _ => QueueSnapshotCheck().Wait());
+
+        return false;
     }
 
     private async Task OnDatasetUpdated(DatasetUpdateNotification notification)
     {
-        if (notification.Version % _configMonitor.CurrentValue.SnapshotInterval == 0) await CreateASnapshot(notification.Version, notification.SnapshotVersion);
+        await QueueSnapshotCheck();
     }
 
-    private async Task CreateASnapshot(ulong version = 0ul, ulong latestSnapshot = 0ul)
+    public static bool IsDeltaGapConditionMet(ulong lastDelta, ulong lastSnapshotVersion, ulong interval)
     {
-        _logger.LogInformation($"Snapshot Hosted {typeof(T).Name} Service is working.");
+        return lastDelta - lastSnapshotVersion >= interval;
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <returns>True if enough time has passed to create a snapshot</returns>
+    public static TimeSpan CalculateTimeUntilNextSnapshot(IScheduler scheduler, DateTimeOffset? snapshotTime,
+        TimeSpan maxInterval)
+    {
+        if (!snapshotTime.HasValue)
+            return default; // NOW!
+
+        var timeSinceLastSnapshot = scheduler.Now - snapshotTime.Value;
+        return maxInterval - timeSinceLastSnapshot;
+    }
+
+    private async Task CreateASnapshot(ulong version, ulong latestSnapshot, CancellationToken stoppingToken)
+    {
+        _logger.LogInformation($"Snapshot Hosted {typeof(T).Name} Service is working. Creating snapshot for delta {version}. The previous snapshot is {latestSnapshot}");
         var tempState = await _datasetHelper.GetIndexOfVersion(version, latestSnapshot);
-        if (tempState.LatestVersion == 0 || (version == latestSnapshot)) return;
-        await CreateNewSnapshot(tempState);
+        await CreateNewSnapshot(tempState, stoppingToken);
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    private volatile int _handlingNotifications;
+    private async Task QueueSnapshotCheck()
     {
-        _logger.LogInformation("Snapshot Hosted Service is stopping.");
+        try
+        {
+            var stackDepth = Interlocked.Increment(ref _handlingNotifications);
+            var mustWait = stackDepth == 1;
 
-        _timer?.Change(Timeout.Infinite, 0);
+            var previousIteration = iteration;
+            _ = _newSnapshotMayBeNeeded.TrySetResult();
 
-        return Task.CompletedTask;
+            while (mustWait && iteration == previousIteration)
+                await Task.Delay(1);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _handlingNotifications);
+        }
     }
-
-    public void Dispose()
-    {
-        _timer?.Dispose();
-    }
-
-    private async Task<ImmutableDatasetState> CreateNewSnapshot(ImmutableDatasetState currentIndex)
+    private async Task CreateNewSnapshot(ImmutableDatasetState currentIndex, CancellationToken stoppingToken)
     {
         var newSnapshotVersion = currentIndex.LatestVersion;
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        ImmutableDictionary<string, ImmutableEntity> newSnapshotEntities = new Dictionary<string, ImmutableEntity>().ToImmutableDictionary();
+        Dictionary<string, ImmutableEntity> newSnapshotEntities = [];
 
         var tempPath = Path.GetTempFileName();
 
         await using var targetSnapshotStream = File.OpenWrite(tempPath);
-        long targetSnapshotStreamPosition = 0;
-
-        //read previous snapshot if exists and insert it at the beginning of the new snapshot
-        if (currentIndex.LatestSnapshotVersion > 0)
+        try
         {
-            await _storageProvider.ReadSnapshotData(currentIndex.LatestSnapshotVersion, sourceStream =>
-            {
-                long sourceStreamPosition = 0;
+            long targetSnapshotStreamPosition = 0;
 
-                foreach (var entity in currentIndex.Entities
-                             .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.LatestSnapshotVersion)
-                             .OrderBy(x => x.Value.Position))
-                {
-                    if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
-                    {
-                        ImmutableEntity newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                        newSnapshotEntities = newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
-                    }
-                    else
-                    {
-                        var entityLength = entity.Value.Length;
+            if (currentIndex.LatestSnapshotVersion > 0)
+                targetSnapshotStreamPosition =
+                    await CopyRelevantItemsFromOldSnapshot(currentIndex, newSnapshotEntities, targetSnapshotStream,
+                        targetSnapshotStreamPosition, stoppingToken);
 
-                        targetSnapshotStreamPosition += WriteLengthPrefix(targetSnapshotStream, entityLength);
-                        var targetEntityPosition = targetSnapshotStreamPosition;
+            targetSnapshotStreamPosition = await CopyRelevantItemsFromDeltas(currentIndex, newSnapshotEntities,
+                targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
 
-                        var gap = entity.Value.Position - sourceStreamPosition;
-                        sourceStreamPosition += SeekForwardBy(sourceStream, gap);
+            if (targetSnapshotStreamPosition == 0)
+                WriteLengthPrefix(targetSnapshotStream, 0);
 
-                        EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
-                        sourceStreamPosition += entityLength;
-                        targetSnapshotStreamPosition += entityLength;
+            await targetSnapshotStream.FlushAsync(stoppingToken);
+            targetSnapshotStream.Close();
 
-                        ImmutableEntity newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                        newSnapshotEntities = newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
-                    }
-                }
-            });
+            await using var localSnapshotReader = File.OpenRead(tempPath);
+            var newSnapshotIndex =
+                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
+                    currentIndex.LatestVersion);
+
+            stoppingToken.ThrowIfCancellationRequested();
+
+            await _storageProvider.StoreSnapshot(newSnapshotVersion, newSnapshotIndex.ToProto().ToByteArray(),
+                localSnapshotReader);
+
+            localSnapshotReader.Close();
+            _logger.LogInformation($"Created snapshot version {newSnapshotVersion}");
+
         }
-
-        foreach (var entity in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.LatestSnapshotVersion))
+        finally
         {
+            targetSnapshotStream.Close();
+            File.Delete(tempPath);
+        }
+    }
+
+    private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
+        Dictionary<string, ImmutableEntity> newSnapshotEntities,
+        Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
+    {
+        foreach (var entity in currentIndex.Entities.Where(x =>
+                     x.Value.GetLatestEntityVersion() > currentIndex.LatestSnapshotVersion))
+        {
+            stoppingToken.ThrowIfCancellationRequested();
 
             if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
                 var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities = newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
             }
             else
             {
@@ -152,34 +238,65 @@ public class SnapshotCreationService<T> : IHostedService, IDisposable
                 var targetEntityPosition = targetSnapshotStreamPosition;
 
                 var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDeltaData(latestEntityVersion, entity.Value.Position, entity.Value.Length);
+                var entityBytes = await _storageProvider.ReadDeltaData(latestEntityVersion, entity.Value.Position,
+                    entity.Value.Length);
 
-                await targetSnapshotStream.WriteAsync(entityBytes);
+                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
                 targetSnapshotStreamPosition += entityLength;
 
                 var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities = newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
             }
         }
 
-        if (targetSnapshotStreamPosition == 0)
+        return targetSnapshotStreamPosition;
+    }
+
+    private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
+        Dictionary<string, ImmutableEntity> newSnapshotEntities,
+        Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
+    {
+        await _storageProvider.ReadSnapshotData(currentIndex.LatestSnapshotVersion, sourceStream =>
         {
-            WriteLengthPrefix(targetSnapshotStream, 0);
-        }
+            long sourceStreamPosition = 0;
 
-        await targetSnapshotStream.FlushAsync();
-        targetSnapshotStream.Close();
+            foreach (var entity in currentIndex.Entities
+                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.LatestSnapshotVersion)
+                         .OrderBy(x => x.Value.Position))
+            {
+                if (stoppingToken.IsCancellationRequested)
+                    return;
 
-        await using var localSnapshotReader = File.OpenRead(tempPath);
-        var newSnapshotIndex = new ImmutableDatasetState(newSnapshotEntities, newSnapshotVersion, currentIndex.LatestVersion);
-        await _storageProvider.StoreSnapshot(newSnapshotVersion, newSnapshotIndex.ToProto().ToByteArray(), localSnapshotReader);
+                if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+                {
+                    ImmutableEntity newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
+                    newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                }
+                else
+                {
+                    var entityLength = entity.Value.Length;
 
-        localSnapshotReader.Close();
+                    targetSnapshotStreamPosition += WriteLengthPrefix(targetSnapshotStream, entityLength);
+                    var targetEntityPosition = targetSnapshotStreamPosition;
 
-        File.Delete(tempPath);
-        _logger.LogInformation($"Created snapshot version {newSnapshotVersion}");
+                    var gap = entity.Value.Position - sourceStreamPosition;
+                    sourceStreamPosition += SeekForwardBy(sourceStream, gap);
 
-        return newSnapshotIndex;
+                    EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
+                    sourceStreamPosition += entityLength;
+                    targetSnapshotStreamPosition += entityLength;
+
+                    ImmutableEntity newSnapshotEntity = entity.Value with
+                    {
+                        Position = targetEntityPosition, Length = entityLength
+                    };
+                    newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                }
+            }
+        });
+
+        stoppingToken.ThrowIfCancellationRequested();
+        return targetSnapshotStreamPosition;
     }
 
     public static long EfficientCopy(Stream sourceStream, Stream snapshotFileStream, int numberOfBytesToCopy)
@@ -253,18 +370,6 @@ public class SnapshotCreationService<T> : IHostedService, IDisposable
         using var cos = new CodedOutputStream(stream, true);
         cos.WriteLength(length);
         var lengthOfTheVarPrefix = CodedOutputStream.ComputeLengthSize(length);
-        return lengthOfTheVarPrefix; 
-    }
-
-    private async Task<IDisposable> Lock()
-    {
-        await _semaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
-    }
-
-    private async Task<IDisposable> Lock(CancellationToken cancellationToken)
-    {
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
+        return lengthOfTheVarPrefix;
     }
 }

@@ -10,7 +10,7 @@ public class SnapshotCreationConfig
         ErrorMessage = "Range of hours was exceeded")]
     public int PeriodInHours { get; set; } = IntervalHours;
 
-    public TimeSpan PeriodIntervalAsTimespan => TimeSpan.FromHours(PeriodInHours);
+    public virtual TimeSpan PeriodIntervalAsTimespan => TimeSpan.FromHours(PeriodInHours);
 
-    public ulong SnapshotInterval { get; set; } = 100;
+    public virtual ulong SnapshotInterval { get; set; } = 100;
 }
