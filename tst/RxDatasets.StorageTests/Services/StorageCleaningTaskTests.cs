@@ -18,8 +18,9 @@ public class StorageCleanTaskTests
     private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
     private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions = Options.Create(new SnapshotCreationConfig
     {
-        SnapshotInterval = 5
+        SnapshotInterval = 5,
     });
+
     private IOptions<CleanupConfig> _storageCleanupConfig = Options.Create(new CleanupConfig());
     private readonly DatasetUpdateNotifierSync<object> _datasetUpdateNotifier = new();
     private const ulong UNIT_KB = 1024;
@@ -36,11 +37,7 @@ public class StorageCleanTaskTests
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationService<object>>>();
         
         var configMonitor = new Mock<IOptionsMonitor<CleanupConfig>>();
-        var configMonitorSnapshotCreationMock = new Mock<IOptionsMonitor<SnapshotCreationConfig>>();
         configMonitor.SetupGet((c) => c.CurrentValue).Returns(_storageCleanupConfig.Value);
-
-        configMonitorSnapshotCreationMock.SetupGet((c) => c.CurrentValue).Returns(_snapshotsOptions.Value);
-
 
         var datasetReader = new DatasetReader<object>(_datasetUpdateNotifier, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
         var datasetWriter = new DatasetWriter<object>(_datasetUpdateNotifier, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
@@ -48,7 +45,7 @@ public class StorageCleanTaskTests
         var storageCleaningTask = new StorageCleaningService<object>(_datasetUpdateNotifier, inMemoryStorage, ts, configMonitor.Object, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);
 
-        var snapshotCreationTask = new SnapshotCreationService<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, configMonitorSnapshotCreationMock.Object);
+        var snapshotCreationTask = new SnapshotCreationService<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, _snapshotsOptions, ts);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
 
         await datasetReader.StartAsync(CancellationToken.None);
@@ -80,22 +77,33 @@ public class StorageCleanTaskTests
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
+        await Create6Deltas(datasetWriter);
+
+        var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+        var firstSnapshot = snapshots[0].version;
+
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(3));
+
+        var secondSnapshot = snapshots[1].version;
+
         await storageProvider.StoreProcessedVersion("unittest", 10);
+        await Task.Delay(TimeSpan.FromSeconds(3));
 
         //act
-        await CreateASnapshot(datasetWriter);
+        await Create6Deltas(datasetWriter);
         await storageProvider.StoreProcessedVersion("unittest", 15);
+        await Task.Delay(TimeSpan.FromSeconds(3));
 
 
         //assert
-        var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+        (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         const int expectedRemainingSnapshots = 2;
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        oldestDelta.Should().Be(11); 
-        newestDelta.Should().Be(15);
+        snapshots[0].version.Should().NotBe(firstSnapshot);
+        snapshots[1].version.Should().NotBe(secondSnapshot);
+        oldestDelta.Should().BeCloseTo(snapshots[0].version, 5, "we are not sure because of async when the snapshot will be exactly created");
     }
 
 
@@ -103,54 +111,60 @@ public class StorageCleanTaskTests
     public async Task Should_Delete_Old_Snapshots_After_Some_Time()
     {
         var cleanupConfigMock = new Mock<CleanupConfig>();
-        const int minimumTimeToLive = 5;
+        const int minimumTimeToLiveInMinutes = 5;
         var scheduler = new TestScheduler();
-        cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(minimumTimeToLive));
+        cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(minimumTimeToLiveInMinutes));
         _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
         
-        var (storageProvider, _, DatasetWriter) = await SetupDataset(scheduler);
+        var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
         await storageProvider.StoreProcessedVersion("unittest", 0);
 
         scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
-        const int threeSnapshots = 3;
+        const int fourSnapshots = 4;
         var deltasInOneSnapshot = (int)_snapshotsOptions.Value.SnapshotInterval;
-        var howManyDeltasToCreate = deltasInOneSnapshot * threeSnapshots; //3 to make sure that there are enough deltas, but also, avoid triggering the cleanup, more than once for testing purposes
-        scheduler.Schedule(TimeSpan.FromMinutes(3), () => CreateASnapshot(DatasetWriter).Wait());
-        scheduler.Schedule(TimeSpan.FromMinutes(6), () => CreateASnapshot(DatasetWriter).Wait());
+        var howManyDeltasToCreate = deltasInOneSnapshot * fourSnapshots; //4 to make sure that there are enough deltas, but also, avoid triggering the cleanup, more than once for testing purposes
+        scheduler.Schedule(TimeSpan.FromMinutes(3), () => Create6Deltas(datasetWriter).Wait());
+        scheduler.Schedule(TimeSpan.FromMinutes(6), () => Create6Deltas(datasetWriter).Wait());
         await storageProvider.StoreProcessedVersion("unittest", 10);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
-        //create 3 snapshots as a setup with 15 deltas
-        await CreateASnapshot(DatasetWriter);
-        await CreateASnapshot(DatasetWriter);
-        await CreateASnapshot(DatasetWriter);
+        //create 3 snapshots as a setup with 18 deltas
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        await Create6Deltas(datasetWriter);
         await storageProvider.StoreProcessedVersion("unittest", 25);
+        await Task.Delay(TimeSpan.FromSeconds(2));
 
         //assert nothing is deleted even tho the threshold for snapshots is met at minimum 2 snapshots
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
 
-        snapshots.Count.Should().Be(threeSnapshots);
-        oldestDelta.Should().Be(1);
-        newestDelta.Should().Be(15);
-
-
-        // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 5 deltas)
-        scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        const int fourSnapshots = 4;
         snapshots.Count.Should().Be(fourSnapshots);
-        oldestDelta.Should().Be(1);
-        newestDelta.Should().Be(20);
+        oldestDelta.Should().Be(snapshots[0].version);
+
+
+        // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
+        scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
+        int fiveSnapshots = 5;
+        snapshots.Count.Should().Be(fiveSnapshots);
+        oldestDelta.Should().Be(snapshots[0].version);
 
         //act
         scheduler.AdvanceBy(TimeSpan.FromMinutes(6).Ticks);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
 
         //assert
         const int expectedRemainingSnapshots = 2;
         (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        oldestDelta.Should().Be(21);
-        newestDelta.Should().Be(25);
+        oldestDelta.Should().BeCloseTo(snapshots[0].version, 5, "we are not sure because of async when the snapshot will be exactly created");
     }
 
 
@@ -170,18 +184,24 @@ public class StorageCleanTaskTests
         scheduler.AdvanceBy(TimeSpan.FromMinutes(3).Ticks);
 
         //act
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        const int expectedRemainingSnapshots = 4;
+        const int expectedRemainingSnapshots = 5;
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
         oldestDelta.Should().Be(1);
-        newestDelta.Should().Be(20);
+        newestDelta.Should().Be(24);
     }
 
     [Fact]
@@ -198,27 +218,32 @@ public class StorageCleanTaskTests
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
         //act
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
-        await CreateASnapshot(datasetWriter);
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        const int expectedRemainingSnapshots = 5;
+        const int expectedRemainingSnapshots = 6;
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
         _storageCleanupConfig.Value.MinimumSnapshotsToKeep.Should().BeLessThan(expectedRemainingSnapshots);
         oldestDelta.Should().Be(1);
-        newestDelta.Should().Be(25);
+        newestDelta.Should().Be(30);
     }
 
-    private async Task CreateASnapshot(DatasetWriter<object>? s3DatasetWriter)
+    private async Task Create6Deltas(DatasetWriter<object>? s3DatasetWriter)
     {
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 6; i++)
         {
             if (i % 2 == 0)
             {

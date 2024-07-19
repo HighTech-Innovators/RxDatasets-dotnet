@@ -35,6 +35,7 @@ namespace RxDatasets.BackgroundServices
 
         public async Task CleanStorageAsync(ulong versionOfOldestToKeepSnapshot)
         {
+            _logger.LogInformation($"Storage Cleaning is happening, deleting anything older than version {versionOfOldestToKeepSnapshot}!");
             await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot);
         }
 
