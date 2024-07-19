@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using System.ComponentModel.DataAnnotations;
+using Amazon;
 
 namespace RxDatasets.StorageProvider.S3
 {
@@ -19,12 +20,25 @@ namespace RxDatasets.StorageProvider.S3
         {
             _logger = logger;
             _bucketName = minioS3Config.Value.BucketName;
+            AmazonS3Config config;
 
-            var config = new AmazonS3Config
+            if (string.IsNullOrWhiteSpace(minioS3Config.Value.Region))
             {
-                ServiceURL = minioS3Config.Value.ServiceUrl,
-                ForcePathStyle = true
-            };
+                config = new AmazonS3Config
+                {
+                    ServiceURL = minioS3Config.Value.ServiceUrl,
+                    ForcePathStyle = true
+                };
+            }
+            else
+            {
+                config = new AmazonS3Config
+                {
+                    RegionEndpoint = RegionEndpoint.GetBySystemName(minioS3Config.Value.Region),
+                    AuthenticationRegion = minioS3Config.Value.Region,
+                };
+            }
+            
 
             _s3Client = new AmazonS3Client(minioS3Config.Value.AccessKey, minioS3Config.Value.SecretKey, config);
 

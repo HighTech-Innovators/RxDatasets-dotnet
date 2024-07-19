@@ -2,6 +2,8 @@
 
   <PropertyGroup>
 	  <ImplicitUsings>enable</ImplicitUsings>
+	  <TargetFramework>net8.0</TargetFramework>
+
 	  <Nullable>enable</Nullable>
 	  <IsPackable>true</IsPackable>
 	  <PackageId>HighTechInnovators.RxDatasets.StorageProvider.S3</PackageId>

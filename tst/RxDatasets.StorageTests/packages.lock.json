@@ -122,6 +122,19 @@
         "resolved": "2.5.7",
         "contentHash": "31Rl7dBJriX0DNwZfDp8gqFOPsiM0c9kqpcH/HvNi9vDp+K7Ydf42H7mVIvYT918Ywzn1ymLg1c4DDC6iU754w=="
       },
+      "AWSSDK.Core": {
+        "type": "Transitive",
+        "resolved": "3.7.304.30",
+        "contentHash": "TJdogpjIbdBrrlyBEmDCO28+qqR85RXs62ElK2NiMyzOEmnBNR2zRL8kEqqUk2V8TPyKKeBXRW0BkUX4yh8MjQ=="
+      },
+      "AWSSDK.S3": {
+        "type": "Transitive",
+        "resolved": "3.7.310.7",
+        "contentHash": "ygDGJgItYrC68BJ7sZarP+JbC8trKJJxYA98QBHDxkityb1PqVosILyL7jOiIc1NhU+B0bvIKXr9UNC5Ioicxg==",
+        "dependencies": {
+          "AWSSDK.Core": "[3.7.304.30, 4.0.0)"
+        }
+      },
       "Azure.Core": {
         "type": "Transitive",
         "resolved": "1.36.0",
@@ -762,8 +775,13 @@
           "Minio": "[6.0.1, )"
         }
       },
-      "rxdatasets.storageprovider.s3": {
-        "type": "Project"
+      "HighTechInnovators.RxDatasets.StorageProvider.S3": {
+        "type": "Project",
+        "dependencies": {
+          "AWSSDK.S3": "[3.7.310.7, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )"
+        }
       }
     }
   }
