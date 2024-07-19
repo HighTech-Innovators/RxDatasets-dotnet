@@ -14,5 +14,6 @@ public class S3Config
 
     [Required]
     public string BucketName { get; set; } = "";
-    public string Region { get; set; }
+
+    public string Region { get; set; } = "";
 }
