@@ -1,0 +1,289 @@
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using Amazon.S3.Transfer;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RxDatasets.Abstractions;
+using System.ComponentModel.DataAnnotations;
+
+namespace RxDatasets.StorageProvider.S3
+{
+    public class S3StorageProvider<T> : IObjectStorageProvider<T>
+    {
+        private readonly AmazonS3Client _s3Client;
+        private readonly ILogger<S3StorageProvider<T>> _logger;
+        private readonly string _bucketName;
+
+        public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> minioS3Config,
+            bool retryInitialization = true)
+        {
+            _logger = logger;
+            _bucketName = minioS3Config.Value.BucketName;
+
+            var config = new AmazonS3Config
+            {
+                ServiceURL = minioS3Config.Value.ServiceUrl,
+                ForcePathStyle = true
+            };
+
+            _s3Client = new AmazonS3Client(minioS3Config.Value.AccessKey, minioS3Config.Value.SecretKey, config);
+
+            if (retryInitialization) InitializationLoop();
+            else Initialize();
+        }
+
+        private void Initialize()
+        {
+            try
+            {
+                EnsureBucketExistsAsync().Wait();
+            }
+            catch (AggregateException ex)
+            {
+                foreach (var innerException in ex.InnerExceptions)
+                {
+                    if (innerException is InvalidOperationException)
+                    {
+                        throw innerException;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Could not init S3 {ex.Message}");
+                throw;
+            }
+        }
+
+        private void InitializationLoop()
+        {
+            while (true)
+            {
+                try
+                {
+                    Initialize();
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to initialize storage provider");
+                    Task.Delay(1000).Wait();
+                }
+            }
+        }
+
+        public async Task DeleteFile(string objectKey)
+        {
+            try
+            {
+                var deleteObjectRequest = new DeleteObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey
+                };
+
+                await _s3Client.DeleteObjectAsync(deleteObjectRequest);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogError(ex, $"File delete failed, {objectKey}");
+                throw new FileNotFoundException($"File is not found.", objectKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete from S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey)
+        {
+            try
+            {
+                var getObjectRequest = new GetObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey
+                };
+
+                using var response = await _s3Client.GetObjectAsync(getObjectRequest);
+                using var memoryStream = new MemoryStream();
+                await response.ResponseStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+
+                if (memoryStream.Length > int.MaxValue)
+                    throw new InvalidOperationException("File size is too large");
+
+                var readOnlyMemory =
+                    new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
+
+                return readOnlyMemory;
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogError(ex, "File Does Not Exists, {0}", objectKey);
+                throw new FileNotFoundException($"File is not found.", objectKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download from S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length)
+        {
+            try
+            {
+                var getObjectRequest = new GetObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey,
+                    ByteRange = new ByteRange(position, position + length - 1)
+                };
+
+                using var response = await _s3Client.GetObjectAsync(getObjectRequest);
+                using var memoryStream = new MemoryStream(length);
+                await response.ResponseStream.CopyToAsync(memoryStream);
+
+                var readOnlyMemory = new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, length);
+
+                return readOnlyMemory;
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new FileNotFoundException($"File is not found.", objectKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download from S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task DownloadWithCallBack(string objectKey, Action<Stream> callback)
+        {
+            try
+            {
+                var getObjectRequest = new GetObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey
+                };
+
+                using var response = await _s3Client.GetObjectAsync(getObjectRequest);
+                callback(response.ResponseStream);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new FileNotFoundException($"File is not found.", objectKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download from S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        private async Task EnsureBucketExistsAsync()
+        {
+            try
+            {
+                var response = await _s3Client.ListBucketsAsync();
+                if (response.Buckets.All(b => b.BucketName != _bucketName))
+                {
+                    await _s3Client.PutBucketAsync(new PutBucketRequest { BucketName = _bucketName });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure bucket exists in S3");
+                throw;
+            }
+        }
+
+        public async Task UploadBytes(string objectKey, byte[] bytes)
+        {
+            try
+            {
+                using var memoryStream = new MemoryStream(bytes);
+                var uploadRequest = new TransferUtilityUploadRequest
+                {
+                    InputStream = memoryStream,
+                    Key = objectKey,
+                    BucketName = _bucketName,
+                    AutoCloseStream = true
+                };
+
+                var transferUtility = new TransferUtility(_s3Client);
+                await transferUtility.UploadAsync(uploadRequest);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload to S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task UploadFileStream(string objectKey, FileStream stream)
+        {
+            try
+            {
+                var uploadRequest = new TransferUtilityUploadRequest
+                {
+                    InputStream = stream,
+                    Key = objectKey,
+                    BucketName = _bucketName,
+                    AutoCloseStream = true
+                };
+
+                var transferUtility = new TransferUtility(_s3Client);
+                await transferUtility.UploadAsync(uploadRequest);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload to S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix)
+        {
+            try
+            {
+                var request = new ListObjectsV2Request
+                {
+                    BucketName = _bucketName,
+                    Prefix = prefix
+                };
+
+                var response = await _s3Client.ListObjectsV2Async(request);
+                var results = response.S3Objects.Select(s3Object => (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(s3Object.LastModified))).ToList();
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to list objects in S3");
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+    }
+
+    public class S3Config
+    {
+        [Required]
+        public string AccessKey { get; set; } = "";
+
+        [Required]
+        public string SecretKey { get; set; } = "";
+
+        [Required]
+        public string ServiceUrl { get; set; } = "";
+
+        [Required]
+        public string BucketName { get; set; } = "";
+        [Required]
+        public string Region { get; set; }
+    }
+}

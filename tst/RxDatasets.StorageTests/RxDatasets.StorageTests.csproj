@@ -32,6 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.Minio\RxDatasets.StorageProvider.Minio.csproj" />

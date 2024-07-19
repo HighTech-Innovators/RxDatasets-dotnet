@@ -761,6 +761,9 @@
           "Microsoft.Extensions.Options": "[8.0.2, )",
           "Minio": "[6.0.1, )"
         }
+      },
+      "rxdatasets.storageprovider.s3": {
+        "type": "Project"
       }
     }
   }
