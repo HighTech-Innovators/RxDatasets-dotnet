@@ -6,50 +6,46 @@ using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.StorageProvider.Minio;
+using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests;
 
-public class S3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
+public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
+    : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {
-    private readonly MinioTestContainerFixture _minioContainer;
-    private IOptions<MinioS3Config>? _s3Config;
-
-    public S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
-    {
-        _minioContainer = minioContainer;
-    }
+    private IOptions<S3Config>? _s3Config;
 
     public async Task InitializeAsync()
     {
-        if (_minioContainer.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
-            await _minioContainer.Container.StartAsync();
-        _s3Config = Options.Create<MinioS3Config>(new()
+        if (minioContainer.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
+            await minioContainer.Container.StartAsync();
+        _s3Config = Options.Create<S3Config>(new()
         {
-            AccessKey = _minioContainer.Container.GetAccessKey(),
-            SecretKey = _minioContainer.Container.GetSecretKey(),
-            ServiceURL = $"{_minioContainer.Container.Hostname}:{_minioContainer.Container.GetMappedPublicPort(9000)}"
+            AccessKey = minioContainer.Container.GetAccessKey(),
+            SecretKey = minioContainer.Container.GetSecretKey(),
+            ServiceUrl = $"http://{minioContainer.Container.Hostname}:{minioContainer.Container.GetMappedPublicPort(9000)}/"
         });
     }
 
     public async Task DisposeAsync()
     {
-        await _minioContainer.DisposeAsync();
+        await minioContainer.DisposeAsync();
     }
     
     
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-        var storageLogger = new Mock<ILogger<MinioS3StorageProvider<object>>>();
+        var storageLogger = new Mock<ILogger<S3StorageProvider<object>>>();
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         var datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
 
-        IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), datasetUpdateNotifier);
+        IObjectStorageProvider<object> s3StorageProvider = new S3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), datasetUpdateNotifier, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
@@ -71,7 +67,7 @@ public class S3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestCon
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
         var (_, datasetWriter) = await SetupStorageAsync();
-        await _minioContainer.Container.StopAsync(CancellationToken.None);
+        await minioContainer.Container.StopAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
 
