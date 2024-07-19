@@ -16,28 +16,38 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
     private readonly ILogger<MinioS3StorageProvider<T>> _logger;
     private readonly IOptions<MinioS3Config> _s3Config;
 
-    public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config, bool retryInitialization = true)
+    public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config,
+        bool retryInitialization = true)
     {
         _logger = logger;
         _s3Config = s3Config;
         var minioClient = new MinioClient().WithCredentials(s3Config.Value.AccessKey, s3Config.Value.SecretKey);
         if (!string.IsNullOrWhiteSpace(s3Config.Value.AwsRegion))
         {
-            var endpoint = $"s3.{s3Config.Value.AwsRegion}.amazonaws.com";
+            var endpoint = $"{s3Config.Value.BucketName}.s3.{s3Config.Value.AwsRegion}.amazonaws.com";
             minioClient = minioClient
                 .WithEndpoint(endpoint)
                 .WithRegion(s3Config.Value.AwsRegion)
                 .WithSSL();
-            _logger.LogInformation($"Region was provided for aws S3, hence, using the following as the endpoint: {endpoint}");
+            _logger.LogInformation(
+                $"Region was provided for aws S3, hence, using the following as the endpoint: {endpoint}");
         }
         else
         {
             minioClient = minioClient.WithEndpoint(s3Config.Value.ServiceURL);
         }
+
         minioClient.Build();
+
         _s3Client = minioClient;
-        if (retryInitialization) InitializationLoop(); else Initialize();
+
+        if (retryInitialization)
+            InitializationLoop();
+        else
+            Initialize();
     }
+
+
     private void Initialize()
     {
         try
@@ -62,7 +72,8 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
             
         }
     }
-    private void InitializationLoop()
+
+    private async void InitializationLoop()
     {
         while (true)
         {
@@ -74,7 +85,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to initialize storage provider");
-                Task.Delay(5 * 1000);
+                await Task.Delay(5 * 1000);
             }
         }
     }
