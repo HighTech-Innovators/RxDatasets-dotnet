@@ -75,13 +75,12 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 # BUILD
 #
 FROM restore AS build
-ARG VERSION=0.0.0-local
 COPY src src
 COPY tst tst
 COPY testapps testapps
-RUN echo dotnet build -p:VERSION=${VERSION} --no-restore -c Release
+RUN echo dotnet build -p:VERSION=0.0.0-local --no-restore -c Release
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
-    dotnet build -p:VERSION=${VERSION} --no-restore -c Release
+    dotnet build -p:VERSION=0.0.0-local --no-restore -c Release
 
 #
 # TEST
@@ -98,15 +97,53 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 ###########################################################################################################
 ###########################################################################################################
 ###                                                                                                    ####
+###                                               E2E TEST HOST BUILD                                  ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
+
+#
+# PUBLISH HOST
+#
+# don't use release build here - it's not a publishable target, and unversioned build can be cached way more often
+FROM build AS publish-host
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
+    dotnet publish\
+      --no-restore\
+      --no-build\
+      -o /pub/Host\
+      testapps/Host
+
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
 ###                                               NUGET                                                ####
 ###                                                                                                    ####
 ###########################################################################################################
 ###########################################################################################################
 
 #
+# RELEASE BUILD (w/version)
+#
+FROM build AS releasebuild
+ARG VERSION
+RUN echo dotnet build -p:VERSION=${VERSION} --no-restore -c Release
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
+    dotnet build\
+      --no-restore\
+      -c Release\
+      -p:DebugType=embedded\
+      -p:DebugSymbols=true\
+      -p:Deterministic=true\
+      -p:VERSION=${VERSION}\
+      -p:ServerGarbageCollection=false\
+      -p:InvariantGlobalization=true\
+      -p:EmitCompilerGeneratedFiles=true\
+      .
+#
 # PACKAGE
 #
-FROM build AS package
+FROM releasebuild AS package
 ARG VERSION
 COPY icon.png .
 COPY README.md .
@@ -135,78 +172,62 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 # PUBLISH TESTCONTAINER
 #
-FROM build AS publish-testcontainer
+FROM releasebuild AS publish-testcontainer
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
- --no-restore\
- --no-build\
- -c Release\
- -p:DebugType=None\
- -p:DebugSymbols=false\
- -p:VERSION=${VERSION}\
- -p:ServerGarbageCollection=false\
- -p:InvariantGlobalization=true\
- -p:EmitCompilerGeneratedFiles=true\
- -o /pub/Host.Testserver\
- testapps/Testserver
-
-#
-# PUBLISH HOST
-#
-FROM build AS publish-host
-ARG VERSION
-RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
-    dotnet publish\
- --no-restore\
- --no-build\
- -c Release\
- -p:DebugType=None\
- -p:DebugSymbols=false\
- -p:VERSION=${VERSION}\
- -p:ServerGarbageCollection=false\
- -p:InvariantGlobalization=true\
- -p:EmitCompilerGeneratedFiles=true\
- -o /pub/Host\
- testapps/Host
+      --no-restore\
+      --no-build\
+      -c Release\
+      -p:DebugType=embedded\
+      -p:DebugSymbols=true\
+      -p:Deterministic=true\
+      -p:VERSION=${VERSION}\
+      -p:ServerGarbageCollection=false\
+      -p:InvariantGlobalization=true\
+      -p:EmitCompilerGeneratedFiles=true\
+      -o /pub/Host.Testserver\
+      testapps/Testserver
 
 ##
 ## PUBLISH BENCHMARK TOOL
 ##
-FROM build AS publish-benchmark
+FROM releasebuild AS publish-benchmark
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
- --no-restore\
- --no-build\
- -c Release\
- -p:DebugType=None\
- -p:DebugSymbols=false\
- -p:VERSION=${VERSION}\
- -p:ServerGarbageCollection=false\
- -p:InvariantGlobalization=true\
- -p:EmitCompilerGeneratedFiles=true\
- -o /pub/DtoServerBenchmark\
- testapps/DtoServerBenchmark
+      --no-restore\
+      --no-build\
+      -c Release\
+      -p:DebugType=embedded\
+      -p:DebugSymbols=true\
+      -p:Deterministic=true\
+      -p:VERSION=${VERSION}\
+      -p:ServerGarbageCollection=false\
+      -p:InvariantGlobalization=true\
+      -p:EmitCompilerGeneratedFiles=true\
+      -o /pub/DtoServerBenchmark\
+      testapps/DtoServerBenchmark
 
 ##
 ## PUBLISH BENCHMARK TOOL
 ##
-FROM build AS publish-reader-benchmark
+FROM releasebuild AS publish-reader-benchmark
 ARG VERSION
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet publish\
- --no-restore\
- --no-build\
- -c Release\
- -p:DebugType=None\
- -p:DebugSymbols=false\
- -p:VERSION=${VERSION}\
- -p:ServerGarbageCollection=false\
- -p:InvariantGlobalization=true\
- -p:EmitCompilerGeneratedFiles=true\
- -o /pub/DtoServerReaderBenchmark\
- testapps/DtoServerReaderBenchmark
+      --no-restore\
+      --no-build\
+      -c Release\
+      -p:DebugType=embedded\
+      -p:DebugSymbols=true\
+      -p:Deterministic=true\
+      -p:VERSION=${VERSION}\
+      -p:ServerGarbageCollection=false\
+      -p:InvariantGlobalization=true\
+      -p:EmitCompilerGeneratedFiles=true\
+      -o /pub/DtoServerReaderBenchmark\
+      testapps/DtoServerReaderBenchmark
 
 ###########################################################################################################
 ###########################################################################################################
@@ -257,18 +278,6 @@ COPY --from=publish-reader-benchmark /pub/DtoServerReaderBenchmark/ /bin/DtoServ
 ENTRYPOINT ["/bin/DtoServerReaderBenchmark/DtoServerReaderBenchmark"]
 
 #
-#  Final image - Host
-#
-FROM final-dtoserver-base AS final-host
-
-COPY --from=publish-host /pub/Host/ /bin/dtoserver/
-
-VOLUME /data
-
-# Define the command to run your main application
-ENTRYPOINT ["/bin/dtoserver/Host"]
-
-#
 #  Final image - Testcontainer
 #
 FROM final-dtoserver-base AS final-testcontainer
@@ -277,3 +286,15 @@ COPY --from=publish-testcontainer /pub/Host.Testserver/ /bin/dtoserver/
 
 VOLUME /data
 ENTRYPOINT ["/bin/dtoserver/Host.Testserver"]
+
+#
+#  Final image - E2E Test Host
+#
+FROM final-dtoserver-base AS final-host
+
+COPY --from=publish-host /pub/Host/ /bin/dtoserver/
+
+VOLUME /data
+
+# Define the command to run your main application
+ENTRYPOINT ["dotnet", "/bin/dtoserver/Host.dll"]
