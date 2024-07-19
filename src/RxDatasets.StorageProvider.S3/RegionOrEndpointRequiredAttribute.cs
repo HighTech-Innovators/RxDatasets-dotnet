@@ -9,13 +9,13 @@ public class RegionOrEndpointRequiredAttribute : ValidationAttribute
     {
         var config = (S3Config)validationContext.ObjectInstance;
 
-        var isAwsRegionEmpty = string.IsNullOrEmpty(config.Region);
+        var isRegionEmpty = string.IsNullOrEmpty(config.Region);
         var isServiceUrlEmpty = string.IsNullOrEmpty(config.ServiceUrl);
 
-        return (isAwsRegionEmpty, isServiceUrlEmpty) switch
+        return (isRegionEmpty, isServiceUrlEmpty) switch
         {
-            (true, true) => new ValidationResult("Either AwsRegion or ServiceUrl must be filled."),
-            (false, false) => new ValidationResult("Either AwsRegion or ServiceUrl must be filled, but not both."),
+            (true, true) => new ValidationResult("Either Region or ServiceUrl must be filled."),
+            (false, false) => new ValidationResult("Either Region or ServiceUrl must be filled, but not both."),
             _ => ValidationResult.Success!
         };
     }
