@@ -4,7 +4,6 @@ using Amazon.S3.Transfer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using System.ComponentModel.DataAnnotations;
 using Amazon;
 
 namespace RxDatasets.StorageProvider.S3
@@ -281,22 +280,5 @@ namespace RxDatasets.StorageProvider.S3
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
-    }
-
-    public class S3Config
-    {
-        [Required]
-        public string AccessKey { get; set; } = "";
-
-        [Required]
-        public string SecretKey { get; set; } = "";
-
-        [Required]
-        public string ServiceUrl { get; set; } = "";
-
-        [Required]
-        public string BucketName { get; set; } = "";
-        [Required]
-        public string Region { get; set; }
     }
 }
