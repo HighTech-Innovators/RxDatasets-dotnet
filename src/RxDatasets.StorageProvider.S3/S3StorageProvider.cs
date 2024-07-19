@@ -13,7 +13,7 @@ namespace RxDatasets.StorageProvider.S3
         private readonly AmazonS3Client _s3Client;
         private readonly ILogger<S3StorageProvider<T>> _logger;
         private readonly string _bucketName;
-        private readonly bool _initialized;
+        private bool _initialized;
 
         public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> s3Config,
             bool retryInitialization = true)
@@ -67,7 +67,7 @@ namespace RxDatasets.StorageProvider.S3
             {
                 await EnsureBucketExistsAsync();
                 _initialized = true;
-                _logger.LogInformation("S3 bucket access verified")
+                _logger.LogInformation("S3 bucket access verified");
             }
             catch (AggregateException ex)
             {
