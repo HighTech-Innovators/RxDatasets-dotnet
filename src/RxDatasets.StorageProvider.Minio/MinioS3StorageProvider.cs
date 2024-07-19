@@ -9,12 +9,13 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.Minio;
 
-public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
+public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>, IAsyncDisposable
 {
     private readonly IMinioClient _s3Client;
 
     private readonly ILogger<MinioS3StorageProvider<T>> _logger;
     private readonly IOptions<MinioS3Config> _s3Config;
+    private readonly CancellationTokenSource _stoppingTokenSource = new();
 
     public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config,
         bool retryInitialization = true)
@@ -41,25 +42,23 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
 
         _s3Client = minioClient;
 
-        if (retryInitialization)
-            InitializationLoop();
-        else
-            Initialize();
+        _ = retryInitialization
+            ? InitializationLoop(_stoppingTokenSource.Token)
+            : Initialize(_stoppingTokenSource.Token);
     }
 
-
-    private void Initialize()
+    private async Task Initialize(CancellationToken cancellationToken)
     {
         try
         {
-            EnsureBucketExists(_s3Config.Value.BucketName).Wait();
+            await EnsureBucketExists(_s3Config.Value.BucketName, cancellationToken);
         }
         catch (AggregateException ex)
         {
             _logger.LogError(ex, "Failed to connect to S3");
             if (ex.InnerException is ConnectionException)
             {
-                throw new InvalidOperationException($"S3 is unavailable", ex);
+                throw new InvalidOperationException("S3 is unavailable", ex);
             }
 
             throw;
@@ -73,19 +72,19 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
-    private async void InitializationLoop()
+    private async Task InitializationLoop(CancellationToken cancellationToken)
     {
         while (true)
         {
             try
             {
-                Initialize();
+                await Initialize(cancellationToken);
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to initialize storage provider");
-                await Task.Delay(5 * 1000);
+                await Task.Delay(5 * 1000, cancellationToken);
             }
         }
     }
@@ -102,7 +101,8 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         using var resultStream = new MemoryStream();
         try
         {
-            await _s3Client.GetObjectAsync(new GetObjectArgs()
+            await _s3Client
+                .GetObjectAsync(new GetObjectArgs()
                 .WithBucket(_s3Config.Value.BucketName)
                 .WithObject(objectKey)
                 .WithCallbackStream(x => x.CopyTo(resultStream)));
@@ -192,17 +192,22 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
-    public async Task EnsureBucketExists(string folderName)
+    public async Task EnsureBucketExists(string bucketName, CancellationToken cancellationToken)
     {
-        var bucketExists = await _s3Client.BucketExistsAsync(new BucketExistsArgs().WithBucket(folderName));
-
-        if (!bucketExists)
+        try
         {
-            _logger.LogInformation($"Bucket {folderName} does not exist, creating it");
-            await _s3Client.MakeBucketAsync(new MakeBucketArgs().WithBucket(folderName));
+            _ = await _s3Client.ListObjectsAsync(
+                    new ListObjectsArgs { IsBucketCreationRequest = false }
+                        .WithBucket(bucketName)
+                        .WithRecursive(false), cancellationToken).Take(1).ToList();
+        }
+        catch (BucketNotFoundException)
+        {
+            _logger.LogInformation($"Bucket {bucketName} does not exist, creating it");
+            await _s3Client.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucketName), cancellationToken);
         }
 
-        _logger.LogInformation($"{folderName} bucket was found or created.");
+        _logger.LogInformation($"{bucketName} bucket was found or created.");
     }
 
     public async Task UploadBytes(string objectKey, byte[] bytes)
@@ -279,5 +284,10 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
             _logger.LogError(ex, "Failed connection to get objects from S3");
             throw new InvalidOperationException($"S3 is unavailable", ex);
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _stoppingTokenSource.CancelAsync();
     }
 }
