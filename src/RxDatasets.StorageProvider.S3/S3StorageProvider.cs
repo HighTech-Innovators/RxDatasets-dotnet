@@ -13,6 +13,7 @@ namespace RxDatasets.StorageProvider.S3
         private readonly AmazonS3Client _s3Client;
         private readonly ILogger<S3StorageProvider<T>> _logger;
         private readonly string _bucketName;
+        private readonly bool _initialized;
 
         public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> s3Config,
             bool retryInitialization = true)
@@ -44,6 +45,20 @@ namespace RxDatasets.StorageProvider.S3
                 _ = InitializationLoop();
             else
                 _ = Initialize();
+        }
+
+        private async Task EnsureInitialized()
+        {
+            if (_initialized)
+                return;
+
+            for (var i = 0; i < 100; i++)
+            {
+                await Task.Delay(10);
+                if (_initialized)
+                    return;
+            }
+            throw new InvalidOperationException("S3 Storage not yet initialized");
         }
 
         private async Task Initialize()
@@ -88,6 +103,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task DeleteFile(string objectKey)
         {
+            await EnsureInitialized();
             try
             {
                 var deleteObjectRequest = new DeleteObjectRequest
@@ -120,6 +136,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey)
         {
+            await EnsureInitialized();
             try
             {
                 var getObjectRequest = new GetObjectRequest
@@ -165,6 +182,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length)
         {
+            await EnsureInitialized();
             try
             {
                 var getObjectRequest = new GetObjectRequest
@@ -206,6 +224,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task DownloadWithCallBack(string objectKey, Action<Stream> callback)
         {
+            await EnsureInitialized();
             try
             {
                 var getObjectRequest = new GetObjectRequest
@@ -300,6 +319,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task UploadBytes(string objectKey, byte[] bytes)
         {
+            await EnsureInitialized();
             try
             {
                 using var memoryStream = new MemoryStream(bytes);
@@ -328,6 +348,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task UploadFileStream(string objectKey, FileStream stream)
         {
+            await EnsureInitialized();
             try
             {
                 var uploadRequest = new TransferUtilityUploadRequest
@@ -355,6 +376,7 @@ namespace RxDatasets.StorageProvider.S3
 
         public async Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix)
         {
+            await EnsureInitialized();
             try
             {
                 var request = new ListObjectsV2Request
