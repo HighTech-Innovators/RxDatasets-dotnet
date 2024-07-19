@@ -66,6 +66,8 @@ namespace RxDatasets.StorageProvider.S3
             try
             {
                 await EnsureBucketExistsAsync();
+                _initialized = true;
+                _logger.LogInformation("S3 bucket access verified")
             }
             catch (AggregateException ex)
             {
