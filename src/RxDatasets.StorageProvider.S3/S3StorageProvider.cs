@@ -98,7 +98,7 @@ namespace RxDatasets.StorageProvider.S3
 
                 await _s3Client.DeleteObjectAsync(deleteObjectRequest);
             }
-            catch (AmazonS3Exception s3e) when ( s3e is { ErrorCode: "NotFound"})
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 return;
             }
@@ -141,7 +141,7 @@ namespace RxDatasets.StorageProvider.S3
 
                 return readOnlyMemory;
             }
-            catch (AmazonS3Exception s3e) when ( s3e is { ErrorCode: "NotFound"})
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 throw new FileNotFoundException($"File is not found.", objectKey);
@@ -182,7 +182,7 @@ namespace RxDatasets.StorageProvider.S3
 
                 return readOnlyMemory;
             }
-            catch (AmazonS3Exception s3e) when ( s3e is { ErrorCode: "NotFound"})
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 throw new FileNotFoundException($"File is not found.", objectKey);
@@ -226,7 +226,7 @@ namespace RxDatasets.StorageProvider.S3
                     throw;
                 }
             }
-            catch (AmazonS3Exception s3e) when ( s3e is { ErrorCode: "NotFound"})
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 throw new FileNotFoundException($"File is not found.", objectKey);
@@ -269,7 +269,7 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to check bucket exists in S3, amazon error {ErrorCode}", s3e.ErrorCode);
-                throw new InvalidOperationException("Failed to ensure bucket exists in S3; Amazon error {s3e.ErrorCode}");
+                throw new InvalidOperationException($"Failed to check bucket exists in S3; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
@@ -282,10 +282,14 @@ namespace RxDatasets.StorageProvider.S3
             {
                 await _s3Client.PutBucketAsync(new PutBucketRequest { BucketName = _bucketName });
             }
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "BucketAlreadyOwnedByYou" } or { ErrorCode: "BucketAlreadyExists" })
+            {
+                _logger.LogWarning("Strange - no such bucket but then it exists all of a sudden");
+            }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to create bucket in S3, amazon error {ErrorCode}", s3e.ErrorCode);
-                throw new InvalidOperationException("Failed to ensure bucket exists in S3; Amazon error {s3e.ErrorCode}");
+                throw new InvalidOperationException($"Failed to create bucket in S3; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
