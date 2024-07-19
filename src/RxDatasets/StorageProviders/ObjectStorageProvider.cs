@@ -29,7 +29,7 @@ public class ObjectStorageProvider<T>(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _initTask = retryInit ? InitLoop() : Initialize();
+        _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
         return _initTask;
     }
 
@@ -58,10 +58,10 @@ public class ObjectStorageProvider<T>(
         };
 
         return
-            GetObjectNamePrefix(storageConfig) + $"/{deltaOrSnapshotString}/{version}/{indexOrDataString}.{extension}";
+            GetObjectNamePrefix(storageConfig) + $"{deltaOrSnapshotString}/{version}/{indexOrDataString}.{extension}";
     }
 
-    private string GetLatestVersionFileName() => GetObjectNamePrefix(storageConfig.Value) + "/VersionIndex.pb";
+    private string GetLatestVersionFileName() => GetObjectNamePrefix(storageConfig.Value) + "VersionIndex.pb";
 
     public async Task DeleteOlderThan(ulong version)
     {
@@ -260,32 +260,32 @@ public class ObjectStorageProvider<T>(
     }
 
 
-    private async Task InitLoop()
+    private async Task InitLoop(CancellationToken cancellationToken)
     {
        
-        while (true)
+        while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await Initialize();
+                await Initialize(cancellationToken);
                 break;
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to initialize object storage provider");
-                await Task.Delay(5 * 1000);
+                await Task.Delay(5 * 1000, cancellationToken);
             }
         }
         
     }
 
-    public async Task Initialize()
+    public async Task Initialize(CancellationToken cancellationToken)
     {
         if (storageProvider == null)
         {
             throw new InvalidOperationException("Storage Provider was not initialized");
         }
-        using var slot = await Lock();
+        using var slot = await Lock(cancellationToken);
         _versionIndex = await GetLatestVersion();
     }
 
