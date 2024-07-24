@@ -229,12 +229,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
     {
         var existingEntity = _index!.Entities[name];
-        var newHashCode = DatasetHelper.ComputeGeneralHash(entityBytes);
         if (existingEntity.Length != entityBytes.Length)
             return true;
 
-        // If the hash code is 0 (which is the case for the entities inserted before we added hashing), we can't compare the hash code, so we have to compare the bytes
-        if (existingEntity.HashCode != 0 && existingEntity.HashCode != newHashCode)
+        var newHashCode = DatasetHelper.ComputeCrc32(entityBytes);
+        // If the crc32 is 0 (which is the case for the entities inserted before we added crc32 hashes), we can't compare the crc32, so we have to compare the bytes
+        if (existingEntity.Crc32 != 0 && existingEntity.Crc32 != newHashCode)
             return true;
         var existingBytes = await ReadEntityData(existingEntity);
         return !existingBytes.Span.SequenceEqual(entityBytes);
@@ -272,7 +272,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         byte[] data = new byte[delta.Changes.Sum(x => x.Entity?.Length ?? 0)];
         long byteArrayPosition = 0;
         await using var concatenatedByteStream = new MemoryStream();
-        foreach (var (name, entityBytes, change, hashCode) in delta.Changes)
+        foreach (var (name, entityBytes, change, crc32) in delta.Changes)
         {
             switch (change)
             {
@@ -282,7 +282,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
                         Position = byteArrayPosition,
                         Length = entityBytes!.Length,
                         Name = name,
-                        Hashcode = hashCode
+                        Crc32 = crc32
                     });
                     entityBytes.CopyTo(data, byteArrayPosition);
                     byteArrayPosition += entityBytes.Length;
@@ -293,7 +293,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
                         Position = byteArrayPosition,
                         Length = entityBytes!.Length,
                         Name = name,
-                        Hashcode = hashCode
+                        Crc32 = crc32
                     });
                     entityBytes.CopyTo(data, byteArrayPosition);
                     byteArrayPosition += entityBytes.Length;
@@ -375,14 +375,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         public Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion)
         {
             this.Changes = Changes.Select(change => (change.Name, change.Entity, change.Change,
-                DatasetHelper.ComputeGeneralHash(change.Entity ?? []))).ToArray();
+                DatasetHelper.ComputeCrc32(change.Entity ?? []))).ToArray();
             this.DatasetVersion = DatasetVersion;
         }
 
-        public (string Name, byte[]? Entity, ChangeType Change, int HashCode)[] Changes { get; init; }
+        public (string Name, byte[]? Entity, ChangeType Change, uint HashCode)[] Changes { get; init; }
         public ulong DatasetVersion { get; init; }
 
-        public void Deconstruct(out (string Name, byte[]? Entity, ChangeType Change, int HashCode)[] Changes, out ulong DatasetVersion)
+        public void Deconstruct(out (string Name, byte[]? Entity, ChangeType Change, uint HashCode)[] Changes, out ulong DatasetVersion)
         {
             Changes = this.Changes;
             DatasetVersion = this.DatasetVersion;

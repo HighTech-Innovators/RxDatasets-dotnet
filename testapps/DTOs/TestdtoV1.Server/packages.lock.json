@@ -371,6 +371,11 @@
         "resolved": "8.0.0",
         "contentHash": "fdYxcRjQqTTacKId/2IECojlDSFvp7LP5N78+0z/xH7v/Tuw5ZAxu23Y6PTCRinqyu2ePx+Gn1098NC6jM6d+A=="
       },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "ne1843evDugl0md7Fjzy6QjJrzsjh46ZKbhf8GwBXb5f/gw97J4bxMs0NQKifDuThh/f0bZ0e62NPl1jzTuRqA=="
+      },
       "System.Linq.Async": {
         "type": "Transitive",
         "resolved": "6.0.1",
@@ -417,6 +422,7 @@
           "Microsoft.Extensions.Hosting": "[8.0.0, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
+          "System.IO.Hashing": "[8.0.0, )",
           "System.Linq.Async": "[6.0.1, )",
           "System.Reactive": "[6.0.0, )"
         }
