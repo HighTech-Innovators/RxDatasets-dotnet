@@ -1,4 +1,5 @@
-﻿using System.Collections.Immutable;
+﻿using System.Buffers;
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Models;
@@ -88,13 +89,9 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
             .ToList();
     }
 
-    public static int ComputeGeneralHash(byte[] inputData)
-    {
-        var hash = new HashCode();
-        hash.AddBytes(inputData);
-        return hash.ToHashCode();
-    }
+    public static uint ComputeCrc32(ReadOnlySpan<byte> inputData) => inputData.Length == 0 ? 0 : System.IO.Hashing.Crc32.HashToUInt32(inputData);
 }
+
 
 internal class ActionDisposable : IDisposable
 {

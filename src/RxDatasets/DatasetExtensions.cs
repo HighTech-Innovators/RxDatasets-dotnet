@@ -45,7 +45,7 @@ public static class DatasetExtensions
                 existingEntity.LastUpdatedVersion,
                 newEntity.Position,
                 newEntity.Length,
-                newEntity.Hashcode);
+                newEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(newEntity.Name, updatedEntity);
         }
@@ -60,7 +60,7 @@ public static class DatasetExtensions
                 delta.DeltaVersion,
                 changedEntity.Position,
                 changedEntity.Length,
-                changedEntity.Hashcode);
+                changedEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(changedEntity.Name, updatedEntity);
         }
@@ -75,7 +75,7 @@ public static class DatasetExtensions
                 existingEntity.LastUpdatedVersion,
                 0,
                 0,
-                existingEntity.HashCode);
+                existingEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
         }

@@ -8,7 +8,7 @@ message SnapshotEntity {
 	uint64 last_updated_version = 3;
 	int64 position = 4;
 	int32 length = 5;
-	int32 hashcode = 6;
+	uint32 crc32 = 7;
 }
 
 message SnapshotIndex {
@@ -20,7 +20,7 @@ message DeltaEntity {
 	string name = 1;
 	int64 position = 2;
 	int32 length = 3;
-	int32 hashcode = 4;
+	uint32 crc32 = 5;
 }
 
 message DeltaIndex {

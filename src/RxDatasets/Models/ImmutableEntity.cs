@@ -2,7 +2,7 @@
 
 namespace RxDatasets.Models;
 
-public record ImmutableEntity(ImmutableArray<ulong> LastDeletedVersion, ImmutableArray<ulong> LastInsertedVersion, ulong LastUpdatedVersion, long Position, int Length, int HashCode = 0)
+public record ImmutableEntity(ImmutableArray<ulong> LastDeletedVersion, ImmutableArray<ulong> LastInsertedVersion, ulong LastUpdatedVersion, long Position, int Length, uint Crc32 = 0)
 {
     public SnapshotEntity ToProto()
     {
@@ -13,7 +13,7 @@ public record ImmutableEntity(ImmutableArray<ulong> LastDeletedVersion, Immutabl
             LastUpdatedVersion = LastUpdatedVersion,
             Position = Position,
             Length = Length,
-            Hashcode = HashCode
+            Crc32 = Crc32
         };
     }
 
@@ -24,6 +24,6 @@ public record ImmutableEntity(ImmutableArray<ulong> LastDeletedVersion, Immutabl
             snapshotEntity.LastUpdatedVersion,
             snapshotEntity.Position,
             snapshotEntity.Length,
-            snapshotEntity.Hashcode);
+            snapshotEntity.Crc32);
     }
 }
