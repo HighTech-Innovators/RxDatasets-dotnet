@@ -302,7 +302,7 @@ public class ObjectStorageProvider<T>(
                 storageProvider.UploadFileStream(dataObjectName, data)
             );
         }
-        
+        _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
         ulong KnownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
 
