@@ -226,13 +226,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         };
     }
 
-    public IObservable<(string Name, byte[] NewProtoBytes)> OnNewDto => _onNewDtoSubject.AsObservable();
-
-    public IObservable<(string Name, byte[] NewProtoBytes)> OnChangedDto =>
-        _onChangedDtoSubject.AsObservable();
-
-    public IObservable<string> OnDeletedDto => _onDeletedDtoSubject.AsObservable();
-
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
     {
         var existingEntity = _index!.Entities[name];
