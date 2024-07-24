@@ -58,15 +58,6 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.FromResult((oldestDelta, newestDelta, snapshots));
     }
 
-    public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version)
-    {
-        if (_deltas.TryGetValue(version, out var data))
-        {
-            return Task.FromResult(data.data);
-        }
-
-        throw new FileNotFoundException($"Delta does not exist {version}");
-    }
 
     public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version, long position, int length)
     {
