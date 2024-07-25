@@ -358,7 +358,7 @@ namespace RxDatasets.StorageProvider.S3
                     InputStream = stream,
                     Key = objectKey,
                     BucketName = _bucketName,
-                    AutoCloseStream = true
+                    AutoCloseStream = false
                 };
 
                 var transferUtility = new TransferUtility(_s3Client);
