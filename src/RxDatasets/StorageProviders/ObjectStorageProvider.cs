@@ -94,11 +94,6 @@ public class ObjectStorageProvider<T>(
         _cleanupDone = true;
     }
 
-    public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version)
-    {
-        string objectName = GetObjectName(version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, storageConfig.Value);
-        return storageProvider.DownloadBytes(objectName);
-    }
 
     public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version, long position, int length)
     {
