@@ -128,26 +128,20 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return _index!;
     }
 
-    public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)?> BatchGet(IEnumerable<string> names, string? parent)
+    public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte>? entityBytes)> BatchGet(IEnumerable<string> names, string? parent)
     {
         var indexRef = EnsureInitialized();
-        List<(string name, ReadOnlyMemory<byte> bytes)?> entities = [];
-
         foreach (var name in names)
         {
             if (!indexRef.Entities.TryGetValue(name, out var entity) ||
                 entity.GetLatestChangeType() == ChangeType.Deleted)
             {
-                entities.Add(null);
+                yield return (name, null);
                 continue;
             }
 
-            var entityBytes = await ReadEntityBytes(entity);
-            entities.Add((name, entityBytes));
-        }
-        foreach (var entity in entities)
-        {
-            yield return entity;
+            var entityBytes = await ReadEntityBytes(entity!);
+            yield return (name, entityBytes);
         }
     }
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(ImmutableEntity existingEntity)
@@ -283,7 +277,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             var entityBytes = await ReadEntityBytes(entity.Value);
             entities.Add((entity.Key, entityBytes));
         }
-
         foreach (var entity in entities)
         {
             yield return entity;

@@ -32,8 +32,8 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         {
             return await _dataset
                 .BatchGet(listOfNames, requestParent)
-                .Where(item => item is not null)
-                .Select(item => _protoParser.ParseFrom(item!.Value.entityBytes.Span))
+                .Where(item => item.entityBytes is not null)
+                .Select(item => _protoParser.ParseFrom(item.entityBytes!.Value.Span))
                 .ToListAsync(cts.Token);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
