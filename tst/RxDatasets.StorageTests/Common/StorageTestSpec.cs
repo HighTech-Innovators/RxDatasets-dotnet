@@ -86,8 +86,8 @@ public abstract class StorageTestSpec
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
         var initialDatasetVersion = await azBlobStorageDatasetReader.GetLatestVersion();
-        var changes = new List<(string, byte[])>();
-        for (int i = 0; i < 10; i++)
+        var changes = new List<(string name, byte[])>();
+        for (int i = 0; i < 500; i++)
         {
             changes.Add(($"Should_Put_All_New_DTOs_{i}", GenerateRandomData(UNIT_MB, i)));
         }
@@ -95,8 +95,15 @@ public abstract class StorageTestSpec
         var res = await azBlobStorageDatasetWriter.PutAll(changes.ToAsyncEnumerable());
 
         res.Should().NotBeNull();
-        res.NumAddedEntities.Should().Be(10);
+        res.NumAddedEntities.Should().Be(500);
         res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
+
+
+        var readRes = await azBlobStorageDatasetReader.BatchGet(changes.Select(c=>c.name).ToList(), null).ToListAsync();
+        for (var i = 0; i < changes.Count; i++)
+        {
+            readRes[i].name.Should().Be(changes[i].name);
+        }
     }
 
     [Fact]
@@ -329,7 +336,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Batch_Get()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
         List<(string key, byte[] bytes)> entities = [];
 
         string parent = "testparent";
@@ -337,7 +344,7 @@ public abstract class StorageTestSpec
         {
             entities.Add(($"{parent}/Should_Batch_Get_With_Parent_{i}", GenerateRandomData(UNIT_KB)));
         }
-        await azBlobStorageDatasetWriter.PutAll(entities.ToAsyncEnumerable());
+        await storageDatasetWriter.PutAll(entities.ToAsyncEnumerable());
 
         var batchResults = await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), parent)
             .ToListAsync();
@@ -347,24 +354,24 @@ public abstract class StorageTestSpec
 
         foreach (var entity in entities)
         {
-            var batchEntity = batchResults.First(x => x!.Value.name == entity.key);
+            var batchEntity = batchResults.First(x => x!.name == entity.key);
 
             batchEntity.Should().NotBeNull();
-            batchEntity!.Value.entityBytes.ToArray().Should().BeEquivalentTo(entity.bytes);
+            batchEntity!.entityBytes?.ToArray().Should().BeEquivalentTo(entity.bytes);
         }
     }
 
     [Fact]
     public async Task Should_Not_Batch_Get_Deleted_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
         List<(string key, byte[] bytes)> entities = [];
 
         for (int i = 0; i < 10; i++)
         {
             entities.Add(($"Should_Not_Batch_Get_Deleted_Entity_{i}", GenerateRandomData(UNIT_KB)));
         }
-        await azBlobStorageDatasetWriter.PutAll(entities.ToAsyncEnumerable());
+        await storageDatasetWriter.PutAll(entities.ToAsyncEnumerable());
 
         var deletedEntities = new List<string>()
         {
@@ -374,26 +381,26 @@ public abstract class StorageTestSpec
 
         foreach (var entityToDelete in deletedEntities)
         {
-            await azBlobStorageDatasetWriter.Delete(entityToDelete);
+            await storageDatasetWriter.Delete(entityToDelete);
         }
 
         var result = await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null).ToListAsync();
 
         result.Should().NotBeNull();
         result.Should().HaveCount(entities.Count);
-        result.Where(x => x == null).Should().HaveCount(deletedEntities.Count);
+        result.Where(x => !x.entityBytes.HasValue).Should().HaveCount(deletedEntities.Count);
 
         foreach (var deletedEntity in deletedEntities)
         {
-            result.Should().NotContain(x => x.HasValue && x.Value.name == deletedEntity);
+            result.Should().Contain(x => x.name == deletedEntity && x.entityBytes == null);
         }
 
         foreach (var entity in entities.Where(x => !deletedEntities.Contains(x.key)))
         {
-            var resultEntity = result.Where(x => x.HasValue && x.Value.name == entity.key);
+            var resultEntity = result.Where(x => x.name == entity.key);
 
             resultEntity.Should().ContainSingle();
-            resultEntity.First()!.Value.entityBytes.ToArray().Should().BeEquivalentTo(entity.bytes);
+            resultEntity.First()!.entityBytes?.ToArray().Should().BeEquivalentTo(entity.bytes);
         }
     }
 
@@ -419,19 +426,19 @@ public abstract class StorageTestSpec
 
         result.Should().NotBeNull();
         result.Should().HaveCount(entities.Count + nonExistentEntities.Count);
-        result.Where(x => x == null).Should().HaveCount(nonExistentEntities.Count);
+        result.Where(x => x.entityBytes == null).Should().HaveCount(nonExistentEntities.Count);
 
         foreach (var deletedEntity in nonExistentEntities)
         {
-            result.Should().NotContain(x => x.HasValue && x.Value.name == deletedEntity);
+            result.Should().Contain(x => x.name == deletedEntity && x.entityBytes == null);
         }
 
         foreach (var entity in entities)
         {
-            var resultEntity = result.Where(x => x.HasValue && x.Value.name == entity.key);
+            var resultEntity = result.Where(x => x.name == entity.key);
 
             resultEntity.Should().ContainSingle();
-            resultEntity.First()!.Value.entityBytes.ToArray().Should().BeEquivalentTo(entity.bytes);
+            resultEntity.First()!.entityBytes?.ToArray().Should().BeEquivalentTo(entity.bytes);
         }
     }
 
