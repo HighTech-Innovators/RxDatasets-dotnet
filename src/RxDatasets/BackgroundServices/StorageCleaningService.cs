@@ -12,7 +12,7 @@ namespace RxDatasets.BackgroundServices
     {
         private IDisposable? _disposableSubscription;
         private readonly List<DateTime> _listOfSnapshotsDatesScheduledForDeleting = [];
-        private readonly IOptionsMonitor<CleanupConfig> _configMonitor;
+        private readonly IOptions<CleanupConfig> _config;
         private readonly IDatasetUpdateNotifier<T> datasetUpdateNotifier;
         private readonly IStorageProvider<T> storageProvider;
         private readonly IScheduler scheduler;
@@ -22,13 +22,13 @@ namespace RxDatasets.BackgroundServices
             IDatasetUpdateNotifier<T> datasetUpdateNotifier,
             IStorageProvider<T> storageProvider,
             IScheduler scheduler,
-            IOptionsMonitor<CleanupConfig> configMonitor,
+            IOptions<CleanupConfig> config,
             ILogger<StorageCleaningService<T>> logger)
         {
             this.datasetUpdateNotifier = datasetUpdateNotifier;
             this.storageProvider = storageProvider;
             this.scheduler = scheduler;
-            _configMonitor = configMonitor;
+            _config = config;
             _logger = logger;
         }
 
@@ -36,7 +36,7 @@ namespace RxDatasets.BackgroundServices
         public async Task CleanStorageAsync(ulong versionOfOldestToKeepSnapshot)
         {
             _logger.LogInformation($"Storage Cleaning is happening, deleting anything older than version {versionOfOldestToKeepSnapshot}!");
-            await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot);
+            await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot, _config.Value.KeepAllDeltas);
         }
 
         public async Task SearchForOutdatedData()
@@ -47,8 +47,8 @@ namespace RxDatasets.BackgroundServices
                 var LastProcessedSnapshotVersion = await storageProvider.GetLowestProcessedVersion();
                 if (allSnapshots.Count == 0) return;
 
-                var minimumSnapshotsToKeep = _configMonitor.CurrentValue.MinimumSnapshotsToKeep;
-                var minimumAgeToLiveInMinutes = _configMonitor.CurrentValue.GetMinimumAgeToLiveInMinutes();
+                var minimumSnapshotsToKeep = _config.Value.MinimumSnapshotsToKeep;
+                var minimumAgeToLiveInMinutes = _config.Value.GetMinimumAgeToLiveInMinutes();
 
                 var cutoffTime = scheduler.Now.UtcDateTime - minimumAgeToLiveInMinutes;
 
@@ -91,7 +91,7 @@ namespace RxDatasets.BackgroundServices
             var currentTime = scheduler.Now.UtcDateTime;
 
             // Calculate when you want the cleaning to occur
-            var scheduleTime = earliestSnapshotTime + _configMonitor.CurrentValue.GetMinimumAgeToLiveInMinutes();
+            var scheduleTime = earliestSnapshotTime + _config.Value.GetMinimumAgeToLiveInMinutes();
 
             // Calculate the delay as a TimeSpan
             var delay = scheduleTime - currentTime;
@@ -105,6 +105,8 @@ namespace RxDatasets.BackgroundServices
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
+            if (!_config.Value.IsEnabled)
+                return Task.CompletedTask;
             _disposableSubscription = datasetUpdateNotifier.Subscribe(ASnapshotHasBeenCreated);
             _ = SearchForOutdatedData();
             _logger.LogInformation(typeof(T).Name + " cleaning schedule started");

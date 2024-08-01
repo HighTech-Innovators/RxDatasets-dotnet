@@ -13,6 +13,8 @@ public class CleanupConfig
 
     [Range(DefaultMinimumSnapshotsToKeep, int.MaxValue, ErrorMessage = "At least 2 snapshots must be kept.")]
     public int MinimumSnapshotsToKeep { get; set; } = DefaultMinimumSnapshotsToKeep;
+    public bool KeepAllDeltas { get; set; } = false;
+    public bool IsEnabled { get; set; } = true;
 
 
     public virtual TimeSpan GetMinimumAgeToLiveInMinutes()
