@@ -11,7 +11,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data, DateTimeOffset creationTime)> _snapshots = new();
     private readonly ConcurrentDictionary<string, ulong> _processedVersions = new();
 
-    public Task DeleteOlderThan(ulong version)
+    public Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
         foreach (var key in _deltas.Keys.Where(k => k <= version))
         {

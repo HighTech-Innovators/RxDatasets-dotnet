@@ -10,7 +10,7 @@ public interface IStorageProvider
     public Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version);
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion, long position, int length);
     public Task ReadSnapshotData(ulong snapshotVersion, Action<Stream> callback);
-    public Task DeleteOlderThan(ulong snapshotVersion);
+    public Task DeleteOlderThan(ulong snapshotVersion, bool keepAllDeltas);
     public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions();
     public Task StoreProcessedVersion(string who, ulong version);
     public Task<ulong> GetProcessedVersion(string who);

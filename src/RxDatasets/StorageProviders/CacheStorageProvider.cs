@@ -101,9 +101,9 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
         return storageProvider.ReadSnapshotData(version, callback);
     }
 
-    public Task DeleteOlderThan(ulong version)
+    public Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
-        return storageProvider.DeleteOlderThan(version);
+        return storageProvider.DeleteOlderThan(version, keepAllDeltas);
     }
 
     public Task StoreSnapshot(ulong snapshotVersion, byte[] index, FileStream data)

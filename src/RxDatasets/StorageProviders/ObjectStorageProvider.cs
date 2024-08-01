@@ -63,13 +63,12 @@ public class ObjectStorageProvider<T>(
 
     private string GetLatestVersionFileName() => GetObjectNamePrefix(storageConfig.Value) + "VersionIndex.pb";
 
-    public async Task DeleteOlderThan(ulong version)
+    public async Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
         using var slot = await Lock();
         if (_versionIndex.SnapshotVersions.All(x => x.Version != version))
             throw new InvalidOperationException($"Snapshot version {version} does not exist");
 
-        //Doesn't contain the minimum age logic, but I am also not sure if that should be done here? Since the background task Subhi made does that.
         foreach (var snapshot in _versionIndex.SnapshotVersions.Where(k => k.Version < version))
         {
             string indexKey = GetObjectName(snapshot.Version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
@@ -78,16 +77,21 @@ public class ObjectStorageProvider<T>(
             await storageProvider.DeleteFile(dataKey);
         }
 
-        for(ulong deltaToDelete = _versionIndex.EarliestDeltaVersion; deltaToDelete <= version; deltaToDelete++)
+        if (!keepAllDeltas)
         {
-            string indexKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA, storageConfig.Value);
-            string dataKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, storageConfig.Value);
-            await storageProvider.DeleteFile(indexKey);
-            await storageProvider.DeleteFile(dataKey);
+            for (ulong deltaToDelete = _versionIndex.EarliestDeltaVersion; deltaToDelete <= version; deltaToDelete++)
+            {
+                string indexKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.INDEX,
+                    ObjectNameTypeEnum.DELTA, storageConfig.Value);
+                string dataKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
+                    storageConfig.Value);
+                await storageProvider.DeleteFile(indexKey);
+                await storageProvider.DeleteFile(dataKey);
+            }
+            _versionIndex.EarliestDeltaVersion = version + 1;
         }
 
-        _versionIndex.EarliestDeltaVersion = version + 1;
-        foreach(var deletedSnapshot in _versionIndex.SnapshotVersions.Where(k => k.Version < version))
+        foreach (var deletedSnapshot in _versionIndex.SnapshotVersions.Where(k => k.Version < version))
             _versionIndex.SnapshotVersions.Remove(deletedSnapshot);
 
         await UpdateLatestVersion(_versionIndex);
