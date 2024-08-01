@@ -7,7 +7,6 @@ using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
-using RxDatasets.Models.Config;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets;

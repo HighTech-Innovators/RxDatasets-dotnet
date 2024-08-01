@@ -2,8 +2,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.Models;
-using RxDatasets.Models.Config;
 
 namespace RxDatasets.StorageProviders;
 

@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
-using RxDatasets.Models.Config;
+using RxDatasets.Configs;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests
@@ -16,7 +16,6 @@ namespace RxDatasets.StorageTests
             var storageLogger = new Mock<ILogger<CacheStorageProvider<object>>>();
             var cacheConfig = Options.Create(new DtoStorageCacheConfig()
             {
-                CacheDurationSec = cacheDurationSec,
                 CacheSizeMB = 100
             });
             var storageProviderMock = new Mock<IStorageProvider<object>>();
