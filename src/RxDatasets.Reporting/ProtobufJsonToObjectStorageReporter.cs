@@ -15,7 +15,7 @@ namespace RxDatasets.Reporting
         private readonly bool _insertVersionToFileName = reportingConfig.Value.InsertVersionToFileName;
         private readonly bool _insertVersionToPrefix = reportingConfig.Value.InsertVersionToPrefix;
 
-        public Task<object?> OpenDeltaTransaction(ulong deltaVersion) => Task.FromResult<>(deltaVersion);
+        public Task<object?> OpenDeltaTransaction(ulong deltaVersion) => Task.FromResult<object?>(deltaVersion);
 
         public Task CommitVersionTransaction(object state)
         {
