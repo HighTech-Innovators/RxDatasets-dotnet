@@ -3,8 +3,8 @@
 public interface IDatasetUpdateReporting<T>
 {
     Task<object?> OpenDeltaTransaction(ulong deltaVersion) => Task.FromResult<object?>(null);
-    Task CommitVersionTransaction(object state);
-    Task RollBack(object state); 
+    Task CommitDeltaTransaction(object state) => Task.CompletedTask;
+    Task RollBackDeltaTransaction(object state) => Task.CompletedTask; 
 
     Task OnNewDto(string name, byte[] newProtoBytes, object? optionalTransaction);
     Task OnChangedDto(string name, byte[] newProtoBytes, object? optionalTransaction);

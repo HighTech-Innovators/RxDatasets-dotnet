@@ -6,9 +6,9 @@ namespace RxDatasets.Reporting;
 
 public static class DI
 {
-    public static void ConfigureServices<TEntity>(IServiceCollection builderServices) where TEntity : IMessage<TEntity>
+    public static void AddJsonOutputWriting<TEntity>(this IServiceCollection builderServices) where TEntity : IMessage<TEntity>
     {
-        builderServices.AddValidatedConfigSection<ReportingConfig>();
+        builderServices.AddValidatedConfigSection<JsonOutputConfig>();
         builderServices.AddSingleton<IDatasetUpdateReporting<TEntity>, ProtobufJsonToObjectStorageReporter<TEntity>>();
     }
 }

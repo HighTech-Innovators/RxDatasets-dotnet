@@ -4,16 +4,6 @@ namespace Host
 {
     internal class ConsoleReporter<T> : IDatasetUpdateReporting<T>
     {
-        public Task CommitVersionTransaction(object state)
-        {
-            return Task.CompletedTask;
-        }
-
-        public Task RollBack(object state)
-        {
-            return Task.CompletedTask;
-        }
-
         public Task OnNewDto(string name, byte[] newProtoBytes, object? optionalTransaction)
         {
             Console.WriteLine(name + " was added with new bytes length: " + newProtoBytes.Length);

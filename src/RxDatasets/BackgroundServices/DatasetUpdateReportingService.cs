@@ -94,7 +94,7 @@ namespace RxDatasets.BackgroundServices
                         optionalState);
                 }
 
-                if (optionalState != null) await reportingImplementation.CommitVersionTransaction(optionalState);
+                if (optionalState != null) await reportingImplementation.CommitDeltaTransaction(optionalState);
                 optionalState = null;
                 await storageProvider.StoreProcessedVersion(_serviceIdentifier, deltaVersion);
                 _currentProcessedVersion = deltaVersion;
@@ -111,7 +111,7 @@ namespace RxDatasets.BackgroundServices
             {
                 if (optionalState != null)
                 {
-                    await reportingImplementation.RollBack(optionalState);
+                    await reportingImplementation.RollBackDeltaTransaction(optionalState);
                 }
             }
         }
