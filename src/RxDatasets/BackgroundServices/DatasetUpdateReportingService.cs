@@ -9,7 +9,7 @@ namespace RxDatasets.BackgroundServices
         IDatasetUpdateNotifier<T> datasetUpdateNotifier,
         IStorageProvider<T> storageProvider,
         ILogger<DatasetUpdateReportingService<T>> logger,
-        IDatasetUpdateReporting? reportingImplementation = null)
+        IDatasetUpdateReporting<T>? reportingImplementation = null)
         : IHostedService
     {
         private ulong _nextVersionToProcess = 0;
@@ -68,32 +68,51 @@ namespace RxDatasets.BackgroundServices
 
         private async Task ProcessDelta(ulong deltaVersion)
         {
+            var optionalState = await reportingImplementation?.OpenDeltaTransaction(deltaVersion)!;
             try
             {
                 var deltaIndex = await storageProvider.ReadDeltaIndex(deltaVersion);
                 var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
                 foreach (var newEntity in deltaIndexParsed.NewEntities)
                 {
-                    await reportingImplementation!.OnNewDto(newEntity.Name, (await storageProvider.ReadDeltaData(deltaVersion, newEntity.Position, newEntity.Length)).ToArray());
-                }
-                foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
-                {
-                    await reportingImplementation!.OnChangedDto(updatedEntity.Name, (await storageProvider.ReadDeltaData(deltaVersion, updatedEntity.Position, updatedEntity.Length)).ToArray());
-                }
-                foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
-                {
-                    await reportingImplementation!.OnDeletedDto(deletedEntity);
+                    await reportingImplementation!.OnNewDto(newEntity.Name,
+                        (await storageProvider.ReadDeltaData(deltaVersion, newEntity.Position, newEntity.Length)).ToArray(),
+                        optionalState);
                 }
 
+                foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
+                {
+                    await reportingImplementation!.OnChangedDto(updatedEntity.Name,
+                        (await storageProvider.ReadDeltaData(deltaVersion, updatedEntity.Position,
+                            updatedEntity.Length)).ToArray(),
+                        optionalState);
+                }
+
+                foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
+                {
+                    await reportingImplementation!.OnDeletedDto(deletedEntity,
+                        optionalState);
+                }
+
+                if (optionalState != null) await reportingImplementation.CommitVersionTransaction(optionalState);
+                optionalState = null;
                 await storageProvider.StoreProcessedVersion(_serviceIdentifier, deltaVersion);
                 _currentProcessedVersion = deltaVersion;
                 _nextVersionToProcess = _currentProcessedVersion + 1;
             }
             catch (FileNotFoundException)
             {
-                logger.LogWarning($"Index/Data files for version {deltaVersion} don't exist. Either data is corrupted or is deleted.");
+                logger.LogWarning(
+                    $"Index/Data files for version {deltaVersion} don't exist. Either data is corrupted or is deleted.");
                 _currentProcessedVersion = deltaVersion;
                 _nextVersionToProcess++; //we do this to skip the file and go to the next.
+            }
+            finally
+            {
+                if (optionalState != null)
+                {
+                    await reportingImplementation.RollBack(optionalState);
+                }
             }
         }
 
