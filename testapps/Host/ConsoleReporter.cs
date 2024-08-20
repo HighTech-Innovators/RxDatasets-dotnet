@@ -2,23 +2,33 @@
 
 namespace Host
 {
-    internal class ConsoleReporter : IDatasetUpdateReporting
+    internal class ConsoleReporter<T> : IDatasetUpdateReporting<T>
     {
-        public Task OnChangedDto(string Name, byte[] NewProtoBytes)
+        public Task CommitVersionTransaction(object state)
         {
-            Console.WriteLine(Name +" was updated with new bytes length: "+ NewProtoBytes.Length);
             return Task.CompletedTask;
         }
 
-        public Task OnDeletedDto(string Name)
+        public Task RollBack(object state)
         {
-            Console.WriteLine(Name + " was deleted");
             return Task.CompletedTask;
         }
 
-        public Task OnNewDto(string Name, byte[] NewProtoBytes)
+        public Task OnNewDto(string name, byte[] newProtoBytes, object? optionalTransaction)
         {
-            Console.WriteLine(Name + " was added with new bytes length: " + NewProtoBytes.Length);
+            Console.WriteLine(name + " was added with new bytes length: " + newProtoBytes.Length);
+            return Task.CompletedTask;
+        }
+
+        public Task OnChangedDto(string name, byte[] newProtoBytes, object? optionalTransaction)
+        {
+            Console.WriteLine(name + " was updated with new bytes length: " + newProtoBytes.Length);
+            return Task.CompletedTask;
+        }
+
+        public Task OnDeletedDto(string name, object? optionalTransaction)
+        {
+            Console.WriteLine(name + " was deleted");
             return Task.CompletedTask;
         }
     }

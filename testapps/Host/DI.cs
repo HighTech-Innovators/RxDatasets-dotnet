@@ -19,7 +19,7 @@ public static class DI
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();
-        builderServices.AddSingleton<IDatasetUpdateReporting, ConsoleReporter>();
+        builderServices.AddSingleton<IDatasetUpdateReporting<Hightechinnovators.Dtos.DemodtoV1.Demodto>, ConsoleReporter>();
     }
 
     public static void ConfigureApp(WebApplication app)
