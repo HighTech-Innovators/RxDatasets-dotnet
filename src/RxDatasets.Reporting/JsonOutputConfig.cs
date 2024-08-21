@@ -9,7 +9,7 @@ public class JsonOutputConfig
             "The field must be either an empty string or be a sensible alphanumeric name and end with a '/'.")]
     public string Prefix { get; set; } = "";
 
-    public bool IncludeVersionInFileName; // the/prefix/created/name.12.json
+    public bool IncludeVersionInFileName { get; set; } // the/prefix/created/name.12.json
 
-    public bool IncludeVersionInPath; // the/prefix/12/created/name.json
+    public bool IncludeVersionInPath { get; set; } // the/prefix/12/created/name.json
 }
