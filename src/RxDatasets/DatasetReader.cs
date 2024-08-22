@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -134,21 +134,19 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return _index!;
     }
 
-    public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte>? entityBytes)> BatchGet(IEnumerable<string> names, string? parent)
+    public async Task<ICollection<(string name, ReadOnlyMemory<byte>? entityBytes)>> BatchGet(IEnumerable<string> names, string? parent)
     {
         var indexRef = EnsureInitialized();
-        foreach (var name in names)
-        {
-            if (!indexRef.Entities.TryGetValue(name, out var entity) ||
-                entity.GetLatestChangeType() == ChangeType.Deleted)
+        var tasks = names.Select(async name => {
+            if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
-                yield return (name, null);
-                continue;
+                return (name, (ReadOnlyMemory<byte>?)null);
             }
 
             var entityBytes = await ReadEntityBytes(name);
-            yield return (name, entityBytes);
-        }
+            return (name, entityBytes);
+        });
+        return await Task.WhenAll(tasks);
     }
 
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)

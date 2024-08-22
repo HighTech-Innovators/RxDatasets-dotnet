@@ -197,19 +197,15 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
     }
 
-    public async IAsyncEnumerable<(string, ReadOnlyMemory<byte>?)> BatchGet(IEnumerable<string> names, string? parent)
+    public async Task<ICollection<(string, ReadOnlyMemory<byte>?)>> BatchGet(IEnumerable<string> names, string? parent)
     {
-        (string name, ReadOnlyMemory<byte>? entityBytes)[] snapshot;
+        (string name, ReadOnlyMemory<byte>? entityBytes)[] entities;
         using (await Lock())
         {
-            snapshot = names.Select(name =>
-            {
-                return ((string name, ReadOnlyMemory<byte>? entityBytes)) (_currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : (name, null));
-            }).ToArray();
+            entities = names.Select(name => ((string name, ReadOnlyMemory<byte>? entityBytes)) (_currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : (name, null))).ToArray();
         }
 
-        foreach (var q in snapshot)
-            yield return q;
+        return entities;
     }
 
     public IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
