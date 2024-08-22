@@ -205,7 +205,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
-    public async Task UploadFileStream(string objectKey, FileStream stream)
+    public async Task UploadFileStream(string objectKey, Stream stream)
     { 
         try
         {

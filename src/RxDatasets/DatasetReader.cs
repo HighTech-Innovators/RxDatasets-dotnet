@@ -15,7 +15,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly IStorageProvider<T> _storageProvider;
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
-    private ImmutableDatasetState? _backupIndex;
+    private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly bool _retryInitialization;
@@ -67,8 +67,14 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            _backupIndex = await _datasetHelper.GetLatestIndex();
-
+            try
+            {
+                _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
+            }
+            catch (FileNotFoundException e)
+            {
+                //ignored as we dont have a snapshot yet
+            }
             _logger.LogInformation($"Initialized {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
@@ -90,12 +96,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             _indexChangedTaskCompletionSource = new TaskCompletionSource();
             tcs.SetResult();
         }
-        else
+        else if ((_indexBasedOnMostRecentSnapshot == null && datasetUpdate.SnapshotVersion != 0) || (_indexBasedOnMostRecentSnapshot != null && datasetUpdate.SnapshotVersion > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
         {
-            _backupIndex = await _datasetHelper.GetSnapshotIndex(datasetUpdate.Version, datasetUpdate.SnapshotVersion);
+            _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex(); ;
         }
 
-        
+
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
@@ -140,30 +146,42 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 continue;
             }
 
-            var entityBytes = await ReadEntityBytes(entity!);
+            var entityBytes = await ReadEntityBytes(name);
             yield return (name, entityBytes);
         }
     }
-    private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(ImmutableEntity existingEntity)
-    {
-        ReadOnlyMemory<byte> existingBytes;
-        var lastUsableVersionFromMain = await _storageProvider.GetLastPresentVersion();
-        var entityVersion = existingEntity.GetLatestEntityVersion();
 
-        if (entityVersion < lastUsableVersionFromMain)
+    private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
+    {
+        // Precondition: calling method MUST have checked it exists AND is not deleted.
+        var entityInMainIndex = _index!.Entities[name];
+        var entityVersion = entityInMainIndex.GetLatestEntityVersion();
+
+        List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
+
+        if (_indexBasedOnMostRecentSnapshot != null && entityVersion <= _indexBasedOnMostRecentSnapshot!.SnapshotVersion)
         {
-            existingBytes = await _storageProvider.ReadSnapshotData(_backupIndex!.LatestSnapshotVersion, existingEntity.Position , existingEntity.Length); 
+            // At this point, we KNOW it must be in there and be the latest version in existence,
+            // because the latest version is smaller/equal to the snapshot,
+            // AND it's not deleted (which should have been checked in the calling method)
+            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
+            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
+                entityFromSnapshot.Position));
         }
-        else if (entityVersion <= _index!.LatestSnapshotVersion)
+
+        if (entityVersion <= _index.SnapshotVersion)
         {
-            existingBytes = await _storageProvider.ReadSnapshotData(_index.LatestSnapshotVersion, existingEntity.Position, existingEntity.Length);
+            // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
+            // Double check that we 
+            if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
+                sources.Add((ObjectNameTypeEnum.SNAPSHOT, _index.SnapshotVersion, entityInMainIndex.Position));
         }
         else
         {
-            existingBytes = await _storageProvider.ReadDeltaData(entityVersion, existingEntity.Position, existingEntity.Length);
+            sources.Add((ObjectNameTypeEnum.DELTA, entityVersion, entityInMainIndex.Position));
         }
 
-        return existingBytes;
+        return await _storageProvider.ReadDataFromSources(sources, entityInMainIndex.Length);
     }
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
@@ -180,10 +198,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         var indexRef = EnsureInitialized();
 
-        if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!indexRef.Entities.TryGetValue(name, out var entity))
             return null;
 
-        var entityBytes = await ReadEntityBytes(entity);
+        if (entity.GetLatestChangeType() == ChangeType.Deleted)
+            return null;
+
+        var entityBytes = await ReadEntityBytes(name);
 
         return (name, entityBytes);
     }
@@ -274,7 +295,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                      .Where(x => x.Key.StartsWith(prefix))
                      .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted))
         {
-            var entityBytes = await ReadEntityBytes(entity.Value);
+            var entityBytes = await ReadEntityBytes(entity.Key);
             entities.Add((entity.Key, entityBytes));
         }
         foreach (var entity in entities)

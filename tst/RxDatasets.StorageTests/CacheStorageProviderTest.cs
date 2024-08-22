@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
@@ -44,12 +45,13 @@ namespace RxDatasets.StorageTests
             ulong version = 1;
 
             await cacheStorageProvider.StoreDelta(version, indexBytes, dataBytes);
-            var returnedBytes = await cacheStorageProvider.ReadDeltaData(version, 256, 512);
+            var returnedBytes = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, version, 256)], 512);
             var expectedBytes = dataBytes.Skip(256).Take(512).ToArray();
 
             //Assert
             Assert.Equal(expectedBytes, returnedBytes.ToArray());
-            storageProviderMock.Verify(x => x.ReadDeltaData(1, 256 ,512), Times.Never);
+            storageProviderMock.Verify(x => x.ReadDataFromSources(
+                It.IsAny<List<(ObjectNameTypeEnum type, ulong version, long position)>>(), 512), Times.Never);
             storageProviderMock.Verify(x => x.StoreDelta(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
 
@@ -81,20 +83,23 @@ namespace RxDatasets.StorageTests
 
             ulong version = 1;
 
-            using var filestream = File.OpenWrite("test.pb");
+            await using var filestream = File.OpenWrite("test.pb");
             filestream.Write(dataBytes);
             filestream.Position = 0;
+            filestream.Close();
+            await using var readFileStream = File.OpenRead("test.pb");
+            await cacheStorageProvider.StoreSnapshot(version, indexBytes, readFileStream);
+            readFileStream.Close();
 
-            await cacheStorageProvider.StoreSnapshot(version, indexBytes, filestream);
             var returnedSnapshotIndex = await cacheStorageProvider.ReadSnapshotIndex(version);
 
             //Assert
             storageProviderMock.Verify(x => x.ReadSnapshotIndex(It.IsAny<ulong>()), Times.Once);
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<FileStream>()), Times.Once);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
         }
 
         [Fact]
-        public async Task Should_Not_Hit_Cache_For_Partial_Read_Snapshot_Data()
+        public async Task Should_Hit_Cache_For_Partial_Read_Snapshot_Data()
         {
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
 
@@ -103,21 +108,34 @@ namespace RxDatasets.StorageTests
 
             ulong version = 1;
 
-            using var filestream = File.OpenWrite("test.pb");
+            await using var filestream = File.OpenWrite("test.pb");
             filestream.Write(dataBytes);
             filestream.Position = 0;
+            filestream.Close();
+            await using var readFileStream = File.OpenRead("test.pb");
+            await cacheStorageProvider.StoreSnapshot(version, indexBytes, readFileStream);
+            readFileStream.Close();
+            var returnedData = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.SNAPSHOT, version, 256)], 512);
 
-            await cacheStorageProvider.StoreSnapshot(version, indexBytes, filestream);
-            var returnedData = await cacheStorageProvider.ReadSnapshotData(version, 256, 512);
             var expectedBytes = dataBytes.Skip(256).Take(512).ToArray();
 
             //Assert
-            storageProviderMock.Verify(x => x.ReadSnapshotData(1, 256, 512), Times.Once);
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<FileStream>()), Times.Once);
+            storageProviderMock.Verify(x => x.ReadDataFromSources(
+                It.IsAny<List<(ObjectNameTypeEnum type, ulong version, long position)>>(), 512), Times.Never);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
         }
-
         [Fact]
-        public async Task Should_Not_Hit_Cach_On_Callback_Read()
+        public async Task ReadDataFromSources_Should_Throw_If_No_Data_Source_Is_Provided()
+        {
+            var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
+
+            var action = async () => await cacheStorageProvider.ReadDataFromSources([], 512);
+
+            //Assert
+            await action.Should().ThrowAsync<ArgumentException>();
+        }
+        [Fact]
+        public async Task Should_Hit_Cache_On_Callback_Read()
         {
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(1);
 
@@ -126,10 +144,13 @@ namespace RxDatasets.StorageTests
 
             ulong version = 1;
 
-            using var filestream = File.OpenWrite("test.pb");
+            await using var filestream = File.OpenWrite("test.pb");
             filestream.Write(dataBytes);
             filestream.Position = 0;
-            await cacheStorageProvider.StoreSnapshot(version, indexBytes, filestream);
+            filestream.Close();
+            await using var readFileStream = File.OpenRead("test.pb");
+            await cacheStorageProvider.StoreSnapshot(version, indexBytes, readFileStream);
+            readFileStream.Close();
 
             await cacheStorageProvider.ReadSnapshotData(version, (stream) =>
             {
@@ -138,8 +159,8 @@ namespace RxDatasets.StorageTests
             });
 
             //Assert
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<FileStream>()), Times.Once);
-            storageProviderMock.Verify(x => x.ReadSnapshotData(It.IsAny<ulong>(), It.IsAny<Action<Stream>>()), Times.Once);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
+            storageProviderMock.Verify(x => x.ReadSnapshotData(It.IsAny<ulong>(), It.IsAny<Action<Stream>>()), Times.Never);
         }
     }
 }

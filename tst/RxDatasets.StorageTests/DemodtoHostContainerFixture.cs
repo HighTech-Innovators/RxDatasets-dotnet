@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
-using Minio.DataModel.Notification;
 using RxDatasets.StorageProvider.Minio;
 
 namespace RxDatasets.StorageTests;

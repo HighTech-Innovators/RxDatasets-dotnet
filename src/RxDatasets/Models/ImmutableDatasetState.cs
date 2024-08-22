@@ -2,7 +2,7 @@
 
 namespace RxDatasets.Models;
 
-public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableEntity> Entities, ulong LatestSnapshotVersion, ulong LatestVersion)
+public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableEntity> Entities, ulong SnapshotVersion, ulong LatestVersion)
 {
     public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
     {
@@ -16,7 +16,7 @@ public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableEntity>
     {
         SnapshotIndex snapshotIndex = new SnapshotIndex()
         {
-            SnapshotVersion = LatestSnapshotVersion
+            SnapshotVersion = this.SnapshotVersion
         };
 
         foreach(var entity in Entities)

@@ -1,4 +1,4 @@
-﻿namespace RxDatasets.Models;
+﻿namespace RxDatasets.Abstractions;
 
 public enum ObjectNameTypeEnum
 {

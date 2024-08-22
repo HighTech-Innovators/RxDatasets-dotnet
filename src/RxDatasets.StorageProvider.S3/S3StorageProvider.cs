@@ -348,7 +348,7 @@ namespace RxDatasets.StorageProvider.S3
             }
         }
 
-        public async Task UploadFileStream(string objectKey, FileStream stream)
+        public async Task UploadFileStream(string objectKey, Stream stream)
         {
             await EnsureInitialized();
             try

@@ -181,7 +181,7 @@ public class SnapshotCreationService<T> : BackgroundService
         {
             long targetSnapshotStreamPosition = 0;
 
-            if (currentIndex.LatestSnapshotVersion > 0)
+            if (currentIndex.SnapshotVersion > 0)
                 targetSnapshotStreamPosition =
                     await CopyRelevantItemsFromOldSnapshot(currentIndex, newSnapshotEntities, targetSnapshotStream,
                         targetSnapshotStreamPosition, stoppingToken);
@@ -221,7 +221,7 @@ public class SnapshotCreationService<T> : BackgroundService
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         foreach (var entity in currentIndex.Entities.Where(x =>
-                     x.Value.GetLatestEntityVersion() > currentIndex.LatestSnapshotVersion))
+                     x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
 
@@ -238,8 +238,7 @@ public class SnapshotCreationService<T> : BackgroundService
                 var targetEntityPosition = targetSnapshotStreamPosition;
 
                 var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDeltaData(latestEntityVersion, entity.Value.Position,
-                    entity.Value.Length);
+                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
 
                 await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
                 targetSnapshotStreamPosition += entityLength;
@@ -256,12 +255,12 @@ public class SnapshotCreationService<T> : BackgroundService
         Dictionary<string, ImmutableEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        await _storageProvider.ReadSnapshotData(currentIndex.LatestSnapshotVersion, sourceStream =>
+        await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {
             long sourceStreamPosition = 0;
 
             foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.LatestSnapshotVersion)
+                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)

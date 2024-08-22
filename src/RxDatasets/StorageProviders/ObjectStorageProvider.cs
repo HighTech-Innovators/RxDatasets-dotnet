@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.DatasetUpdateNotifications;
-using RxDatasets.Models;
 
 namespace RxDatasets.StorageProviders;
 
@@ -20,8 +19,6 @@ public class ObjectStorageProvider<T>(
 { 
     private VersionInfo _versionIndex = new();
     private Task? _initTask;
-    private ulong _lowestAvailableDeltaVersion;
-    private bool _cleanupDone;
     private readonly SemaphoreSlim _semaphore = new(1);
 
     public static string GetObjectNamePrefix(StorageConfig storageConfig) =>
@@ -63,6 +60,12 @@ public class ObjectStorageProvider<T>(
 
     private string GetLatestVersionFileName() => GetObjectNamePrefix(storageConfig.Value) + "VersionIndex.pb";
 
+    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
+    {
+        var objectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
+        return storageProvider.DownloadBytes(objectName);
+    }
+
     public async Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
         using var slot = await Lock();
@@ -95,21 +98,8 @@ public class ObjectStorageProvider<T>(
             _versionIndex.SnapshotVersions.Remove(deletedSnapshot);
 
         await UpdateLatestVersion(_versionIndex);
-        _cleanupDone = true;
     }
 
-
-    public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version, long position, int length)
-    {
-        var objectName = GetObjectName(version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, storageConfig.Value);
-        return storageProvider.DownloadBytes(objectName, position, length);
-    }
-
-    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong version, long position, int length)
-    {
-        var objectName = GetObjectName(version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
-        return storageProvider.DownloadBytes(objectName, position, length);
-    }
 
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
     {
@@ -147,7 +137,7 @@ public class ObjectStorageProvider<T>(
         });
     }
 
-    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, FileStream data)
+    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
         using var slot = await Lock();
         string indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
@@ -211,7 +201,6 @@ public class ObjectStorageProvider<T>(
         {
             versionInfo = await CreateLatestVersion();
         }
-        _lowestAvailableDeltaVersion = versionInfo.EarliestDeltaVersion;
         return versionInfo;
     }
 
@@ -288,7 +277,7 @@ public class ObjectStorageProvider<T>(
         _versionIndex = await GetLatestVersion();
     }
 
-    public async Task StoreDelta(ulong deltaVersion, byte[] index, FileStream data)
+    public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
         using var slot = await Lock();
         var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA, storageConfig.Value);
@@ -303,13 +292,13 @@ public class ObjectStorageProvider<T>(
         }
         _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
-        ulong KnownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
+        ulong knownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
 
         datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
         {
             DtoName = typeof(T).Name,
             Version = deltaVersion,
-            SnapshotVersion = KnownSnapshotVersion
+            SnapshotVersion = knownSnapshotVersion
         });
     }
 
@@ -340,6 +329,30 @@ public class ObjectStorageProvider<T>(
         await UpdateLatestVersion(_versionIndex);
     }
 
+    public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
+    {
+        if (sources.Count == 0)
+            throw new ArgumentException($"at least one source must be filled");
+
+        foreach (var (type, version, position) in sources)
+        {
+            switch (type)
+            {
+                case ObjectNameTypeEnum.SNAPSHOT when _versionIndex.SnapshotVersions.All(s => s.Version != version):
+                case ObjectNameTypeEnum.DELTA when version < _versionIndex.EarliestDeltaVersion:
+                    // Skip, we don't think we can handle this version request
+                    continue;
+                default:
+                {
+                    var objectName = GetObjectName(version, ObjectNameIndexOrDataEnum.DATA, type, storageConfig.Value);
+                    return await storageProvider.DownloadBytes(objectName, position, length);
+                }
+            }
+        }
+
+        throw new ArgumentException($"None of the sources is available");
+    }
+
     public Task<ulong> GetProcessedVersion(string who)
     {
         var versionFound = _versionIndex.ProcessedVersions.TryGetValue(who, out var version);
@@ -354,16 +367,5 @@ public class ObjectStorageProvider<T>(
             return Task.FromResult(_versionIndex.ProcessedVersions.Min(v => v.Value));
         }
         else return Task.FromResult(0ul);
-    }
-
-    public async Task<ulong> GetLastPresentVersion()
-    {
-        if (_cleanupDone)
-        {
-            var allVersions = (await storageProvider.ListObjects(GetObjectNamePrefix(storageConfig.Value) + "deltas/")).Select(d => SharedMethods.ExtractNumber(d.ObjectKey)).ToList();
-            _lowestAvailableDeltaVersion = allVersions.Count > 0 ? (ulong)allVersions.Min() : 0ul;
-            _cleanupDone = false;
-        }
-        return _lowestAvailableDeltaVersion;
     }
 }

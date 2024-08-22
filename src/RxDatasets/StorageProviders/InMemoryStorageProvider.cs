@@ -11,6 +11,16 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data, DateTimeOffset creationTime)> _snapshots = new();
     private readonly ConcurrentDictionary<string, ulong> _processedVersions = new();
 
+    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
+    {
+        if (_deltas.TryGetValue(snapshotVersion, out var data))
+        {
+            return Task.FromResult(data.data);
+        }
+
+        throw new FileNotFoundException($"snapshot does not exist {snapshotVersion}");
+    }
+
     public Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
         foreach (var key in _deltas.Keys.Where(k => k <= version))
@@ -26,7 +36,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.CompletedTask;
     }
 
-    public Task StoreDelta(ulong deltaVersion, byte[] index, FileStream stream)
+    public Task StoreDelta(ulong deltaVersion, byte[] index, Stream stream)
     {
         byte[] dataBytes;
         using (stream)
@@ -58,17 +68,6 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.FromResult((oldestDelta, newestDelta, snapshots));
     }
 
-
-    public Task<ReadOnlyMemory<byte>> ReadDeltaData(ulong version, long position, int length)
-    {
-        if (_deltas.TryGetValue(version, out var data))
-        {
-            return Task.FromResult(data.data.Slice((int)position, length));
-        }
-
-        throw new FileNotFoundException($"Delta does not exist {version}");
-    }
-
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
         if (_deltas.TryGetValue(version, out var delta))
@@ -77,16 +76,6 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         }
 
         throw new FileNotFoundException($"Delta does not exist {version}");
-    }
-
-    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong version, long position, int length)
-    {
-        if (_snapshots.TryGetValue(version, out var data))
-        {
-            return Task.FromResult(data.data.Slice((int)position, length));
-        }
-
-        throw new FileNotFoundException($"Snapshot does not exist {version}");
     }
 
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
@@ -125,7 +114,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.CompletedTask;
     }
 
-    public Task StoreSnapshot(ulong snapshotVersion, byte[] index, FileStream data)
+    public Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
         data.Position = 0;
         MemoryStream memoryStream = new MemoryStream();
@@ -153,6 +142,27 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.CompletedTask;
     }
 
+    public Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
+    {
+        if (sources.Count == 0)
+        {
+            throw new ArgumentException($"at least one source must be filled");
+        }
+
+        foreach (var (type, version, position) in sources)
+        {
+            switch (type)
+            {
+                case ObjectNameTypeEnum.SNAPSHOT when _snapshots.TryGetValue(version, out var snapshot):
+                    return Task.FromResult(snapshot.data.Slice((int)position, length));
+                case ObjectNameTypeEnum.DELTA when _deltas.TryGetValue(version, out var delta):
+                    return Task.FromResult(delta.data.Slice((int)position, length));
+            }
+        }
+
+        throw new ArgumentException($"No Source was read");
+    }
+
     public Task<ulong> GetProcessedVersion(string who)
     {
         var versionFound = _processedVersions.TryGetValue(who, out var version);
@@ -167,14 +177,5 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
     {
         return Task.FromResult(_processedVersions.Count > 0 ? _processedVersions.Min(v => v.Value) : 0ul);
         ;
-    }
-
-    public Task<ulong> GetLastPresentVersion()
-    {
-        if (_deltas.Keys.Count > 0)
-        {
-            return Task.FromResult(_deltas.Keys.Min());
-        }
-        return Task.FromResult(0ul);
     }
 }

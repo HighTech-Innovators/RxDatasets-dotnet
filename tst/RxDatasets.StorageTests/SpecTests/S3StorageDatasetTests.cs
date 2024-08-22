@@ -5,7 +5,6 @@ using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.DatasetUpdateNotifications;
-using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
