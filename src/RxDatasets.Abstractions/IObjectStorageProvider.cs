@@ -32,7 +32,7 @@ public interface IObjectStorageProvider<T>
     /// <exception cref="FileNotFoundException">In case a file does not exist</exception>
     public Task DownloadWithCallBack(string objectKey, Action<Stream> callback);
     public Task UploadBytes(string objectKey, byte[] bytes);
-    public Task UploadFileStream(string objectKey, FileStream stream);
+    public Task UploadFileStream(string objectKey, Stream stream);
     public Task DeleteFile(string objectKey);
     public Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix);
 }

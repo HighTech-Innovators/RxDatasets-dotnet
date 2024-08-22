@@ -57,19 +57,29 @@ public static class DI
         services.AddValidatedConfigSection<DtoStorageCacheConfig>();
         services.AddSingleton<ObjectStorageProvider<TEntity>>();
         services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
-        services.AddSingleton<IStorageProvider<TEntity>>( (sp) => 
-            new CacheStorageProvider<TEntity>(
-                sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
-                sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
-                sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
-                )
-        );
+        services.AddSingleton<IStorageProvider<TEntity>>( (sp) => new CacheStorageProvider<TEntity>(
+            sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
+            sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
+            sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
+        ));
         AddNonKeyedInjects(services);
         AddSingletonsForDataset<TEntity>(services);
+        services.AddHostedService(sp => (CacheStorageProvider<TEntity>)sp.GetRequiredService<IStorageProvider<TEntity>>());
         services.AddHostedService<SnapshotCreationService<TEntity>>();
         services.AddHostedService<StorageCleaningService<TEntity>>();
         services.AddHostedService<DatasetUpdateReportingService<TEntity>>();
 
     }
+    public static void AddObjectStorageDataset<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
+    {
+        services.AddValidatedConfigSection<DtoStorageCacheConfig>();
+        services.AddSingleton< IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
+        services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
+        AddNonKeyedInjects(services);
+        AddSingletonsForDataset<TEntity>(services); 
+        services.AddHostedService<SnapshotCreationService<TEntity>>();
+        services.AddHostedService<StorageCleaningService<TEntity>>();
+        services.AddHostedService<DatasetUpdateReportingService<TEntity>>();
 
+    }
 }

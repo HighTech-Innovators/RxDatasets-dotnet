@@ -11,8 +11,8 @@ using Hightechinnovators.Dtos.Type;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
+using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.Models;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageProvider.Minio;
 

@@ -1,5 +1,4 @@
-﻿using System.Reactive.Linq;
-using System.Reactive.Subjects;
+﻿using System.Reactive.Subjects;
 using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -19,7 +18,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
     private ImmutableDatasetState? _index;
-    private ImmutableDatasetState? _backupIndex;
+    private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
 
@@ -35,9 +34,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
 
     private async Task OnDatasetUpdate(DatasetUpdateNotification updateNotification)
     {
-        if (updateNotification.SnapshotVersion == updateNotification.Version)
+        if ((_indexBasedOnMostRecentSnapshot == null && updateNotification.SnapshotVersion != 0) || (_indexBasedOnMostRecentSnapshot != null && updateNotification.SnapshotVersion > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
         {
-            _backupIndex = await _datasetHelper.GetSnapshotIndex(updateNotification.Version, updateNotification.SnapshotVersion);
+            _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
         }
     }
 
@@ -63,7 +62,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            _backupIndex = await _datasetHelper.GetLatestIndex();
+            try
+            {
+                _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
+            }
+            catch (FileNotFoundException e)
+            {
+                //ignored as we dont have a snapshot yet
+            }
 
             _logger.LogInformation($"Initialized {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
@@ -208,8 +214,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
 
         //upload 
         _index = _index.ApplyDelta(deltaIndex);
-        _backupIndex = _backupIndex!.ApplyDelta(deltaIndex);
-
 
         var newTempFileStream = File.OpenRead(tempDataFilePath);
         await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), newTempFileStream);
@@ -236,30 +240,41 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         // If the crc32 is 0 (which is the case for the entities inserted before we added crc32 hashes), we can't compare the crc32, so we have to compare the bytes
         if (existingEntity.Crc32 != 0 && existingEntity.Crc32 != newHashCode)
             return true;
-        var existingBytes = await ReadEntityData(existingEntity);
+        var existingBytes = await ReadEntityBytes(name);
         return !existingBytes.Span.SequenceEqual(entityBytes);
     }
 
-    private async Task<ReadOnlyMemory<byte>> ReadEntityData(ImmutableEntity existingEntity)
+    private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
-        ReadOnlyMemory<byte> existingBytes;
-        var lastUsableVersionFromMain = await _storageProvider.GetLastPresentVersion();
-        var entityVersion = existingEntity.GetLatestEntityVersion();
+        // Precondition: calling method MUST have checked it exists AND is not deleted.
+        var entityInMainIndex = _index!.Entities[name];
+        var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
-        if (entityVersion < lastUsableVersionFromMain)
+        List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
+
+        if (_indexBasedOnMostRecentSnapshot != null && entityVersion <= _indexBasedOnMostRecentSnapshot.SnapshotVersion)
         {
-            existingBytes = await _storageProvider.ReadSnapshotData(_backupIndex!.LatestSnapshotVersion, existingEntity.Position, existingEntity.Length);
+            // At this point, we KNOW it must be in there and be the latest version in existence,
+            // because the latest version is smaller/equal to the snapshot,
+            // AND it's not deleted (which should have been checked in the calling method)
+            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
+            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
+                entityFromSnapshot.Position));
         }
-        else if (entityVersion <= _index!.LatestSnapshotVersion)
+
+        if (entityVersion <= _index.SnapshotVersion)
         {
-            existingBytes = await _storageProvider.ReadSnapshotData(_index.LatestSnapshotVersion, existingEntity.Position, existingEntity.Length);
+            // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
+            // Double check that we 
+            if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
+                sources.Add((ObjectNameTypeEnum.SNAPSHOT, _index.SnapshotVersion, entityInMainIndex.Position));
         }
         else
         {
-            existingBytes = await _storageProvider.ReadDeltaData(entityVersion, existingEntity.Position, existingEntity.Length);
+            sources.Add((ObjectNameTypeEnum.DELTA, entityVersion, entityInMainIndex.Position));
         }
 
-        return existingBytes;
+        return await _storageProvider.ReadDataFromSources(sources, entityInMainIndex.Length);
     }
 
     private async Task<ImmutableDatasetState> ApplyDelta(Delta delta)
@@ -306,7 +321,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), data);
 
         _index = _index!.ApplyDelta(deltaIndex);
-        _backupIndex = _backupIndex!.ApplyDelta(deltaIndex);
 
         return _index;
     }

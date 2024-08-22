@@ -74,11 +74,13 @@ namespace RxDatasets.BackgroundServices
                 var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
                 foreach (var newEntity in deltaIndexParsed.NewEntities)
                 {
-                    await reportingImplementation!.OnNewDto(newEntity.Name, (await storageProvider.ReadDeltaData(deltaVersion, newEntity.Position, newEntity.Length)).ToArray());
+                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, deltaVersion, newEntity.Position)], newEntity.Length);
+                    await reportingImplementation!.OnNewDto(newEntity.Name, data.ToArray());
                 }
                 foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
                 {
-                    await reportingImplementation!.OnChangedDto(updatedEntity.Name, (await storageProvider.ReadDeltaData(deltaVersion, updatedEntity.Position, updatedEntity.Length)).ToArray());
+                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, deltaVersion, updatedEntity.Position)], updatedEntity.Length);
+                    await reportingImplementation!.OnChangedDto(updatedEntity.Name, data.ToArray());
                 }
                 foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
                 {

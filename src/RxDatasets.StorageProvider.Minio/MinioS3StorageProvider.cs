@@ -239,7 +239,7 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
     }
 
 
-    public async Task UploadFileStream(string objectKey, FileStream stream)
+    public async Task UploadFileStream(string objectKey, Stream stream)
     {
         stream.Position = 0;
         try

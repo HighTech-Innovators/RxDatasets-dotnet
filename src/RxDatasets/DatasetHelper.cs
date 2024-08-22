@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Models;
@@ -34,22 +33,35 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
         }
         else
         {
-            var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(latestSnapshot);
-            var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
-
-            if (mutableSnapshotIndex.SnapshotVersion != latestSnapshot)
-            {
-                logger.LogWarning($"Snapshot version {mutableSnapshotIndex.SnapshotVersion} does not match the requested version {latestSnapshot}, overwriting it");
-                mutableSnapshotIndex.SnapshotVersion = latestSnapshot;
-            }
-
-            snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+            snapshotIndex = await GetLatestSnapshotIndex(latestSnapshot);
             deltas = await GetChangedDeltas(latestSnapshot, version);
         }
         snapshotIndex = snapshotIndex.ApplyDeltas(deltas);
 
         return snapshotIndex;
     }
+
+    public async Task<ImmutableDatasetState> GetLatestSnapshotIndex(ulong? latestSnapshot = null)
+    {
+        if(latestSnapshot == null){
+            var availableVersion = await storageProvider.ListVersions();
+            latestSnapshot = availableVersion.snapshots.Count > 0 ? availableVersion.snapshots.MaxBy((s) => s.version).version : 0ul;
+            if (latestSnapshot == 0) throw new FileNotFoundException("There is no latest snapshot.");
+        }
+
+        var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex((ulong)latestSnapshot);
+        var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
+
+        if (mutableSnapshotIndex.SnapshotVersion != latestSnapshot)
+        {
+            logger.LogWarning($"Snapshot version {mutableSnapshotIndex.SnapshotVersion} does not match the requested version {latestSnapshot}, overwriting it");
+            mutableSnapshotIndex.SnapshotVersion = (ulong)latestSnapshot;
+        }
+
+        var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+        return snapshotIndex;
+    }
+
     public async Task<ImmutableDatasetState> GetSnapshotIndex(ulong deltaVersion, ulong snapshotVersion)
     {
         var availableVersion = await storageProvider.ListVersions();

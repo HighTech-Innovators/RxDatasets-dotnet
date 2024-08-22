@@ -19,11 +19,13 @@ public record ImmutableEntity(ImmutableArray<ulong> LastDeletedVersion, Immutabl
 
     public static ImmutableEntity FromProto(SnapshotEntity snapshotEntity)
     {
-        return new ImmutableEntity(snapshotEntity.LastDeletedVersion.ToImmutableArray(),
-            snapshotEntity.LastInsertedVersion.ToImmutableArray(),
+        return new ImmutableEntity([..snapshotEntity.LastDeletedVersion],
+            [..snapshotEntity.LastInsertedVersion],
             snapshotEntity.LastUpdatedVersion,
             snapshotEntity.Position,
             snapshotEntity.Length,
             snapshotEntity.Crc32);
     }
+
+    //todo: add delta entity creation to here
 }

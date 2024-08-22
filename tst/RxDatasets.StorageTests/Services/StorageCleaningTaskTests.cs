@@ -1,5 +1,4 @@
 ﻿using System.Reactive.Concurrency;
-using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
