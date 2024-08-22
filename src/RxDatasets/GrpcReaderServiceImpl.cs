@@ -30,11 +30,10 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         using var cts = CombiTokenSource(cancellationToken);
         try
         {
-            return await _dataset
-                .BatchGet(listOfNames, requestParent)
-                .Where(item => item.entityBytes is not null)
-                .Select(item => _protoParser.ParseFrom(item.entityBytes!.Value.Span))
-                .ToListAsync(cts.Token);
+            var entities = await _dataset
+                .BatchGet(listOfNames, requestParent);
+            return entities.Where(entity => entity.entityBytes is not null)
+                .Select(item => _protoParser.ParseFrom(item.entityBytes!.Value.Span)).ToList();
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {

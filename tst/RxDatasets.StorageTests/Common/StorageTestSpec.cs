@@ -99,7 +99,7 @@ public abstract class StorageTestSpec
         res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
 
 
-        var readRes = await azBlobStorageDatasetReader.BatchGet(changes.Select(c=>c.name).ToList(), null).ToListAsync();
+        var readRes = (await azBlobStorageDatasetReader.BatchGet(changes.Select(c=>c.name).ToList(), null)).ToList();
         for (var i = 0; i < changes.Count; i++)
         {
             readRes[i].name.Should().Be(changes[i].name);
@@ -346,8 +346,8 @@ public abstract class StorageTestSpec
         }
         await storageDatasetWriter.PutAll(entities.ToAsyncEnumerable());
 
-        var batchResults = await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), parent)
-            .ToListAsync();
+        var batchResults = (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), parent)
+            ).ToList();
 
         batchResults.Should().NotBeNull();
         batchResults.Should().HaveCount(entities.Count);
@@ -384,7 +384,7 @@ public abstract class StorageTestSpec
             await storageDatasetWriter.Delete(entityToDelete);
         }
 
-        var result = await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null).ToListAsync();
+        var result = (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null)).ToList();
 
         result.Should().NotBeNull();
         result.Should().HaveCount(entities.Count);
@@ -422,7 +422,7 @@ public abstract class StorageTestSpec
             "Should_Not_Batch_Get_Deleted_Entity_12"
         };
 
-        var result = await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key).Concat(nonExistentEntities), null).ToListAsync();
+        var result = (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key).Concat(nonExistentEntities), null)).ToList();
 
         result.Should().NotBeNull();
         result.Should().HaveCount(entities.Count + nonExistentEntities.Count);
@@ -663,7 +663,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetReader.GetChangedNames(0);
         (await azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
 
-        await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null).ToListAsync();
+        (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null)).ToList();
         (await azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
 
         await azBlobStorageDatasetReader.List("parent").ToListAsync();
