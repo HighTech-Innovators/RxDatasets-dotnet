@@ -8,9 +8,10 @@ using Amazon;
 
 namespace RxDatasets.StorageProvider.S3
 {
-    public class S3StorageProvider<T> : IObjectStorageProvider<T>
+    public class S3StorageProvider<T> : IObjectStorageProvider<T>, IDisposable
     {
         private readonly AmazonS3Client _s3Client;
+        private readonly TransferUtility _transferUtility;
         private readonly ILogger<S3StorageProvider<T>> _logger;
         private readonly string _bucketName;
         private bool _initialized;
@@ -38,13 +39,10 @@ namespace RxDatasets.StorageProvider.S3
                 };
             }
 
-
             _s3Client = new AmazonS3Client(s3Config.Value.AccessKey, s3Config.Value.SecretKey, config);
+            _transferUtility = new TransferUtility(_s3Client); // Initialize once
 
-            if (retryInitialization)
-                _ = InitializationLoop();
-            else
-                _ = Initialize();
+            _ = retryInitialization ? InitializationLoop() : Initialize();
         }
 
         private async Task EnsureInitialized()
@@ -333,8 +331,7 @@ namespace RxDatasets.StorageProvider.S3
                     AutoCloseStream = true
                 };
 
-                var transferUtility = new TransferUtility(_s3Client);
-                await transferUtility.UploadAsync(uploadRequest);
+                await _transferUtility.UploadAsync(uploadRequest);
             }
             catch (AmazonS3Exception s3e)
             {
@@ -361,8 +358,7 @@ namespace RxDatasets.StorageProvider.S3
                     AutoCloseStream = false
                 };
 
-                var transferUtility = new TransferUtility(_s3Client);
-                await transferUtility.UploadAsync(uploadRequest);
+                await _transferUtility.UploadAsync(uploadRequest);
             }
             catch (AmazonS3Exception s3e)
             {
@@ -402,6 +398,12 @@ namespace RxDatasets.StorageProvider.S3
                 _logger.LogError(ex, "Failed to list objects {prefix}", prefix);
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
+        }
+
+        void IDisposable.Dispose()
+        {
+            _transferUtility.Dispose();
+            _s3Client.Dispose();
         }
     }
 }
