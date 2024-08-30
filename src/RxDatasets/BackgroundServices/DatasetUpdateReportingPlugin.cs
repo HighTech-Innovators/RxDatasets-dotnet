@@ -18,9 +18,9 @@ namespace RxDatasets.BackgroundServices
 
             while (!stoppingToken.IsCancellationRequested && lastProcessedDelta < newestDelta)
             {
+                var nextVersionToProcess = lastProcessedDelta + 1;
                 try
                 {
-                    var nextVersionToProcess = lastProcessedDelta + 1;
                     await ProcessDelta(nextVersionToProcess, stoppingToken);
                     lastProcessedDelta++;
                     await storageProvider.StoreProcessedVersion(ReportingIdentifier, lastProcessedDelta);
@@ -28,7 +28,7 @@ namespace RxDatasets.BackgroundServices
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {
-                    logger.LogWarning(e, "Something went wrong while Processing Delta {Version}; retrying", newestDelta);
+                    logger.LogWarning(e, "Something went wrong while Processing delta {Version}; retrying", nextVersionToProcess);
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                 }
             }
