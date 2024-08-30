@@ -11,7 +11,7 @@ using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.Services;
 
-public class SnapshotCreationServiceTests
+public class SnapshotCreationPluginTests
 {
     private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
     private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions = Options.Create(new SnapshotCreationConfig
@@ -24,27 +24,27 @@ public class SnapshotCreationServiceTests
     private const ulong UNIT_MB = 1024 * UNIT_KB;
 
 
-    private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>, SnapshotCreationService<object>)> SetupDataset(TestScheduler ts)
+    private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
         IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _datasetUpdateNotifier);
         
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
-        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationService<object>>>();
-        
-
+        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
 
         var datasetReader = new DatasetReader<object>(_datasetUpdateNotifier, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
         var datasetWriter = new DatasetWriter<object>(_datasetUpdateNotifier, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
 
-        var snapshotCreationService = new SnapshotCreationService<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, _snapshotCreationConfig, ts);
-        await snapshotCreationService.StartAsync(CancellationToken.None);
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _snapshotCreationConfig, ts);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _datasetUpdateNotifier, snapshotCreationPlugin);
+        await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
 
         await datasetReader.StartAsync(CancellationToken.None);
         await datasetWriter.StartAsync(CancellationToken.None);
 
-        return (inMemoryStorage, datasetReader, datasetWriter, snapshotCreationService);
+        return (inMemoryStorage, datasetReader, datasetWriter);
     }
 
     private static byte[] GenerateRandomData(ulong length = UNIT_MB, int seed = 0)
@@ -70,10 +70,11 @@ public class SnapshotCreationServiceTests
         var scheduler = new TestScheduler();
         scheduler.AdvanceTo(utcNowTicks);
 
-        var (storageProvider, _, datasetWriter, _) = await SetupDataset(scheduler);
+        var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
 
         const ulong howManyDeltasToCreate = 4ul;
-        await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);   
+        await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
@@ -97,7 +98,7 @@ public class SnapshotCreationServiceTests
         ulong interval = 5;
 
         // Act
-        bool result = SnapshotCreationService<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
+        bool result = SnapshotCreationPlugin<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
 
         // Assert
         result.Should().BeTrue();
@@ -112,7 +113,7 @@ public class SnapshotCreationServiceTests
         ulong interval = 6;
 
         // Act
-        bool result = SnapshotCreationService<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
+        bool result = SnapshotCreationPlugin<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
 
         // Assert
         result.Should().BeFalse();
@@ -127,7 +128,7 @@ public class SnapshotCreationServiceTests
         ulong interval = 10;
 
         // Act
-        bool result = SnapshotCreationService<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
+        bool result = SnapshotCreationPlugin<object>.IsDeltaGapConditionMet(lastDelta, lastSnapshotVersion, interval);
 
         // Assert
         result.Should().BeTrue();
@@ -142,7 +143,7 @@ public class SnapshotCreationServiceTests
         TimeSpan maxInterval = TimeSpan.FromMinutes(10);
 
         // Act
-        TimeSpan result = SnapshotCreationService<object>.CalculateTimeUntilNextSnapshot(scheduler, null, maxInterval);
+        TimeSpan result = SnapshotCreationPlugin<object>.CalculateTimeUntilNextSnapshot(scheduler, null, maxInterval);
 
         // Assert
         result.Should().Be(TimeSpan.Zero);
@@ -158,7 +159,7 @@ public class SnapshotCreationServiceTests
         TimeSpan maxInterval = TimeSpan.FromMinutes(10);
 
         // Act
-        TimeSpan result = SnapshotCreationService<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
+        TimeSpan result = SnapshotCreationPlugin<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
 
         // Assert
         result.Should().Be(maxInterval);
@@ -174,7 +175,7 @@ public class SnapshotCreationServiceTests
         TimeSpan maxInterval = TimeSpan.FromMinutes(10);
 
         // Act
-        TimeSpan result = SnapshotCreationService<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
+        TimeSpan result = SnapshotCreationPlugin<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
 
         // Assert
         result.Should().Be(TimeSpan.FromMinutes(5));
@@ -190,7 +191,7 @@ public class SnapshotCreationServiceTests
         TimeSpan maxInterval = TimeSpan.FromMinutes(10);
 
         // Act
-        TimeSpan result = SnapshotCreationService<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
+        TimeSpan result = SnapshotCreationPlugin<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
 
         // Assert
         result.Should().Be(TimeSpan.Zero);
@@ -206,7 +207,7 @@ public class SnapshotCreationServiceTests
         TimeSpan maxInterval = TimeSpan.FromMinutes(10);
 
         // Act
-        TimeSpan result = SnapshotCreationService<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
+        TimeSpan result = SnapshotCreationPlugin<object>.CalculateTimeUntilNextSnapshot(scheduler, snapshotTime, maxInterval);
 
         // Assert
         result.Should().Be(TimeSpan.FromMinutes(-5));
