@@ -33,7 +33,8 @@ public class StorageCleanTaskTests
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
         var storageCleanerLogger = new Mock<ILogger<StorageCleaningService<object>>>();
-        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationService<object>>>();
+        var snapshotCreationPlugInLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
         var datasetReader = new DatasetReader<object>(_datasetUpdateNotifier, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
         var datasetWriter = new DatasetWriter<object>(_datasetUpdateNotifier, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
@@ -41,7 +42,8 @@ public class StorageCleanTaskTests
         var storageCleaningTask = new StorageCleaningService<object>(_datasetUpdateNotifier, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);
 
-        var snapshotCreationTask = new SnapshotCreationService<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _datasetUpdateNotifier, _snapshotsOptions, ts);
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationPlugInLogger.Object, inMemoryStorage, _snapshotsOptions, ts);
+        var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, _datasetUpdateNotifier, snapshotCreationPlugin);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
 
         await datasetReader.StartAsync(CancellationToken.None);
@@ -74,6 +76,7 @@ public class StorageCleanTaskTests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(3));
 
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         var firstSnapshot = snapshots[0].version;

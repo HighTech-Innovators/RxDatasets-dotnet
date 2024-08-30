@@ -356,8 +356,7 @@ public class ObjectStorageProvider<T>(
     public Task<ulong> GetProcessedVersion(string who)
     {
         var versionFound = _versionIndex.ProcessedVersions.TryGetValue(who, out var version);
-        if (versionFound) { return Task.FromResult(version); }
-        else return Task.FromResult(0ul);
+        return Task.FromResult(versionFound ? version : 0ul);
     }
 
     public Task<ulong> GetLowestProcessedVersion()

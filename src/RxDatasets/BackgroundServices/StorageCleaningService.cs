@@ -1,4 +1,5 @@
 ﻿using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,7 +14,7 @@ namespace RxDatasets.BackgroundServices
         private IDisposable? _disposableSubscription;
         private readonly List<DateTime> _listOfSnapshotsDatesScheduledForDeleting = [];
         private readonly IOptions<CleanupConfig> _config;
-        private readonly IDatasetUpdateNotifier<T> datasetUpdateNotifier;
+        private readonly IDatasetUpdateNotifier<T> _datasetUpdateNotifier;
         private readonly IStorageProvider<T> storageProvider;
         private readonly IScheduler scheduler;
         private readonly ILogger<StorageCleaningService<T>> _logger;
@@ -25,7 +26,7 @@ namespace RxDatasets.BackgroundServices
             IOptions<CleanupConfig> config,
             ILogger<StorageCleaningService<T>> logger)
         {
-            this.datasetUpdateNotifier = datasetUpdateNotifier;
+            this._datasetUpdateNotifier = datasetUpdateNotifier;
             this.storageProvider = storageProvider;
             this.scheduler = scheduler;
             _config = config;
@@ -107,15 +108,20 @@ namespace RxDatasets.BackgroundServices
         {
             if (!_config.Value.IsEnabled)
                 return Task.CompletedTask;
-            _disposableSubscription = datasetUpdateNotifier.Subscribe(ASnapshotHasBeenCreated);
+
+            _disposableSubscription = _datasetUpdateNotifier
+                .AsObservable()
+                .Select(s=>s.SnapshotVersion)
+                .DistinctUntilChanged()
+                .Subscribe(async (_) =>await ASnapshotHasBeenCreated());
+
             _ = SearchForOutdatedData();
             _logger.LogInformation(typeof(T).Name + " cleaning schedule started");
             return Task.CompletedTask;
         }
-
-        private async Task ASnapshotHasBeenCreated(DatasetUpdateNotification datasetUpdateNotification)
+        
+        private async Task ASnapshotHasBeenCreated()
         {
-            if (datasetUpdateNotification.SnapshotVersion != datasetUpdateNotification.Version) return;
             await SearchForOutdatedData();
         }
 

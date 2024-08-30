@@ -1,10 +1,8 @@
 ﻿using Google.Protobuf;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.Models;
 using System.Buffers;
 using System.Collections.Immutable;
@@ -12,49 +10,30 @@ using System.Reactive.Concurrency;
 
 namespace RxDatasets.BackgroundServices;
 
-public class SnapshotCreationService<T> : BackgroundService
+public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 {
     private const int MaxStackAllocSize = 8 * 1024;
-    private readonly ILogger<SnapshotCreationService<T>> _logger;
+    private readonly ILogger<SnapshotCreationPlugin<T>> _logger;
     private readonly IOptions<SnapshotCreationConfig> _config;
 
     private readonly IStorageProvider<T> _storageProvider;
     private readonly DatasetHelper _datasetHelper;
-    private readonly IDatasetUpdateNotifier<T> _datasetUpdateNotifier;
     private readonly IScheduler _scheduler;
     private readonly TimeSpan _currentValuePeriodIntervalAsTimespan;
-    private volatile TaskCompletionSource _newSnapshotMayBeNeeded = new();
-    private volatile int iteration = 0;
 
-    public SnapshotCreationService(
-        ILogger<SnapshotCreationService<T>> logger,
+    public SnapshotCreationPlugin(
+        ILogger<SnapshotCreationPlugin<T>> logger,
         IStorageProvider<T> storageProvider,
-        IDatasetUpdateNotifier<T> datasetUpdateNotifier,
         IOptions<SnapshotCreationConfig> config, IScheduler scheduler)
     {
         _logger = logger;
         _storageProvider = storageProvider;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
-        _datasetUpdateNotifier = datasetUpdateNotifier;
         _config = config;
         _scheduler = scheduler;
         _currentValuePeriodIntervalAsTimespan = _config.Value.PeriodIntervalAsTimespan;
     }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation($"SnapshotCreationService<{typeof(T).Name}> Started");
-        var subscription = _datasetUpdateNotifier.Subscribe(OnDatasetUpdated);
-        try
-        {
-            await WorkAndWaitLoop(stoppingToken);
-        }
-        finally
-        {
-            _logger.LogInformation($"SnapshotCreationService<{typeof(T).Name}> Stopped");
-            subscription?.Dispose();
-        }
-    }
+    public string ConsumerIdentifier { get; } = $"SnapshotCreationPlugin-of-{typeof(T)}";
 
     private async Task CreateSnapshotIfNecessary(CancellationToken stoppingToken)
     {
@@ -67,25 +46,6 @@ public class SnapshotCreationService<T> : BackgroundService
         await CreateASnapshot(newestDelta, latestSnapshot, stoppingToken);
     }
 
-    private async Task WorkAndWaitLoop(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-              
-                await CreateSnapshotIfNecessary(stoppingToken);
-                Interlocked.Increment(ref iteration);
-                await _newSnapshotMayBeNeeded.Task.WaitAsync(stoppingToken);
-                _newSnapshotMayBeNeeded = new TaskCompletionSource();
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                _logger.LogWarning(e, "Exception during snapshot creation or check");
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-            }
-        }
-    }
 
     private bool AreSnapshotCreationConditionsMet(ulong newestDelta,
         List<(ulong version, DateTimeOffset Datetime)> snapshots)
@@ -111,14 +71,9 @@ public class SnapshotCreationService<T> : BackgroundService
             return true;
 
         // If not, schedule for later
-        _scheduler.Schedule(timeUntilNext, _ => QueueSnapshotCheck().Wait());
+        _scheduler.Schedule(timeUntilNext, _ => HandleNewDeltas(CancellationToken.None).Wait());
 
         return false;
-    }
-
-    private async Task OnDatasetUpdated(DatasetUpdateNotification notification)
-    {
-        await QueueSnapshotCheck();
     }
 
     public static bool IsDeltaGapConditionMet(ulong lastDelta, ulong lastSnapshotVersion, ulong interval)
@@ -147,25 +102,6 @@ public class SnapshotCreationService<T> : BackgroundService
         await CreateNewSnapshot(tempState, stoppingToken);
     }
 
-    private volatile int _handlingNotifications;
-    private async Task QueueSnapshotCheck()
-    {
-        try
-        {
-            var stackDepth = Interlocked.Increment(ref _handlingNotifications);
-            var mustWait = stackDepth == 1;
-
-            var previousIteration = iteration;
-            _ = _newSnapshotMayBeNeeded.TrySetResult();
-
-            while (mustWait && iteration == previousIteration)
-                await Task.Delay(1);
-        }
-        finally
-        {
-            Interlocked.Decrement(ref _handlingNotifications);
-        }
-    }
     private async Task CreateNewSnapshot(ImmutableDatasetState currentIndex, CancellationToken stoppingToken)
     {
         var newSnapshotVersion = currentIndex.LatestVersion;
@@ -370,5 +306,10 @@ public class SnapshotCreationService<T> : BackgroundService
         cos.WriteLength(length);
         var lengthOfTheVarPrefix = CodedOutputStream.ComputeLengthSize(length);
         return lengthOfTheVarPrefix;
+    }
+
+    public async Task HandleNewDeltas(CancellationToken stoppingToken)
+    {
+        await CreateSnapshotIfNecessary(stoppingToken);
     }
 }

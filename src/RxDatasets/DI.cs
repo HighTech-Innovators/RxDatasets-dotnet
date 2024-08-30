@@ -17,20 +17,12 @@ public static class DI
     {
         builderServices.AddSingleton(serviceProvider => serviceProvider);
         builderServices.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
-
-    }
-
-    private static void AddNonKeyedInjects(IServiceCollection builderServices)
-    {
-
-        builderServices.AddValidatedConfigSection<CleanupConfig>();
-        builderServices.AddValidatedConfigSection<SnapshotCreationConfig>();
-        builderServices.AddSingleton<IScheduler>(_ => Scheduler.Default);
-        builderServices.AddValidatedConfigSection<StorageConfig>();
     }
 
     private static void AddSingletonsForDataset<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
     {
+        services.AddValidatedConfigSection<StorageConfig>();
+
         services
             .AddSingleton<IDatasetUpdateNotifier<TEntity>, DatasetUpdateNotifierAsync<TEntity>>()
             .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
@@ -45,11 +37,31 @@ public static class DI
     {
         services.AddSingleton<IStorageProvider<TEntity>, InMemoryStorageProvider<TEntity>>();
         AddSingletonsForDataset<TEntity>(services);
-        AddNonKeyedInjects(services);
-        services.AddHostedService<StorageCleaningService<TEntity>>();
-        services.AddHostedService<SnapshotCreationService<TEntity>>();
-        services.AddHostedService<DatasetUpdateReportingService<TEntity>>();
+        AddExtraCustomServices<TEntity>(services);
+    }
 
+    private static void AddExtraCustomServices<TEntity>(IServiceCollection services) where TEntity : class, IMessage<TEntity>
+    {
+        AddStorageCleaningDependencies<TEntity>(services);
+        AddSnapshotCreationDependencies<TEntity>(services);
+    }
+
+    private static void AddStorageCleaningDependencies<TEntity>(IServiceCollection services)
+        where TEntity : class, IMessage<TEntity>
+    {
+        services.AddValidatedConfigSection<CleanupConfig>();
+        services.AddHostedService<StorageCleaningService<TEntity>>();
+    }
+
+    private static void AddSnapshotCreationDependencies<TEntity>(IServiceCollection services)
+        where TEntity : class, IMessage<TEntity>
+    {
+        services.AddValidatedConfigSection<SnapshotCreationConfig>();
+        services.AddSingleton<IScheduler>(_ => Scheduler.Default);
+        // Register the plugins as singleton services
+        services.AddSingleton<SnapshotCreationPlugin<TEntity>>();
+        // Register the hosted services using the concrete types of TConsumer
+        services.AddHostedService<DatasetUpdateConsumingService<TEntity, SnapshotCreationPlugin<TEntity>>>();
     }
 
     public static void AddCachedObjectStorageDataset<TEntity>(this IServiceCollection services) where TEntity: class, IMessage<TEntity>
@@ -57,29 +69,15 @@ public static class DI
         services.AddValidatedConfigSection<DtoStorageCacheConfig>();
         services.AddSingleton<ObjectStorageProvider<TEntity>>();
         services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
-        services.AddSingleton<IStorageProvider<TEntity>>( (sp) => new CacheStorageProvider<TEntity>(
-            sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
-            sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
-            sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
-        ));
-        AddNonKeyedInjects(services);
+        services.AddSingleton<IStorageProvider<TEntity>>( (sp) => 
+            new CacheStorageProvider<TEntity>(
+                sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
+                sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
+                sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
+                )
+        );
         AddSingletonsForDataset<TEntity>(services);
-        services.AddHostedService(sp => (CacheStorageProvider<TEntity>)sp.GetRequiredService<IStorageProvider<TEntity>>());
-        services.AddHostedService<SnapshotCreationService<TEntity>>();
-        services.AddHostedService<StorageCleaningService<TEntity>>();
-        services.AddHostedService<DatasetUpdateReportingService<TEntity>>();
-
+        AddExtraCustomServices<TEntity>(services);
     }
-    public static void AddObjectStorageDataset<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
-    {
-        services.AddValidatedConfigSection<DtoStorageCacheConfig>();
-        services.AddSingleton< IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
-        services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
-        AddNonKeyedInjects(services);
-        AddSingletonsForDataset<TEntity>(services); 
-        services.AddHostedService<SnapshotCreationService<TEntity>>();
-        services.AddHostedService<StorageCleaningService<TEntity>>();
-        services.AddHostedService<DatasetUpdateReportingService<TEntity>>();
 
-    }
 }

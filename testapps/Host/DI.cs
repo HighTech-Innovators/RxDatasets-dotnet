@@ -1,4 +1,4 @@
-using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 
 namespace Host;
 
@@ -19,7 +19,10 @@ public static class DI
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();
-        builderServices.AddSingleton<IDatasetUpdateReporting, ConsoleReporter>();
+
+        builderServices.AddSingleton<ConsoleReporter<Hightechinnovators.Dtos.DemodtoV1.Demodto>>();
+        builderServices.AddSingleton<DatasetUpdateReportingPlugin<Hightechinnovators.Dtos.DemodtoV1.Demodto, ConsoleReporter<Hightechinnovators.Dtos.DemodtoV1.Demodto>>>();
+        builderServices.AddHostedService<DatasetUpdateConsumingService<Hightechinnovators.Dtos.DemodtoV1.Demodto, DatasetUpdateReportingPlugin<Hightechinnovators.Dtos.DemodtoV1.Demodto, ConsoleReporter<Hightechinnovators.Dtos.DemodtoV1.Demodto>>>>();
     }
 
     public static void ConfigureApp(WebApplication app)
