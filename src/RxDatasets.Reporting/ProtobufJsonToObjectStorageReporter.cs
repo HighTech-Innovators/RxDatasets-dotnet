@@ -37,7 +37,7 @@ public class ProtobufJsonToObjectStorageReporter<T>(
         await storageProvider.UploadBytes(customObjectKey, "{}"u8.ToArray());
     }
 
-    public string ReportingIdentifier { get; } = $"ProtobufJsonToObjectStorageReporter-for-${typeof(T).Name}";
+    public string ReportingIdentifier => "json-entity-writer";
 
     private string GetObjectKey(string name, object? version, string changeDir)
     {
