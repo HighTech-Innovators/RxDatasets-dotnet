@@ -9,5 +9,6 @@ public static class DI
     {
         builderServices.AddValidatedConfigSection<AzStorageConfig>();
         builderServices.AddSingleton<IObjectStorageProvider<TEntity>, AzStorageProvider<TEntity>>();
+        builderServices.AddHealthChecks().AddCheck<AzHealthCheck<TEntity>>($"storage.azblob.{typeof(TEntity).Name}");
     }
 }

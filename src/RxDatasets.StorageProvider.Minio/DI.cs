@@ -10,5 +10,6 @@ public static class DI
         builderServices.AddValidatedConfigSection<MinioS3Config>();
         builderServices
             .AddSingleton<IObjectStorageProvider<TEntity>, MinioS3StorageProvider<TEntity>>();
+        builderServices.AddHealthChecks().AddCheck<MinioS3HealthCheck<TEntity>>($"storage.minio.{typeof(TEntity).Name}");
     }
 }

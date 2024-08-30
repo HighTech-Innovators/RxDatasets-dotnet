@@ -1,0 +1,34 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using RxDatasets.Abstractions;
+
+namespace RxDatasets.StorageProvider.Minio;
+
+public class MinioS3HealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var storageProvider = serviceProvider.GetRequiredService<IObjectStorageProvider<T>>();
+
+        if (storageProvider is not MinioS3StorageProvider<T> provider)
+            return HealthCheckResult.Unhealthy();
+
+        var isLastResultFilled = provider?.LastResult != null;
+        var isLastCheckStillValid = DateTimeOffset.Now - provider!.LastResult.ObtainedAt < TimeSpan.FromMinutes(5);
+
+        if (isLastResultFilled && isLastCheckStillValid)
+            return provider?.LastResult.Exception == null ? HealthCheckResult.Healthy() : HealthCheckResult.Unhealthy(exception: provider.LastResult.Exception);
+
+        try
+        {
+            await provider?.DownloadBytes("something/notimportant", 0, 1)!;
+        }
+        catch (Exception)
+        {
+           //ignored
+        }
+        return provider.LastResult.Exception != null ? HealthCheckResult.Unhealthy() : HealthCheckResult.Healthy();
+    }
+
+    
+}

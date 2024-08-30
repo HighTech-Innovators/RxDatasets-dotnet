@@ -10,5 +10,7 @@ public static class DI
         builderServices.AddValidatedConfigSection<S3Config>();
         builderServices
             .AddSingleton<IObjectStorageProvider<TEntity>, S3StorageProvider<TEntity>>();
+        builderServices.AddHealthChecks().AddCheck<S3HealthCheck<TEntity>>($"storage.s3.{typeof(TEntity).Name}");
+
     }
 }
