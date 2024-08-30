@@ -15,6 +15,7 @@ namespace RxDatasets.StorageProvider.S3
         private readonly ILogger<S3StorageProvider<T>> _logger;
         private readonly string _bucketName;
         private bool _initialized;
+        private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
         public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> s3Config,
             bool retryInitialization = true)
@@ -45,6 +46,8 @@ namespace RxDatasets.StorageProvider.S3
             _ = retryInitialization ? InitializationLoop() : Initialize();
         }
 
+        public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
+
         private async Task EnsureInitialized()
         {
             if (_initialized)
@@ -66,9 +69,11 @@ namespace RxDatasets.StorageProvider.S3
                 await EnsureBucketExistsAsync();
                 _initialized = true;
                 _logger.LogInformation("S3 bucket access verified");
+                SetHealthy();
             }
             catch (AggregateException ex)
             {
+                SetUnhealthy(ex);
                 foreach (var innerException in ex.InnerExceptions)
                 {
                     if (innerException is InvalidOperationException)
@@ -79,6 +84,7 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (Exception ex)
             {
+                SetUnhealthy(ex);
                 _logger.LogError($"Could not init S3 {ex.Message}");
                 throw;
             }
@@ -95,6 +101,7 @@ namespace RxDatasets.StorageProvider.S3
                 }
                 catch (Exception ex)
                 {
+                    SetUnhealthy(ex);
                     _logger.LogError(ex, "Failed to initialize storage provider, retrying...");
                     await Task.Delay(5000);
                 }
@@ -113,23 +120,28 @@ namespace RxDatasets.StorageProvider.S3
                 };
 
                 await _s3Client.DeleteObjectAsync(deleteObjectRequest);
+                SetHealthy();
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
+                SetHealthy();
                 return;
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
+                SetHealthy();
                 return;
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to delete {Key} in S3, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to delete object; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete from S3");
+                SetUnhealthy(ex);
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
@@ -155,28 +167,34 @@ namespace RxDatasets.StorageProvider.S3
 
                 var readOnlyMemory =
                     new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
-
+                SetHealthy();
                 return readOnlyMemory;
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                throw new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to download from S3");
-                throw new InvalidOperationException("S3 is unavailable", ex);
+                var invalidOperationException = new InvalidOperationException($"S3 is unavailable.", ex);
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
             }
         }
 
@@ -197,28 +215,34 @@ namespace RxDatasets.StorageProvider.S3
                 await response.ResponseStream.CopyToAsync(memoryStream);
 
                 var readOnlyMemory = new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, length);
-
+                SetHealthy();
                 return readOnlyMemory;
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                throw new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to download from S3");
-                throw new InvalidOperationException("S3 is unavailable", ex);
+                var invalidOperationException = new InvalidOperationException($"S3 is unavailable.", ex);
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
             }
         }
 
@@ -234,10 +258,12 @@ namespace RxDatasets.StorageProvider.S3
                 };
 
                 using var response = await _s3Client.GetObjectAsync(getObjectRequest);
-                using var stream = response.ResponseStream;
+                await using var stream = response.ResponseStream;
                 try
                 {
                     callback(stream);
+                    SetHealthy();
+
                 }
                 catch (Exception ex)
                 {
@@ -248,21 +274,25 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
                 throw new FileNotFoundException($"File is not found.", objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to download from S3");
+                SetUnhealthy(ex);
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
@@ -280,6 +310,7 @@ namespace RxDatasets.StorageProvider.S3
                 };
 
                 var response = await _s3Client.ListObjectsV2Async(request);
+                SetHealthy();
                 return;
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NoSuchBucket" })
@@ -288,11 +319,13 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to check bucket exists in S3, amazon error {ErrorCode}", s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to check bucket exists in S3; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to check bucket exists in S3");
+                SetUnhealthy(ex);
                 throw;
             }
 
@@ -300,6 +333,7 @@ namespace RxDatasets.StorageProvider.S3
             try
             {
                 await _s3Client.PutBucketAsync(new PutBucketRequest { BucketName = _bucketName });
+                SetHealthy();
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "BucketAlreadyOwnedByYou" } or { ErrorCode: "BucketAlreadyExists" })
             {
@@ -308,11 +342,13 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to create bucket in S3, amazon error {ErrorCode}", s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to create bucket in S3; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to ensure bucket exists in S3");
+                SetUnhealthy(ex);
                 throw;
             }
         }
@@ -332,14 +368,17 @@ namespace RxDatasets.StorageProvider.S3
                 };
 
                 await _transferUtility.UploadAsync(uploadRequest);
+                SetHealthy();
             }
             catch (AmazonS3Exception s3e)
             {
+                SetUnhealthy(s3e);
                 _logger.LogError("Failed to write object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
                 throw new InvalidOperationException($"Failed to write object; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
+                SetUnhealthy(ex);
                 _logger.LogError(ex, "Failed to upload to S3");
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
@@ -359,14 +398,17 @@ namespace RxDatasets.StorageProvider.S3
                 };
 
                 await _transferUtility.UploadAsync(uploadRequest);
+                SetHealthy();
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to write object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to write object; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
+                SetUnhealthy(ex);
                 _logger.LogError(ex, "Failed to upload to S3");
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
@@ -385,21 +427,31 @@ namespace RxDatasets.StorageProvider.S3
 
                 var response = await _s3Client.ListObjectsV2Async(request);
                 var results = response.S3Objects.Select(s3Object => (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(s3Object.LastModified))).ToList();
-
+                SetHealthy();
                 return results;
             }
             catch (AmazonS3Exception s3e)
             {
                 _logger.LogError("Failed to list objects {prefix}, amazon error {ErrorCode}", prefix, s3e.ErrorCode);
+                SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to list object; Amazon error {s3e.ErrorCode}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to list objects {prefix}", prefix);
+                SetUnhealthy(ex);
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
 
+        private void SetHealthy()
+        {
+            _lastResult = new(DateTimeOffset.Now, null);
+        }
+        private void SetUnhealthy(Exception? exception)
+        {
+            _lastResult = new(DateTimeOffset.Now, exception);
+        }
         void IDisposable.Dispose()
         {
             _transferUtility.Dispose();

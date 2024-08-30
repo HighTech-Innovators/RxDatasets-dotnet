@@ -12,6 +12,8 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
 {
     private readonly BlobContainerClient _containerClient;
     private readonly ILogger<AzStorageProvider<T>> _logger;
+    private bool _initialized;
+    private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
     public AzStorageProvider(ILogger<AzStorageProvider<T>> logger, IOptions<AzStorageConfig> azStorageConfig, bool retryInitialization = true)
     {
@@ -24,10 +26,15 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
             }).GetBlobContainerClient(azStorageConfig.Value.ContainerName);
         if (retryInitialization) InitializationLoop(); else Initialize();
     }
+
+    public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
+
     private void Initialize()
     {
         try{
             EnsureBucketExistsAsync().Wait();
+            _initialized = true;
+            SetHealthy();
         }
         catch (AggregateException ex)
         {
@@ -41,7 +48,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
-    private void InitializationLoop()
+    private async void InitializationLoop()
     {
         while (true)
         {
@@ -52,8 +59,9 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
             }
             catch (Exception ex)
             {
+                SetUnhealthy(ex);
                 _logger.LogError(ex, "Failed to initialize storage provider");
-                Task.Delay(5 * 1000);
+                await Task.Delay(5 * 1000);
             }
         }
     }
@@ -63,17 +71,19 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var blobClient = _containerClient.GetBlobClient(objectKey);
             await blobClient.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots);
+            SetHealthy();
         }
-        catch (RequestFailedException ex)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            if (ex.Status != 404) throw;
-            _logger.LogError(ex, $"File delete failed, {objectKey}");
+            SetHealthy();
             throw new FileNotFoundException($"File is not found.", objectKey);
         }
         catch (Exception ex)
         {
+            SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to download from Azure Blob Storage");
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
@@ -91,6 +101,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var blobClient = _containerClient.GetBlobClient(objectKey);
 
             // Use a pooled memory stream to reduce allocations and improve performance
@@ -102,18 +113,18 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
 
             // Create a ReadOnlyMemory<byte> directly from the MemoryStream's buffer to avoid copying data
             var readOnlyMemory = new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
-
+            SetHealthy();
             return readOnlyMemory;
         }
-        catch (RequestFailedException ex)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            if (ex.Status != 404) throw;
-            _logger.LogError(ex, "File Does Not Exists, {0}", objectKey);
+            SetHealthy();
             throw new FileNotFoundException($"File is not found.", objectKey);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to download from Azure Blob Storage");
+            SetUnhealthy(ex);
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
     }
@@ -122,6 +133,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var blobClient = _containerClient.GetBlobClient(objectKey);
 
             // Set the range to download only the specified part of the blob
@@ -136,18 +148,19 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
 
             // Create a ReadOnlyMemory<byte> directly from the MemoryStream's buffer
             var readOnlyMemory = new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, length);
+            SetHealthy();
 
             return readOnlyMemory;
         }
-        catch (RequestFailedException ex)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            if (ex.Status != 404) throw;
+            SetHealthy();
             throw new FileNotFoundException($"File is not found.", objectKey);
-
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to download from Azure Blob Storage");
+            SetUnhealthy(ex);
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
     }
@@ -156,19 +169,22 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var blobClient = _containerClient.GetBlobClient(objectKey);
 
             var response = await blobClient.DownloadStreamingAsync();
             
             callback(response.Value.Content);
+            SetHealthy();
         }
-        catch (RequestFailedException ex)
+        catch (RequestFailedException ex) when (ex.Status==404)
         {
-            if (ex.Status != 404) throw;
+            SetHealthy();
             throw new FileNotFoundException($"File is not found.", objectKey);
         }
         catch (Exception ex)
         {
+            SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to download from Azure Blob Storage");
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
@@ -178,6 +194,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         try
         {
             await _containerClient.CreateIfNotExistsAsync();
+            SetHealthy();
         }
         catch (AggregateException ex)
         {
@@ -186,6 +203,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         } 
         catch (Exception ex)
         {
+            SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to ensure container exists in Azure Blob Storage");
             throw;
         }
@@ -195,11 +213,14 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var blobClient = _containerClient.GetBlobClient(objectKey);
             await blobClient.UploadAsync(new MemoryStream(bytes), true);
+            SetHealthy();
         }
         catch (Exception ex)
         {
+            SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
@@ -209,12 +230,15 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     { 
         try
         {
+            await EnsureInitialized();
             stream.Position = 0;
             var blobClient = _containerClient.GetBlobClient(objectKey);
             await blobClient.UploadAsync(stream, true);
+            SetHealthy();
         }
         catch (Exception ex)
         {
+            SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
@@ -224,6 +248,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
     {
         try
         {
+            await EnsureInitialized();
             var pages = _containerClient.GetBlobsAsync(prefix: $"{prefix}").AsPages();
             var results = new List<(string Key, DateTimeOffset CreatedOn)>();
 
@@ -233,15 +258,38 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
                     new DateTimeOffset(blobItem.Properties.CreatedOn.GetValueOrDefault().UtcDateTime,
                         TimeSpan.Zero))));
             }
-
+            SetHealthy();
             return results;
             
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
+            SetUnhealthy(ex);
+            _logger.LogError(ex, "Failed to list objects from Azure Blob Storage");
             throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
     }
 
+    private void SetHealthy()
+    {
+        _lastResult = new(DateTimeOffset.Now, null);
+    }
+    private void SetUnhealthy(Exception? exception)
+    {
+        _lastResult = new(DateTimeOffset.Now, exception);
+    }
+
+    private async Task EnsureInitialized()
+    {
+        if (_initialized)
+            return;
+
+        for (var i = 0; i < 100; i++)
+        {
+            await Task.Delay(10);
+            if (_initialized)
+                return;
+        }
+        throw new InvalidOperationException("Azure Blob Storage not yet initialized");
+    }
 }
