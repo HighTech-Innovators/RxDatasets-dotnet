@@ -40,11 +40,17 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         {
             foreach (var innerException in ex.InnerExceptions)
             {
-                if (innerException is InvalidOperationException)
-                {
-                    throw innerException;
-                }
+                SetUnhealthy(ex);
+                _logger.LogError($"Could not init S3 {innerException.Message}");
+                throw innerException;
             }
+        }
+        catch (Exception ex)
+        {
+            SetUnhealthy(ex);
+
+            _logger.LogError($"Could not init S3 {ex.Message}");
+            throw;
         }
     }
 
