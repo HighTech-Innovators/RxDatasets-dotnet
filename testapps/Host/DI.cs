@@ -1,4 +1,6 @@
+using RxDatasets;
 using RxDatasets.BackgroundServices;
+using RxDatasets.StorageProvider.Minio;
 
 namespace Host;
 
@@ -7,15 +9,11 @@ public static class DI
     public static void ConfigureServices(IServiceCollection builderServices)
     { 
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices); 
-        RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
-        RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.DemodtoV1.Demodto>(builderServices);
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithMinioStorage().WithCache().WithSnapshot().WithCleanup().Build();
 
         //new testdto
         RxDatasets.TestdtoV1.Server.DI.ConfigureServices(builderServices);
-        RxDatasets.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
-        RxDatasets.StorageProvider.Minio.DI.ConfigureServices<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
-        RxDatasets.DI.AddCachedObjectStorageDataset<Hightechinnovators.Dtos.TestdtoV1.Testdto>(builderServices);
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.TestdtoV1.Testdto>().WithMinioStorage().WithCache().WithSnapshot().WithCleanup().Build();
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();

@@ -1,0 +1,104 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
+using RxDatasets.Configs;
+using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.StorageProviders;
+using System.Reactive.Concurrency;
+using Google.Protobuf;
+
+namespace RxDatasets
+{
+    public static class DtoServerServiceCollectionExtensions
+    {
+        public static DtoServerBuilder<TEntity> AddDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
+        {
+            // Initialize the DtoServerBuilder with the provided IServiceCollection
+            return new DtoServerBuilder<TEntity>(services);
+        }
+    }
+
+    public class DtoServerBuilder<TEntity>(IServiceCollection services)
+        where TEntity : class, IMessage<TEntity>
+    {
+        private bool _isCacheConfigured;
+        private bool _isInMemoryDataset;
+
+        public IServiceCollection Services => services;
+
+        public DtoServerBuilder<TEntity> WithCache()
+        {
+            if (_isInMemoryDataset)
+            {
+               return this;
+            }
+
+            services.AddValidatedConfigSection<DtoStorageCacheConfig>();
+            services.AddSingleton<ObjectStorageProvider<TEntity>>();
+            services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
+            services.AddSingleton<IStorageProvider<TEntity>>(sp =>
+                new CacheStorageProvider<TEntity>(
+                    sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
+                    sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
+                    sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
+                ));
+
+            _isCacheConfigured = true;
+
+            return this;
+        }
+
+        public DtoServerBuilder<TEntity> WithSnapshot()
+        {
+            services.AddValidatedConfigSection<SnapshotCreationConfig>();
+            services.AddSingleton<IScheduler>(_ => Scheduler.Default);
+            services.AddSingleton<SnapshotCreationPlugin<TEntity>>();
+            services.AddHostedService<DatasetUpdateConsumingService<TEntity, SnapshotCreationPlugin<TEntity>>>();
+
+            return this;
+        }
+
+        public DtoServerBuilder<TEntity> WithInMemoryDataset()
+        {
+            services.AddSingleton<IStorageProvider<TEntity>, InMemoryStorageProvider<TEntity>>();
+            _isInMemoryDataset = true;
+            return this;
+        }
+
+        public DtoServerBuilder<TEntity> WithCleanup()
+        {
+            services.AddValidatedConfigSection<CleanupConfig>();
+            services.AddHostedService<StorageCleaningService<TEntity>>();
+
+            return this;
+        }
+
+        public IServiceCollection Build()
+        {
+            AddDefaultStorageProvider();
+            services.AddSingleton(serviceProvider => serviceProvider);
+            services.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+            services.AddValidatedConfigSection<StorageConfig>();
+
+            services.AddSingleton<IDatasetUpdateNotifier<TEntity>, DatasetUpdateNotifierAsync<TEntity>>()
+                     .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
+                     .AddHostedService(sp => (DatasetReader<TEntity>)sp.GetRequiredService<IDatasetReader<TEntity>>())
+                     .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>()
+                     .AddHostedService(sp => (DatasetWriter<TEntity>)sp.GetRequiredService<IDatasetWriter<TEntity>>());
+
+            return services;
+        }
+
+        private void AddDefaultStorageProvider()
+        {
+            if(_isCacheConfigured || _isInMemoryDataset)
+                return;
+
+            services.AddSingleton<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
+            services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
+         
+        }
+    }
+}

@@ -11,12 +11,10 @@
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="3.7.310.7" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.7" />
-	  <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj" />
+    <ProjectReference Include="..\RxDatasets\RxDatasets.csproj" />
   </ItemGroup>
 
 </Project>
