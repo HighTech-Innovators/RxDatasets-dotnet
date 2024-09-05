@@ -53,9 +53,9 @@ namespace RxDatasets.StorageProvider.S3
             if (_initialized)
                 return;
 
-            for (var i = 0; i < 100; i++)
+            for (var i = 0; i < 1000; i++)
             {
-                await Task.Delay(10);
+                await Task.Delay(500);
                 if (_initialized)
                     return;
             }
@@ -73,18 +73,17 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AggregateException ex)
             {
-                SetUnhealthy(ex);
                 foreach (var innerException in ex.InnerExceptions)
                 {
-                    if (innerException is InvalidOperationException)
-                    {
-                        throw innerException;
-                    }
+                    SetUnhealthy(ex);
+                    _logger.LogError($"Could not init S3 {innerException.Message}");
+                    throw innerException;
                 }
             }
             catch (Exception ex)
             {
                 SetUnhealthy(ex);
+                
                 _logger.LogError($"Could not init S3 {ex.Message}");
                 throw;
             }
