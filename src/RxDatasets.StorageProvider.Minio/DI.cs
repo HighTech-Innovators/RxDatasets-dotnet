@@ -1,15 +1,18 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Google.Protobuf;
+using Microsoft.Extensions.DependencyInjection;
 using RxDatasets.Abstractions;
 
-namespace RxDatasets.StorageProvider.Minio;
-
-public static class DI
+namespace RxDatasets.StorageProvider.Minio
 {
-    public static void ConfigureServices<TEntity>(IServiceCollection builderServices)
+    public static class DtoServerBuilderExtensions
     {
-        builderServices.AddValidatedConfigSection<MinioS3Config>();
-        builderServices
-            .AddSingleton<IObjectStorageProvider<TEntity>, MinioS3StorageProvider<TEntity>>();
-        builderServices.AddHealthChecks().AddCheck<MinioS3HealthCheck<TEntity>>($"storage.minio.{typeof(TEntity).Name}");
+        public static DtoServerBuilder<TEntity> WithMinioStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
+        {
+            builder.Services.AddValidatedConfigSection<MinioS3Config>();
+            builder.Services.AddSingleton<IObjectStorageProvider<TEntity>, MinioS3StorageProvider<TEntity>>();
+            builder.Services.AddHealthChecks().AddCheck<MinioS3HealthCheck<TEntity>>($"storage.minio.{typeof(TEntity).Name}");
+
+            return builder;
+        }
     }
 }
