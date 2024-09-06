@@ -26,9 +26,13 @@ namespace RxDatasets.StorageProvider.S3
 
             if (string.IsNullOrWhiteSpace(s3Config.Value.Region))
             {
+                var url = s3Config.Value.ServiceUrl.Contains("://")
+                    ? s3Config.Value.ServiceUrl
+                    : $"http://{s3Config.Value.ServiceUrl}";
+
                 config = new AmazonS3Config
                 {
-                    ServiceURL = s3Config.Value.ServiceUrl,
+                    ServiceURL = url,
                     ForcePathStyle = true
                 };
             }
