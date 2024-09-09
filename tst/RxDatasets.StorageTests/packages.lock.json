@@ -76,9 +76,9 @@
       },
       "Testcontainers": {
         "type": "Direct",
-        "requested": "[3.8.0, )",
-        "resolved": "3.8.0",
-        "contentHash": "R0+4VTGtFm+Q50+dP7Rm+ZB6thjKdBF3mGYbh5dEf/qt+r35MdFx8tMsE0VIbtaqgJMsOSD06CUZB2wPqBe2cw==",
+        "requested": "[3.10.0, )",
+        "resolved": "3.10.0",
+        "contentHash": "4oFyiUPCOM3s/sKDnIcOJZIn664d/8+fPvODDlfbb0QAfQqHlqjc2kIoFOLAt3oJRZP9/FJtTvcNvp9j7h4UBA==",
         "dependencies": {
           "Docker.DotNet": "3.125.15",
           "Docker.DotNet.X509": "3.125.15",
@@ -89,20 +89,20 @@
       },
       "Testcontainers.Azurite": {
         "type": "Direct",
-        "requested": "[3.8.0, )",
-        "resolved": "3.8.0",
-        "contentHash": "r8ISavLJ5a+agU/wDHpR4ybCbvZIaKQEcXsSXvot+9TQXZFcRZ0LdbI2t6gjmMkF29IETlEb/Tsf365DOTNACg==",
+        "requested": "[3.10.0, )",
+        "resolved": "3.10.0",
+        "contentHash": "tm4b6BmAU/sfT68FIlRTDXqFeYiR7wmu3NQ0Kl6IdwbcLVCJx0rxJ9BNv3a75vMxIpCPk4ZUZOKdRCVWeU42Ow==",
         "dependencies": {
-          "Testcontainers": "3.8.0"
+          "Testcontainers": "3.10.0"
         }
       },
       "Testcontainers.Minio": {
         "type": "Direct",
-        "requested": "[3.8.0, )",
-        "resolved": "3.8.0",
-        "contentHash": "CWSO81JpgcyBdyKJF8MCN0tB6T4h6Df581DacR/XBQRjICXhI53BWoQvv/A0zMGCotvjhmwJTE7o+Y3gFPNvXw==",
+        "requested": "[3.10.0, )",
+        "resolved": "3.10.0",
+        "contentHash": "D3a9ka9zfQ+oRnXnPDdPqzD03Gu0owt2gqRLkgIZZAZU+Yj2YrrV1kgbJMrurWiigcNMSIj3JgqaQMTQo+jo3A==",
         "dependencies": {
-          "Testcontainers": "3.8.0"
+          "Testcontainers": "3.10.0"
         }
       },
       "xunit": {
