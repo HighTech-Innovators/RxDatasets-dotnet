@@ -16,9 +16,9 @@
       },
       "Grpc.Tools": {
         "type": "Direct",
-        "requested": "[2.62.0, )",
-        "resolved": "2.62.0",
-        "contentHash": "tVU0hseOI3tYI9Z62++01EAUBNsKMQfZfeuZyW9Qa3z1D7IqtQKoU2u+3426uIPCTzVVi8qBgsszThyKam9NQA=="
+        "requested": "[2.66.0, )",
+        "resolved": "2.66.0",
+        "contentHash": "URTltx2E0aTGQqVW+H09AZiGR/qyQ3naHPymSG1/Ytgm8bPdjSltnsIFanbxb7rXxdYwGzLFGy82R82M1UktXg=="
       },
       "Microsoft.Extensions.Caching.Abstractions": {
         "type": "Direct",
