@@ -4,17 +4,17 @@
     "net8.0": {
       "AWSSDK.S3": {
         "type": "Direct",
-        "requested": "[3.7.310.7, )",
-        "resolved": "3.7.310.7",
-        "contentHash": "ygDGJgItYrC68BJ7sZarP+JbC8trKJJxYA98QBHDxkityb1PqVosILyL7jOiIc1NhU+B0bvIKXr9UNC5Ioicxg==",
+        "requested": "[3.7.402.7, )",
+        "resolved": "3.7.402.7",
+        "contentHash": "cpUY3kDXLnWKCy9RBYSqg5D5UF3sQDE3uGJYXfmGJuRgnko20JWzn9rk5JRkDmI7pIzV/6G9nqmVdBpt60Hm9A==",
         "dependencies": {
-          "AWSSDK.Core": "[3.7.304.30, 4.0.0)"
+          "AWSSDK.Core": "[3.7.400.16, 4.0.0)"
         }
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "3.7.304.30",
-        "contentHash": "TJdogpjIbdBrrlyBEmDCO28+qqR85RXs62ElK2NiMyzOEmnBNR2zRL8kEqqUk2V8TPyKKeBXRW0BkUX4yh8MjQ=="
+        "resolved": "3.7.400.16",
+        "contentHash": "vz+dqunrmVN4xDBI2aeSIDap8cKZcer/rRph4ODn8uzcdA2t1QAzjqnR/VuetcuHtVCb+LN8L94m3BGLFq0GQQ=="
       },
       "Google.Protobuf": {
         "type": "Transitive",
