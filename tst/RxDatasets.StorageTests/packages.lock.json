@@ -742,7 +742,7 @@
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.1, )",
           "System.IO.Hashing": "[8.0.0, )",
           "System.Linq.Async": "[6.0.1, )",
-          "System.Reactive": "[6.0.0, )"
+          "System.Reactive": "[6.0.1, )"
         }
       },
       "HighTechInnovators.RxDatasets.Abstractions": {
