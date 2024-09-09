@@ -49,11 +49,11 @@
       },
       "Microsoft.Reactive.Testing": {
         "type": "Direct",
-        "requested": "[6.0.0, )",
-        "resolved": "6.0.0",
-        "contentHash": "2oT4CBoNnuPtsQjn/s98/+3/FIWyt+bTEoUHEZIsdSKzI9IUmJWQx45O0jgTq+7N6yImh479/qSn7MwUPtK4lg==",
+        "requested": "[6.0.1, )",
+        "resolved": "6.0.1",
+        "contentHash": "80d47atUKBZnQ515Ns57Z4a7v/cbcUppqDTIhWJyBd7k46sh4dNq3xNGLMvVRHQ672Q2di7OmH//1WTMEkJ7bg==",
         "dependencies": {
-          "System.Reactive": "6.0.0"
+          "System.Reactive": "6.0.1"
         }
       },
       "Moq": {
@@ -649,8 +649,8 @@
       },
       "System.Reactive": {
         "type": "Transitive",
-        "resolved": "6.0.0",
-        "contentHash": "31kfaW4ZupZzPsI5PVe77VhnvFF55qgma7KZr/E0iFTs6fmdhhG8j0mgEx620iLTey1EynOkEfnyTjtNEpJzGw=="
+        "resolved": "6.0.1",
+        "contentHash": "rHaWtKDwCi9qJ3ObKo8LHPMuuwv33YbmQi7TcUK1C264V3MFnOr5Im7QgCTdLniztP3GJyeiSg5x8NqYJFqRmg=="
       },
       "System.Reflection.Metadata": {
         "type": "Transitive",
