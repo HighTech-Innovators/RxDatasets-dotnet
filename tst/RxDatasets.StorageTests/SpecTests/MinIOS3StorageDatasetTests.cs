@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
@@ -46,16 +47,17 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
-        var datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
+        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
+
 
         IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), datasetUpdateNotifier);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), notificationsHub);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
 
-        var datasetReader = new DatasetReader<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
+        var datasetReader = new DatasetReader<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
 
         await datasetReader.StartAsync(CancellationToken.None);
         await datasetWriter.StartAsync(CancellationToken.None);

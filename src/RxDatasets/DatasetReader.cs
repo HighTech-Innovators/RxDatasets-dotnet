@@ -1,11 +1,13 @@
+using System.Reactive.Linq;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
+using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
@@ -22,7 +24,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private TaskCompletionSource _indexChangedTaskCompletionSource = new();
 
 
-    public DatasetReader(IDatasetUpdateNotifier<T> datasetUpdateNotifier,
+    public DatasetReader(INotificationsHub<T> notificationsHub,
         IOptions<StorageConfig> dtoConfig,
         ILogger<DatasetReader<T>> logger,
         IStorageProvider<T> storageProvider,
@@ -32,7 +34,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
         _retryInitialization = retryInitialization;
-        datasetUpdateNotifier.Subscribe(OnDatasetUpdated);
+        notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated);
+        notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -71,7 +74,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             {
                 _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
             }
-            catch (FileNotFoundException e)
+            catch (FileNotFoundException)
             {
                 //ignored as we dont have a snapshot yet
             }
@@ -84,24 +87,22 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
     }
 
-    public async Task OnDatasetUpdated(DatasetUpdateNotification datasetUpdate)
+    public async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
     {
-        if (datasetUpdate.DtoName != typeof(T).Name) return;
         using var updateSlot = await Lock(_writerSemaphore);
+        _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
+        var tcs = _indexChangedTaskCompletionSource;
+        _indexChangedTaskCompletionSource = new TaskCompletionSource();
+        tcs.SetResult();
+    }
 
-        if (datasetUpdate.SnapshotVersion != datasetUpdate.Version)
-        {
-            _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdate.Version);
-            var tcs = _indexChangedTaskCompletionSource;
-            _indexChangedTaskCompletionSource = new TaskCompletionSource();
-            tcs.SetResult();
-        }
-        else if ((_indexBasedOnMostRecentSnapshot == null && datasetUpdate.SnapshotVersion != 0) || (_indexBasedOnMostRecentSnapshot != null && datasetUpdate.SnapshotVersion > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
+    public async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
+    {
+      if (_indexBasedOnMostRecentSnapshot == null
+          || (_indexBasedOnMostRecentSnapshot != null && notification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
         {
             _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex(); ;
         }
-
-
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)

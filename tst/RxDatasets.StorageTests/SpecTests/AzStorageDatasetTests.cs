@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.AzBlob;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
@@ -47,13 +48,14 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
-        DatasetUpdateNotifierSync<object> datasetUpdateNotifier = new DatasetUpdateNotifierSync<object>();
+        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
+
 
         IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, datasetUpdateNotifier);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, notificationsHub);
 
-        var datasetReader = new DatasetReader<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(datasetUpdateNotifier, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
+        var datasetReader = new DatasetReader<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 

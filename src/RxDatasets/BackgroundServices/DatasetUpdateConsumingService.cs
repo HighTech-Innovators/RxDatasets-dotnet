@@ -2,13 +2,15 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 
 namespace RxDatasets.BackgroundServices;
 
 public class DatasetUpdateConsumingService<TDto, TConsumer>(
     ILogger<DatasetUpdateConsumingService<TDto, TConsumer>> logger,
-    IDatasetUpdateNotifier<TDto> datasetUpdateNotifier,
+    INotificationsHub<TDto> notificationsHub,
+
     TConsumer datasetUpdateConsumer) : BackgroundService
     where TConsumer : IDatasetUpdateConsumer<TDto>
 {
@@ -18,11 +20,8 @@ public class DatasetUpdateConsumingService<TDto, TConsumer>(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation($"DatasetUpdateConsumingService<{datasetUpdateConsumer.ConsumerIdentifier}> Started");
-        using var subscription = datasetUpdateNotifier
-            .AsObservable()
-            .Select(not => not.Version)
-            .DistinctUntilChanged()
-            .Subscribe(async (_)=> await OnDatasetUpdated());
+        using var subscription = notificationsHub
+            .Subscribe<DatasetUpdatedNotification>((_)=>  OnDatasetUpdated());
 
         try
         {
