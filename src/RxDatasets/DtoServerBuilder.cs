@@ -4,10 +4,10 @@ using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
 using RxDatasets.StorageProviders;
 using System.Reactive.Concurrency;
 using Google.Protobuf;
+using RxDatasets.GenericNotifierLogic;
 
 namespace RxDatasets
 {
@@ -82,7 +82,7 @@ namespace RxDatasets
             services.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
             services.AddValidatedConfigSection<StorageConfig>();
 
-            services.AddSingleton<IDatasetUpdateNotifier<TEntity>, DatasetUpdateNotifierAsync<TEntity>>()
+            services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
                      .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
                      .AddHostedService(sp => (DatasetReader<TEntity>)sp.GetRequiredService<IDatasetReader<TEntity>>())
                      .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>()

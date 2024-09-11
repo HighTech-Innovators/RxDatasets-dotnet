@@ -1,11 +1,12 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 
 namespace RxDatasets.StorageProviders;
 
-public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _logger, IDatasetUpdateNotifier<T> datasetUpdateNotifier) : IStorageProvider<T>
+public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _logger, INotificationsHub<T> notificationsHub) : IStorageProvider<T>
 {
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data)> _deltas = new();
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data, DateTimeOffset creationTime)> _snapshots = new();
@@ -36,11 +37,10 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         return Task.CompletedTask;
     }
 
-    public Task StoreDelta(ulong deltaVersion, byte[] index, Stream stream)
+    public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream stream)
     {
         byte[] dataBytes;
-
-        using (stream)
+        await using (stream)
         {
             dataBytes = new byte[stream.Length];  // Initialize the byte array to the length of the file
             stream.Read(dataBytes);
@@ -48,13 +48,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
 
         _deltas[deltaVersion] = (index, dataBytes);
 
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = deltaVersion,
-            SnapshotVersion = _snapshots.Keys.Count > 0 ? _snapshots.Keys.Max() : 0ul
-        });
-        return Task.CompletedTask;
+        await notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
     public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions()
@@ -103,34 +97,22 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         throw new FileNotFoundException($"Snapshot does not exist {version}");
     }
 
-    public Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
+    public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
         _deltas[deltaVersion] = (index, data);
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = deltaVersion,
-            SnapshotVersion = _snapshots.Keys.Count > 0 ? _snapshots.Keys.Max() : 0ul
-        });
-        return Task.CompletedTask;
+        await notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
-    public Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
+    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
         data.Position = 0;
         MemoryStream memoryStream = new MemoryStream();
-        data.CopyTo(memoryStream);
+        await data.CopyToAsync(memoryStream);
         _snapshots[snapshotVersion] = (index, memoryStream.ToArray(), DateTimeOffset.UtcNow);
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = _deltas.Keys.Count > 0 ? _deltas.Keys.Max() : 0ul,
-            SnapshotVersion = snapshotVersion
-        });
-        return Task.CompletedTask;
+        await notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
     }
 
-    public Task StoreProcessedVersion(string who, ulong version)
+    public async Task StoreProcessedVersion(string who, ulong version)
     {
         if (_processedVersions.ContainsKey(who))
         {
@@ -140,7 +122,8 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         {
             _processedVersions.TryAdd(who, version);
         };
-        return Task.CompletedTask;
+
+        await notificationsHub.Notify(new VersionProcessedNotification(NewVersion: version, Who: who));
     }
 
     public Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)

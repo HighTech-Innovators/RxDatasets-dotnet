@@ -6,8 +6,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
+using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
@@ -22,19 +23,20 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
 
-    public DatasetWriter(IDatasetUpdateNotifier<T> datasetUpdateNotifier, IOptions<StorageConfig> dtoConfig, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
+    public DatasetWriter(INotificationsHub<T> notificationsHub, IOptions<StorageConfig> dtoConfig, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
     {
         _storageProvider = storageProvider;
-        datasetUpdateNotifier.Subscribe(OnDatasetUpdate);
+        notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated);
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _dtoConfig = dtoConfig;
         _retryInitialization = retryInitialization;
     }
 
-    private async Task OnDatasetUpdate(DatasetUpdateNotification updateNotification)
+    private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
-        if ((_indexBasedOnMostRecentSnapshot == null && updateNotification.SnapshotVersion != 0) || (_indexBasedOnMostRecentSnapshot != null && updateNotification.SnapshotVersion > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
+        if (_indexBasedOnMostRecentSnapshot == null 
+            || (_indexBasedOnMostRecentSnapshot != null && snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
         {
             _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
         }
@@ -66,7 +68,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
             {
                 _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
             }
-            catch (FileNotFoundException e)
+            catch (FileNotFoundException)
             {
                 //ignored as we dont have a snapshot yet
             }

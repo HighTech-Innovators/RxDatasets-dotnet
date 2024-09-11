@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 
 namespace RxDatasets.StorageProviders;
 
@@ -13,7 +14,7 @@ public class ObjectStorageProvider<T>(
     ILogger<ObjectStorageProvider<T>> logger,
     IOptions<StorageConfig> storageConfig,
     IObjectStorageProvider<T> storageProvider,
-    IDatasetUpdateNotifier<T> datasetUpdateNotifier,
+    INotificationsHub<T> notificationsHub,
     bool retryInit = true)
     : IStorageProvider<T>, IHostedService
 { 
@@ -128,13 +129,7 @@ public class ObjectStorageProvider<T>(
          
         _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
-        ulong knownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = deltaVersion,
-            SnapshotVersion = knownSnapshotVersion
-        });
+        await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
@@ -158,13 +153,8 @@ public class ObjectStorageProvider<T>(
 
             await UpdateLatestVersion(_versionIndex);
         }
-        
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = _versionIndex.LatestDeltaVersion,
-            SnapshotVersion = _versionIndex.SnapshotVersions.Max(sv => sv.Version),
-        });
+
+        notificationsHub.Notify(new SnapshotCreatedNotification(Version: _versionIndex.LatestDeltaVersion));
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
@@ -296,14 +286,8 @@ public class ObjectStorageProvider<T>(
         }
         _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
-        ulong knownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
 
-        datasetUpdateNotifier.Notify(new DatasetUpdateNotification()
-        {
-            DtoName = typeof(T).Name,
-            Version = deltaVersion,
-            SnapshotVersion = knownSnapshotVersion
-        });
+        notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
     private async Task<IDisposable> Lock()
@@ -331,6 +315,7 @@ public class ObjectStorageProvider<T>(
             _versionIndex.ProcessedVersions.TryAdd(who, version);
         };
         await UpdateLatestVersion(_versionIndex);
+        notificationsHub.Notify(new VersionProcessedNotification(Who: who, NewVersion: version));
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)

@@ -6,7 +6,8 @@ using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
-using RxDatasets.DatasetUpdateNotifications;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.Services;
@@ -19,14 +20,15 @@ public class SnapshotCreationPluginTests
         SnapshotInterval = 5
     });
     private IOptions<SnapshotCreationConfig> _snapshotCreationConfig = Options.Create(new SnapshotCreationConfig());
-    private readonly DatasetUpdateNotifierSync<object> _datasetUpdateNotifier = new();
+    private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
     private const ulong UNIT_KB = 1024;
     private const ulong UNIT_MB = 1024 * UNIT_KB;
 
 
     private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
-        IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _datasetUpdateNotifier);
+        IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(
+            new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _notificationsHub);
         
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
@@ -34,11 +36,11 @@ public class SnapshotCreationPluginTests
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
 
-        var datasetReader = new DatasetReader<object>(_datasetUpdateNotifier, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_datasetUpdateNotifier, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
+        var datasetReader = new DatasetReader<object>(_notificationsHub, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
 
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _snapshotCreationConfig, ts);
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _datasetUpdateNotifier, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
 
         await datasetReader.StartAsync(CancellationToken.None);
