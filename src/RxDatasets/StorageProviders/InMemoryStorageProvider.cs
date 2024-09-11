@@ -39,6 +39,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
     public Task StoreDelta(ulong deltaVersion, byte[] index, Stream stream)
     {
         byte[] dataBytes;
+
         using (stream)
         {
             dataBytes = new byte[stream.Length];  // Initialize the byte array to the length of the file

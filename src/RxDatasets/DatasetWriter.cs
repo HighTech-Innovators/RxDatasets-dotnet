@@ -216,6 +216,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         _index = _index.ApplyDelta(deltaIndex);
 
         var newTempFileStream = File.OpenRead(tempDataFilePath);
+        newTempFileStream.Position = 0;
         await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), newTempFileStream);
         newTempFileStream.Close();
         
@@ -284,49 +285,54 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
             DeltaVersion = delta.DatasetVersion
         };
 
-        byte[] data = new byte[delta.Changes.Sum(x => x.Entity?.Length ?? 0)];
-        long byteArrayPosition = 0;
-        await using var concatenatedByteStream = new MemoryStream();
+        await using var concatenatedByteStream = new MemoryStream(); 
+        long targetPosition = 0;
+
         foreach (var (name, entityBytes, change, crc32) in delta.Changes)
         {
             switch (change)
             {
                 case ChangeType.New:
+                    var lengthOfTheVarPrefix = DatasetHelper.WriteLengthPrefix(concatenatedByteStream, entityBytes!.Length);
+                    targetPosition += lengthOfTheVarPrefix;
                     deltaIndex.NewEntities.Add(new DeltaEntity()
                     {
-                        Position = byteArrayPosition,
-                        Length = entityBytes!.Length,
+                        Position = targetPosition,
+                        Length = entityBytes.Length,
                         Name = name,
                         Crc32 = crc32
                     });
-                    entityBytes.CopyTo(data, byteArrayPosition);
-                    byteArrayPosition += entityBytes.Length;
+                    concatenatedByteStream.Write(entityBytes);
+                    targetPosition += entityBytes.Length;
                     break;
                 case ChangeType.Changed:
+                    lengthOfTheVarPrefix = DatasetHelper.WriteLengthPrefix(concatenatedByteStream, entityBytes!.Length);
+                    targetPosition += lengthOfTheVarPrefix; 
                     deltaIndex.ChangedEntities.Add(new DeltaEntity()
                     {
-                        Position = byteArrayPosition,
+                        Position = targetPosition,
                         Length = entityBytes!.Length,
                         Name = name,
                         Crc32 = crc32
-                    });
-                    entityBytes.CopyTo(data, byteArrayPosition);
-                    byteArrayPosition += entityBytes.Length;
+                    }); 
+                    concatenatedByteStream.Write(entityBytes);
+                    targetPosition += entityBytes.Length;
                     break;
                 case ChangeType.Deleted:
                     deltaIndex.DeletedNames.Add(name);
                     break;
             }
         }
-        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), data);
+
+        concatenatedByteStream.Position = 0;
+        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
 
         _index = _index!.ApplyDelta(deltaIndex);
 
         return _index;
     }
 
-  
-  
+
     public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
     {
         if (InitializationTask == null)

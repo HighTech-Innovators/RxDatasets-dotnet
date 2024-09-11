@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Models;
@@ -14,6 +15,17 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
 
         return await GetIndexOfVersion(availableVersion.newestDelta, lastSnapshot);
     }
+
+
+    public static int WriteLengthPrefix(Stream stream, int length)
+    {
+        // Google.Protobuf.CodedOutputStream has a method for writing a length prefix as a varint
+        using var cos = new CodedOutputStream(stream, true);
+        cos.WriteLength(length);
+        var lengthOfTheVarPrefix = CodedOutputStream.ComputeLengthSize(length);
+        return lengthOfTheVarPrefix;
+    }
+
 
     /// <summary>
     /// Builds up a SnapshotIndex based on the provided version and the latest snapshot

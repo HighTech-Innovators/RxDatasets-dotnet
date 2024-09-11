@@ -126,7 +126,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
 
             if (targetSnapshotStreamPosition == 0)
-                WriteLengthPrefix(targetSnapshotStream, 0);
+                DatasetHelper.WriteLengthPrefix(targetSnapshotStream, 0);
 
             await targetSnapshotStream.FlushAsync(stoppingToken);
             targetSnapshotStream.Close();
@@ -170,7 +170,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 var entityLength = entity.Value.Length;
 
-                targetSnapshotStreamPosition += WriteLengthPrefix(targetSnapshotStream, entityLength);
+                targetSnapshotStreamPosition += DatasetHelper.WriteLengthPrefix(targetSnapshotStream, entityLength);
                 var targetEntityPosition = targetSnapshotStreamPosition;
 
                 var latestEntityVersion = entity.Value.GetLatestEntityVersion();
@@ -211,13 +211,14 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 {
                     var entityLength = entity.Value.Length;
 
-                    targetSnapshotStreamPosition += WriteLengthPrefix(targetSnapshotStream, entityLength);
+                    targetSnapshotStreamPosition += DatasetHelper.WriteLengthPrefix(targetSnapshotStream, entityLength);
                     var targetEntityPosition = targetSnapshotStreamPosition;
 
                     var gap = entity.Value.Position - sourceStreamPosition;
                     sourceStreamPosition += SeekForwardBy(sourceStream, gap);
 
                     EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
+
                     sourceStreamPosition += entityLength;
                     targetSnapshotStreamPosition += entityLength;
 
@@ -234,13 +235,13 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         return targetSnapshotStreamPosition;
     }
 
-    public static long EfficientCopy(Stream sourceStream, Stream snapshotFileStream, int numberOfBytesToCopy)
+    public static long EfficientCopy(Stream sourceStream, Stream targetStream, int numberOfBytesToCopy)
     {
         if (numberOfBytesToCopy <= MaxStackAllocSize)
         {
             Span<byte> buffer = stackalloc byte[numberOfBytesToCopy];
             sourceStream.ReadExactly(buffer);
-            snapshotFileStream.Write(buffer);
+            targetStream.Write(buffer);
         }
         else
         {
@@ -249,7 +250,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 var span = buffer[..numberOfBytesToCopy];
                 sourceStream.ReadExactly(span);
-                snapshotFileStream.Write(span);
+                targetStream.Write(span);
             }
             finally
             {
@@ -297,15 +298,6 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         }
 
         return relative;
-    }
-
-    private static int WriteLengthPrefix(Stream stream, int length)
-    {
-        // Google.Protobuf.CodedOutputStream has a method for writing a length prefix as a varint
-        using var cos = new CodedOutputStream(stream, true);
-        cos.WriteLength(length);
-        var lengthOfTheVarPrefix = CodedOutputStream.ComputeLengthSize(length);
-        return lengthOfTheVarPrefix;
     }
 
     public async Task HandleNewDeltas(CancellationToken stoppingToken)

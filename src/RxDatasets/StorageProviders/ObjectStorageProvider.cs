@@ -290,6 +290,10 @@ public class ObjectStorageProvider<T>(
                 storageProvider.UploadFileStream(dataObjectName, data)
             );
         }
+        else // Deleted Delta data
+        {
+            await storageProvider.UploadBytes(indexObjectName, index);
+        }
         _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
         ulong knownSnapshotVersion = (_versionIndex.SnapshotVersions.Count > 0 ? _versionIndex.SnapshotVersions.Max((s) => s.Version) : 0ul);
