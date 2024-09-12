@@ -26,8 +26,8 @@
       },
       "Google.Protobuf": {
         "type": "Transitive",
-        "resolved": "3.28.0",
-        "contentHash": "lVsLcLIHpkOABswgydr0sjkIhSN5XE9C6AgLXxvMsa6pSSJIpmAIPvK/NZpuF+HTB6xp1R8T5nhLausWVOrU/w=="
+        "resolved": "3.28.1",
+        "contentHash": "i4EN7Z+OUdoRBNiVMIG6CfMh6UowXiUx+BKgE+GHLbAX5ArSmpUTFUDwgRNwNfYdosl6GXuBlDiHCcXSHw43+A=="
       },
       "Grpc.AspNetCore.Server": {
         "type": "Transitive",
@@ -447,7 +447,7 @@
       "demodtov1.grpc": {
         "type": "Project",
         "dependencies": {
-          "Google.Protobuf": "[3.28.0, )",
+          "Google.Protobuf": "[3.28.1, )",
           "Grpc.Core.Api": "[2.65.0, )"
         }
       },
@@ -462,7 +462,7 @@
       "HighTechInnovators.RxDatasets": {
         "type": "Project",
         "dependencies": {
-          "Google.ProtoBuf": "[3.28.0, )",
+          "Google.ProtoBuf": "[3.28.1, )",
           "Grpc.Core.Api": "[2.65.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
