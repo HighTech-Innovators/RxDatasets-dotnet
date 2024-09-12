@@ -23,7 +23,7 @@ public class ObjectStorageProvider<T>(
     private readonly SemaphoreSlim _semaphore = new(1);
 
     public static string GetObjectNamePrefix(StorageConfig storageConfig) =>
-        $"{storageConfig.CustomRootFolder}{typeof(T).Name}/";
+        $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
