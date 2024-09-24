@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="Models\Legacy-Entities.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Google.ProtoBuf" Version="3.28.1" />
     <PackageReference Include="Grpc.Tools" Version="2.66.0">
       <PrivateAssets>all</PrivateAssets>
@@ -39,6 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="Models\Legacy-Entities.proto" Access="Private" GrpcServices="None" />
     <Protobuf Include="Models\DatasetEntities.proto" GrpcServices="None" Access="Private" />
   </ItemGroup>
 

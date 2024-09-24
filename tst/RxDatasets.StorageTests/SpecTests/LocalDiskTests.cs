@@ -17,9 +17,20 @@ public class LocalDiskDatasetTests : StorageTestSpec
 
 
     private IStorageProvider<object> _storageProvider;
+
     public LocalDiskDatasetTests()
     {
-        _storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig()), new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, Options.Create(new LocalDiskStorageConfig())), _notificationsHub);
+        IOptions<LocalDiskStorageConfig> config = Options.Create(new LocalDiskStorageConfig());
+        config.Value.RootFolder = @"UnitTestsData/";
+
+        if (Directory.Exists(config.Value.RootFolder))
+        {
+           Directory.Delete(config.Value.RootFolder, recursive: true);
+        }
+        
+        LocalDiskStorageProvider<object> localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, config);
+        _storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig()), localStorageProvider, _notificationsHub, false);
+        ((ObjectStorageProvider<object>)_storageProvider).StartAsync(CancellationToken.None).Wait();
     }
 
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
