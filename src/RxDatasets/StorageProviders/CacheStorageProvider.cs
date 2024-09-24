@@ -17,16 +17,35 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var (_, _, snapshots) = await ListVersions();
-        var lastSnapshot = snapshots.Any() ? snapshots.Select(s => s.version).Max() : 0;
-        if (lastSnapshot != 0)
+        foreach (var version in snapshots.Select(s => s.version).OrderDescending())
         {
-            var index = await ReadSnapshotIndex(lastSnapshot);
-            var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
-            var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => entity.Length);
-            if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
+            try
             {
-                _ = ReadSnapshotData(lastSnapshot);
+                await TryCacheSnapshot(version);
+                logger.LogInformation($"Initialized cache with snapshot v{version}");
+                break;
             }
+            catch (FileNotFoundException e)
+            {
+                logger.LogInformation(e,
+                    $"Skipping snapshot v{version} because {e.FileName} was not found, we will try the next available snapshot for initial caching.");
+            }
+            catch (Exception e)
+            {
+                logger.LogWarning(e,
+                    $"Skipping snapshot v{version} because we got {e} , we will try the next available snapshot for initial caching.");
+            }
+        }
+    }
+
+    private async Task TryCacheSnapshot(ulong snapshotVersion)
+    {
+        var index = await ReadSnapshotIndex(snapshotVersion);
+        var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
+        var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => entity.Length);
+        if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
+        {
+            _ = await ReadSnapshotData(snapshotVersion);
         }
     }
 
@@ -36,6 +55,23 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
     }
     private string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
     private string GetPositionedCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot, long position, int length) => $"{deltaOrSnapshot}_{indexData}_{version}_pos{position}_len{length}";
+
+    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
+    {
+        var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        try
+        { 
+            var bytesAsSpan = new ReadOnlyMemory<byte>(data);
+            SetCache(cacheKey, bytesAsSpan);
+            await storageProvider.StoreSnapshot(snapshotVersion, index, data);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Something went wrong while storing snapshot data!");
+            _memoryCache.Remove(cacheKey);
+            throw;
+        }
+    }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
@@ -163,12 +199,11 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
         {
             if (data.Length <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
             {
-                data.Position = 0;
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
                 var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
                 SetCache(cacheKey, bytesAsSpan);
-                await storageProvider.StoreSnapshot(snapshotVersion, index, data);
+                await storageProvider.StoreSnapshot(snapshotVersion, index, byteArray);
             }
             else
             {
@@ -195,12 +230,11 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
         {
             if (data.Length <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
             {
-                data.Position = 0;
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
                 var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
                 SetCache(cacheKey, bytesAsSpan);
-                await storageProvider.StoreDelta(deltaVersion, index, data);
+                await storageProvider.StoreDelta(deltaVersion, index, byteArray);
             }
             else
             {

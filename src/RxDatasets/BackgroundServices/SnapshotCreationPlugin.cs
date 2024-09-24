@@ -42,8 +42,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         if (!conditionsAreMet)
             return;
 
-        var latestSnapshot = snapshots.Count > 0 ? snapshots.Max(s => s.version) : 0;
-        await CreateASnapshot(newestDelta, latestSnapshot, stoppingToken);
+        await CreateASnapshot(newestDelta, stoppingToken);
     }
 
 
@@ -95,10 +94,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         return maxInterval - timeSinceLastSnapshot;
     }
 
-    private async Task CreateASnapshot(ulong version, ulong latestSnapshot, CancellationToken stoppingToken)
+    private async Task CreateASnapshot(ulong version, CancellationToken stoppingToken)
     {
-        _logger.LogInformation($"Snapshot Hosted {typeof(T).Name} Service is working. Creating snapshot for delta {version}. The previous snapshot is {latestSnapshot}");
-        var tempState = await _datasetHelper.GetIndexOfVersion(version, latestSnapshot);
+        _logger.LogInformation($"Snapshot Hosted {typeof(T).Name} Service is working. Creating snapshot for delta {version}.");
+        var tempState = await _datasetHelper.GetIndexOfVersion(version);
+        _logger.LogInformation($"The previous snapshot is {tempState.SnapshotVersion}.");
+
         await CreateNewSnapshot(tempState, stoppingToken);
     }
 
@@ -135,7 +136,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             var newSnapshotIndex =
                 new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
                     currentIndex.LatestVersion);
-
+            localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
             await _storageProvider.StoreSnapshot(newSnapshotVersion, newSnapshotIndex.ToProto().ToByteArray(),

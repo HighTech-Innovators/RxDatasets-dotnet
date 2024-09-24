@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.IO;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.GenericNotifierLogic;
@@ -95,6 +96,12 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         }
 
         throw new FileNotFoundException($"Snapshot does not exist {version}");
+    }
+
+    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
+    {
+        _snapshots[snapshotVersion] = (index, data, DateTimeOffset.UtcNow);
+        await notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)

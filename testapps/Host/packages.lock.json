@@ -495,6 +495,13 @@
           "Minio": "[6.0.1, )"
         }
       },
+      "rxdatasets.storageprovider.localdisk": {
+        "type": "Project",
+        "dependencies": {
+          "HighTechInnovators.RxDatasets": "[1.0.0, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )"
+        }
+      },
       "testdtov1.server": {
         "type": "Project",
         "dependencies": {

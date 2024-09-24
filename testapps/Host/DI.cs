@@ -1,5 +1,6 @@
 using RxDatasets;
 using RxDatasets.BackgroundServices;
+using RxDatasets.StorageProvider.LocalDisk;
 using RxDatasets.StorageProvider.Minio;
 
 namespace Host;

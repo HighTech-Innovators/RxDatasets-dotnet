@@ -15,6 +15,7 @@ namespace RxDatasets
     {
         public static DtoServerBuilder<TEntity> AddDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
         {
+            services.AddSingleton(serviceProvider => serviceProvider);
             // Initialize the DtoServerBuilder with the provided IServiceCollection
             return new DtoServerBuilder<TEntity>(services);
         }
@@ -45,6 +46,7 @@ namespace RxDatasets
                     sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
                 ));
 
+            services.AddHostedService(sp => (CacheStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
             _isCacheConfigured = true;
 
             return this;
@@ -78,7 +80,6 @@ namespace RxDatasets
         public IServiceCollection Build()
         {
             AddDefaultStorageProvider();
-            services.AddSingleton(serviceProvider => serviceProvider);
             services.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
             services.AddValidatedConfigSection<StorageConfig>();
 
