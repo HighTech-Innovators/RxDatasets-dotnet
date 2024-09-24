@@ -786,6 +786,13 @@
           "AWSSDK.S3": "[3.7.402.10, )",
           "HighTechInnovators.RxDatasets": "[1.0.0, )"
         }
+      },
+      "rxdatasets.storageprovider.localdisk": {
+        "type": "Project",
+        "dependencies": {
+          "HighTechInnovators.RxDatasets": "[1.0.0, )",
+          "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )"
+        }
       }
     }
   }

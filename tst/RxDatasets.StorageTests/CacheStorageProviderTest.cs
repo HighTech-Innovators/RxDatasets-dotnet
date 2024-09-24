@@ -95,7 +95,7 @@ namespace RxDatasets.StorageTests
 
             //Assert
             storageProviderMock.Verify(x => x.ReadSnapshotIndex(It.IsAny<ulong>()), Times.Once);
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
 
         [Fact]
@@ -122,7 +122,7 @@ namespace RxDatasets.StorageTests
             //Assert
             storageProviderMock.Verify(x => x.ReadDataFromSources(
                 It.IsAny<List<(ObjectNameTypeEnum type, ulong version, long position)>>(), 512), Times.Never);
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
         [Fact]
         public async Task ReadDataFromSources_Should_Throw_If_No_Data_Source_Is_Provided()
@@ -159,7 +159,7 @@ namespace RxDatasets.StorageTests
             });
 
             //Assert
-            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<Stream>()), Times.Once);
+            storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
             storageProviderMock.Verify(x => x.ReadSnapshotData(It.IsAny<ulong>(), It.IsAny<Action<Stream>>()), Times.Never);
         }
     }

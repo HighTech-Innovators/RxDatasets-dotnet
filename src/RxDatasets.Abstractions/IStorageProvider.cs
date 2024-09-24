@@ -3,6 +3,7 @@ namespace RxDatasets.Abstractions;
 public interface IStorageProvider
 {
     public Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data);
+    public Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data);
     public Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data);
     public Task StoreDelta(ulong deltaVersion, byte[] index, Stream data);
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version);

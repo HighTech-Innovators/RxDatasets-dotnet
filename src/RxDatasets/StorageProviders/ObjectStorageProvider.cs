@@ -7,6 +7,7 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
+using static VersionInfo.Types;
 
 namespace RxDatasets.StorageProviders;
 
@@ -130,6 +131,38 @@ public class ObjectStorageProvider<T>(
         _versionIndex.LatestDeltaVersion++;
         await UpdateLatestVersion(_versionIndex);
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+    }
+    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
+    {
+        using var slot = await Lock();
+        string indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
+        string dataObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
+
+        //Only upload the data file in case it is not empty (which can be the case in case the delta only contains deletes)
+        if (data.Length > 0)
+        {
+            await Task.WhenAll(
+                storageProvider.UploadBytes(indexObjectName, index),
+                storageProvider.UploadBytes(dataObjectName, data)
+            );
+        }
+        else
+        {
+            await storageProvider.UploadBytes(indexObjectName, index);
+        }
+
+        if (_versionIndex.SnapshotVersions.All((s) => s.Version != snapshotVersion))
+        {
+            _versionIndex.SnapshotVersions.Add(new VersionInfo.Types.snapshotVersion()
+            {
+                Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
+                Version = snapshotVersion
+            });
+
+            await UpdateLatestVersion(_versionIndex);
+        }
+
+        await notificationsHub.Notify(new SnapshotCreatedNotification(Version: _versionIndex.LatestDeltaVersion));
     }
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
@@ -263,8 +296,7 @@ public class ObjectStorageProvider<T>(
         {
             throw new InvalidOperationException("Storage Provider was not initialized");
         }
-        using var slot = await Lock(cancellationToken);
-        _versionIndex = await GetLatestVersion();
+        using var slot = await Lock(cancellationToken); _versionIndex = await GetLatestVersion();
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
