@@ -49,14 +49,13 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), notificationsHub, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-
+        
 
         var datasetReader = new DatasetReader<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
 
         await datasetReader.StartAsync(CancellationToken.None);
         await datasetWriter.StartAsync(CancellationToken.None);
-
          return (datasetReader, datasetWriter);
     }
 

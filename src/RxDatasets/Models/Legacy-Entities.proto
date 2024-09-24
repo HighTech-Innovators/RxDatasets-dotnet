@@ -1,0 +1,20 @@
+﻿syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+message ObsoleteV1LatestVersion {
+	uint64 latest_delta_version = 1;
+	uint64 latest_snapshot_version = 2;
+}
+
+message ObsoleteV2VersionInfo {
+	uint64 latest_delta_version = 1;
+	repeated snapshotVersion snapshot_versions = 2; 
+	uint64 earliest_delta_version = 3;
+	map<string, uint64> processed_versions = 4;
+
+	message snapshotVersion {
+		uint64 version = 1;
+		google.protobuf.Timestamp timestamp = 2;
+	}
+}

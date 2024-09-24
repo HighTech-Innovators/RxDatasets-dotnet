@@ -30,12 +30,17 @@ message DeltaIndex {
 	repeated DeltaEntity new_entities = 4;
 }
 
-message VersionInfo {
-	uint64 latest_delta_version = 1;
-	repeated snapshotVersion snapshot_versions = 2; 
-	uint64 earliest_delta_version = 3;
-	map<string, uint64> processed_versions = 4;
+message ProcessedVersionsInfo {
+	map<string, uint64> processed_versions = 1;
+}
 
+message DeltaInfo {
+	uint64 earliest_delta_version = 1;
+	uint64 latest_delta_version = 2;
+}
+
+message SnapshotInfo {
+	repeated snapshotVersion snapshot_versions = 1; 
 	message snapshotVersion {
 		uint64 version = 1;
 		google.protobuf.Timestamp timestamp = 2;

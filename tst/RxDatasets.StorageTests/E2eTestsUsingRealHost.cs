@@ -108,7 +108,7 @@ namespace RxDatasets.StorageTests
             {
                 var listOfSnapshots = await _minioClient!.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix(ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshot/"))
+                        .WithPrefix(ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/"))
                     .ToList()
                     .ToTask();
 
@@ -201,7 +201,7 @@ namespace RxDatasets.StorageTests
                 {
                     var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix("customRootFolder/Demodto/snapshot/")
+                        .WithPrefix("customRootFolder/Demodto/snapshots/")
                         .WithRecursive(true));
 
                     var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();

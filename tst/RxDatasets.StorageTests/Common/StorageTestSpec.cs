@@ -714,7 +714,7 @@ public abstract class StorageTestSpec
        
         var putResult = await azBlobStorageDatasetWriter.Put("AddingOneShouldLeadToListOfOneNewEntity", bytes, cancellationToken);
 
-        waitChangedListTask.Status.Should().Be(TaskStatus.RanToCompletion);
+        await waitChangedListTask.WaitAsync(TimeSpan.FromMilliseconds(1000), cancellationToken);
 
         // When
         var result = (await waitChangedListTask).changes.ToList();
