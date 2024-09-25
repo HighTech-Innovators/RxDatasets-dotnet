@@ -124,15 +124,15 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "3.7.400.19",
-        "contentHash": "rrADTHB6OLnoaNkKkqGmfyjNxE8AmrihUzTvnImWL+ZLXk2dKEAmQv5rr/YDg/Q1CxyS1Q+RnEpZwxUVqgQ8OA=="
+        "resolved": "3.7.400.23",
+        "contentHash": "Qw1thNMVFhiYSGzAKt65bNOPsZSafRFqvGc2Ieji6YbqplXZI1JPccaAj0twGQ8SLbnhq4Jq8hdnPqOtSC5IaA=="
       },
       "AWSSDK.S3": {
         "type": "Transitive",
-        "resolved": "3.7.402.10",
-        "contentHash": "GHaBHFGeI9REZxonylOnoZs50EOB1MKb7NYYku5iyEJ6CEx3sxnvm8O0FQ4Zo06XwBnbGOfuRKPXAHqxcCD7Xg==",
+        "resolved": "3.7.403.2",
+        "contentHash": "4/48xiih/yTRAX5jTTin9mU9Nbq7W+L4pj29yt4Owdyne57BMnANChEbBhKe99ZSEZlp38Xk706JAf1puv7cRA==",
         "dependencies": {
-          "AWSSDK.Core": "[3.7.400.19, 4.0.0)"
+          "AWSSDK.Core": "[3.7.400.23, 4.0.0)"
         }
       },
       "Azure.Core": {
@@ -783,7 +783,7 @@
       "HighTechInnovators.RxDatasets.StorageProvider.S3": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.S3": "[3.7.402.10, )",
+          "AWSSDK.S3": "[3.7.403.2, )",
           "HighTechInnovators.RxDatasets": "[1.0.0, )"
         }
       },
