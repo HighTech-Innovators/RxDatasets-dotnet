@@ -4,20 +4,20 @@
     "net8.0": {
       "Grpc.AspNetCore.Server.Reflection": {
         "type": "Direct",
-        "requested": "[2.65.0, )",
-        "resolved": "2.65.0",
-        "contentHash": "aQ8UyedHXLm7RxHJ7HQmU26Np6vUYAETiEr0eXhBfhQD3ivIDfey/qRUp1a5uidoqMhN1edfUPAvYlHzGCJ0Rg==",
+        "requested": "[2.66.0, )",
+        "resolved": "2.66.0",
+        "contentHash": "B34FAG9XQ3TiQJT4Tg1KgmtxzWDaHZszu79M2K7mvfC3iRIVgqknxuc9Wp2xTpeWih8iQ1aj2vDD3CqRgWbl4g==",
         "dependencies": {
           "Google.Protobuf": "3.27.0",
-          "Grpc.AspNetCore.Server": "2.65.0",
-          "Grpc.Reflection": "2.65.0"
+          "Grpc.AspNetCore.Server": "2.66.0",
+          "Grpc.Reflection": "2.66.0"
         }
       },
       "Grpc.AspNetCore.Web": {
         "type": "Direct",
-        "requested": "[2.65.0, )",
-        "resolved": "2.65.0",
-        "contentHash": "hdgwFXdP5q8quu0mnEkt4biKWgZL6ma32gs3cmvKLFem0MLSGvh8hT/RnxU8kbA6uKDVBIe/QtLr5oFcDwtoQA=="
+        "requested": "[2.66.0, )",
+        "resolved": "2.66.0",
+        "contentHash": "MK8FM2Tud+HrRyZoK/Xz9WzBVGlIGyzTscOrgVThk8K1cKhhJ8rL410xeRcDGDtrAmJVLkFQBxlBk0Z1SX3GNA=="
       },
       "Google.Protobuf": {
         "type": "Transitive",
@@ -26,32 +26,32 @@
       },
       "Grpc.AspNetCore.Server": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "T6HKIieesksg3M8aVY6WOeiUthdKqYFI1yPxiBMaG9mT3+yXUkmMWEkdDsKU6RU6fWWNQVmyM1FUMvZ7Bw1vtA==",
+        "resolved": "2.66.0",
+        "contentHash": "SogFEs8bLvcRtEWMdueOJeMxiaLryvyivWtmBwz/vLtS5xlN4Zrfv+npMbn1PS4iT99AqBY+R+bRxdIFfvfeIA==",
         "dependencies": {
-          "Grpc.Net.Common": "2.65.0"
+          "Grpc.Net.Common": "2.66.0"
         }
       },
       "Grpc.Core.Api": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "VHElVX8XpJoaoddHkxhSHrXqn+7k3cZRmAxvZFh0NElkZK5oAT0/QOPM2FJtt5/xIxjQPumz3TOkzrUT6b8V6g=="
+        "resolved": "2.66.0",
+        "contentHash": "HsjsQVAHe4hqP4t4rpUnmq+MZvPdyrlPsWF4T5fbMvyP3o/lMV+KVJfDlaNH8+v0aGQTVT3EsDFufbhaWb52cw=="
       },
       "Grpc.Net.Common": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "XbRegnfDrWoXZJ4GGdJat+KXnmCCkR6XQmWnIZxxIjphyZkWZgI0FN1PtGXU4RZ5a5C85qg1cscz1ju2biVXGg==",
+        "resolved": "2.66.0",
+        "contentHash": "YJpQpIvpo0HKlsG6SHwaieyji08qfv0DdEDIewCAA0egQY08637sHOj1netLGUhzBEsCqlGC3e92TZ2uqhxnvw==",
         "dependencies": {
-          "Grpc.Core.Api": "2.65.0"
+          "Grpc.Core.Api": "2.66.0"
         }
       },
       "Grpc.Reflection": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "Tujf+88sYaNeXh9zdY74x8hVvN5voSp4DDTx0Ne3b3Pw5aCitl3tEPzz9mZn3Oy4NrP7mcmbHUUCD5jxhao/uQ==",
+        "resolved": "2.66.0",
+        "contentHash": "7nehpWepeZMD5nOA+DIq020UikgfTgmGqKwBHxoDYbQELmhuM9zkWO8xYlfd0C8UqdKB+enZYInGpVM1vIveEw==",
         "dependencies": {
           "Google.Protobuf": "3.27.0",
-          "Grpc.Core.Api": "2.65.0"
+          "Grpc.Core.Api": "2.66.0"
         }
       },
       "Microsoft.Bcl.AsyncInterfaces": {
@@ -431,14 +431,14 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )"
+          "Grpc.Core.Api": "[2.66.0, )"
         }
       },
       "demodtov1.server": {
         "type": "Project",
         "dependencies": {
           "DemodtoV1.Grpc": "[1.0.0, )",
-          "Grpc.AspNetCore.Server": "[2.65.0, )",
+          "Grpc.AspNetCore.Server": "[2.66.0, )",
           "HighTechInnovators.RxDatasets": "[1.0.0, )"
         }
       },
@@ -446,7 +446,7 @@
         "type": "Project",
         "dependencies": {
           "Google.ProtoBuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )",
+          "Grpc.Core.Api": "[2.66.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Caching.Memory": "[8.0.0, )",
@@ -485,7 +485,7 @@
         "type": "Project",
         "dependencies": {
           "DemodtoV1.Grpc": "[1.0.0, )",
-          "Grpc.AspNetCore.Server": "[2.65.0, )",
+          "Grpc.AspNetCore.Server": "[2.66.0, )",
           "HighTechInnovators.RxDatasets": "[1.0.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )"
         }
