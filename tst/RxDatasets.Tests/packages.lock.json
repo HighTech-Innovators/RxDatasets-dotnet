@@ -68,8 +68,8 @@
       },
       "Grpc.Core.Api": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "VHElVX8XpJoaoddHkxhSHrXqn+7k3cZRmAxvZFh0NElkZK5oAT0/QOPM2FJtt5/xIxjQPumz3TOkzrUT6b8V6g=="
+        "resolved": "2.66.0",
+        "contentHash": "HsjsQVAHe4hqP4t4rpUnmq+MZvPdyrlPsWF4T5fbMvyP3o/lMV+KVJfDlaNH8+v0aGQTVT3EsDFufbhaWb52cw=="
       },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
@@ -533,14 +533,14 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )"
+          "Grpc.Core.Api": "[2.66.0, )"
         }
       },
       "HighTechInnovators.RxDatasets": {
         "type": "Project",
         "dependencies": {
           "Google.ProtoBuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )",
+          "Grpc.Core.Api": "[2.66.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Caching.Memory": "[8.0.0, )",

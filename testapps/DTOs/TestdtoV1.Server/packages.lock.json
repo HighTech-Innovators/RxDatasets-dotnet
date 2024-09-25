@@ -4,11 +4,11 @@
     "net8.0": {
       "Grpc.AspNetCore.Server": {
         "type": "Direct",
-        "requested": "[2.65.0, )",
-        "resolved": "2.65.0",
-        "contentHash": "T6HKIieesksg3M8aVY6WOeiUthdKqYFI1yPxiBMaG9mT3+yXUkmMWEkdDsKU6RU6fWWNQVmyM1FUMvZ7Bw1vtA==",
+        "requested": "[2.66.0, )",
+        "resolved": "2.66.0",
+        "contentHash": "SogFEs8bLvcRtEWMdueOJeMxiaLryvyivWtmBwz/vLtS5xlN4Zrfv+npMbn1PS4iT99AqBY+R+bRxdIFfvfeIA==",
         "dependencies": {
-          "Grpc.Net.Common": "2.65.0"
+          "Grpc.Net.Common": "2.66.0"
         }
       },
       "Google.Protobuf": {
@@ -18,15 +18,15 @@
       },
       "Grpc.Core.Api": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "VHElVX8XpJoaoddHkxhSHrXqn+7k3cZRmAxvZFh0NElkZK5oAT0/QOPM2FJtt5/xIxjQPumz3TOkzrUT6b8V6g=="
+        "resolved": "2.66.0",
+        "contentHash": "HsjsQVAHe4hqP4t4rpUnmq+MZvPdyrlPsWF4T5fbMvyP3o/lMV+KVJfDlaNH8+v0aGQTVT3EsDFufbhaWb52cw=="
       },
       "Grpc.Net.Common": {
         "type": "Transitive",
-        "resolved": "2.65.0",
-        "contentHash": "XbRegnfDrWoXZJ4GGdJat+KXnmCCkR6XQmWnIZxxIjphyZkWZgI0FN1PtGXU4RZ5a5C85qg1cscz1ju2biVXGg==",
+        "resolved": "2.66.0",
+        "contentHash": "YJpQpIvpo0HKlsG6SHwaieyji08qfv0DdEDIewCAA0egQY08637sHOj1netLGUhzBEsCqlGC3e92TZ2uqhxnvw==",
         "dependencies": {
-          "Grpc.Core.Api": "2.65.0"
+          "Grpc.Core.Api": "2.66.0"
         }
       },
       "Microsoft.Bcl.AsyncInterfaces": {
@@ -406,14 +406,14 @@
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )"
+          "Grpc.Core.Api": "[2.66.0, )"
         }
       },
       "HighTechInnovators.RxDatasets": {
         "type": "Project",
         "dependencies": {
           "Google.ProtoBuf": "[3.28.2, )",
-          "Grpc.Core.Api": "[2.65.0, )",
+          "Grpc.Core.Api": "[2.66.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.Caching.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Caching.Memory": "[8.0.0, )",
