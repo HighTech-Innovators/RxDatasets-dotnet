@@ -475,6 +475,7 @@
         "type": "Project",
         "dependencies": {
           "Google.ProtoBuf": "[3.28.2, )",
+          "HighTechInnovators.RxDatasets": "[1.0.0, )",
           "HighTechInnovators.RxDatasets.Abstractions": "[1.0.0, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.1, )",
           "System.Linq.Async": "[6.0.1, )",

@@ -11,7 +11,6 @@ public abstract class StorageTestSpec
     protected IOptions<StorageConfig> DtoOptions = Options.Create(new StorageConfig());
     protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig());
     private const ulong UNIT_KB = 1024;
-    private const ulong UNIT_MB = 1024 * UNIT_KB;
     protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "");
     
     [Fact]
@@ -27,7 +26,7 @@ public abstract class StorageTestSpec
         result.NewDatasetVersion.Should().Be(initialVersion + 1);
     }
 
-    protected byte[] GenerateRandomData(ulong length = UNIT_MB, int seed = 0)
+    protected byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
         var random = new Random(seed);
@@ -41,8 +40,8 @@ public abstract class StorageTestSpec
     public async Task Should_Update_Changed_DTO()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var randomBytes = GenerateRandomData(UNIT_MB, 0);
-        var randomBytes2 = GenerateRandomData(UNIT_MB, 1);
+        var randomBytes = GenerateRandomData(UNIT_KB, 0);
+        var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
         var initialDatasetVersion = await azBlobStorageDatasetReader.GetLatestVersion();
 
         var res = await azBlobStorageDatasetWriter.Put("Should_Not_Update_Same_DTO", randomBytes);
@@ -63,7 +62,7 @@ public abstract class StorageTestSpec
     public async Task Should_Not_Update_Unchanged_DTO()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var randomBytes = GenerateRandomData(UNIT_MB);
+        var randomBytes = GenerateRandomData(UNIT_KB);
         var initialDatasetVersion = await azBlobStorageDatasetReader.GetLatestVersion();
 
         var res = await azBlobStorageDatasetWriter.Put("Should_Not_Update_Same_DTO", randomBytes);
@@ -89,7 +88,7 @@ public abstract class StorageTestSpec
         var changes = new List<(string name, byte[])>();
         for (int i = 0; i < 500; i++)
         {
-            changes.Add(($"Should_Put_All_New_DTOs_{i}", GenerateRandomData(UNIT_MB, i)));
+            changes.Add(($"Should_Put_All_New_DTOs_{i}", GenerateRandomData(UNIT_KB, i)));
         }
 
         var res = await azBlobStorageDatasetWriter.PutAll(changes.ToAsyncEnumerable());
@@ -107,10 +106,112 @@ public abstract class StorageTestSpec
     }
 
     [Fact]
+    public async Task Should_Put_All_Children_New_DTOs_FluentAssertions()
+    {
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+
+        var initialDatasetVersion = await azBlobStorageDatasetReader.GetLatestVersion();
+        var changes = new List<(string name, byte[])>();
+        for (int i = 1; i <= 250; i++)
+        {
+            changes.Add(($"ParentEntity/A/Should_Put_All_Children_DTOs/{i}", GenerateRandomData(UNIT_KB, i)));
+        }
+
+        for (int i = 251; i <= 500; i++)
+        {
+            changes.Add(($"ParentEntity/B/Should_Put_All_Children_DTOs/{i}", GenerateRandomData(UNIT_KB, i)));
+        }
+
+        var res = await storageDatasetWriter.PutAllChildren(changes.ToAsyncEnumerable());
+
+        res.Should().NotBeNull();
+        res.NumAddedEntities.Should().Be(500);
+        res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
+
+        var readRes = (await azBlobStorageDatasetReader.BatchGet(changes.Select(c => c.name).ToList(), null)).ToList();
+        for (var i = 0; i < changes.Count; i++)
+        {
+            readRes[i].name.Should().Be(changes[i].name);
+        }
+
+        var newChanges = new List<(string name, byte[])>
+        {
+            ("ParentEntity/A/Should_Put_All_Children_DTOs/1", GenerateRandomData(UNIT_KB, 2)), //to update
+            ("ParentEntity/A/Should_Put_All_Children_DTOs/3", GenerateRandomData(UNIT_KB, 4)), //to update
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/251", GenerateRandomData(UNIT_KB, 252)), //to update
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/262", GenerateRandomData(UNIT_KB, 263)), //to update
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/1000", GenerateRandomData(UNIT_KB, 1000)), //to add
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/10001", GenerateRandomData(UNIT_KB, 1001)) //to add
+        };
+
+        var newRes = await storageDatasetWriter.PutAllChildren(newChanges.ToAsyncEnumerable());
+
+        newRes.Should().NotBeNull();
+        newRes.NumAddedEntities.Should().Be(2);
+        newRes.NumUpdatedEntities.Should().Be(4);
+        newRes.NumDeletedEntities.Should().Be(496);
+        newRes.NewDatasetVersion.Should().Be(initialDatasetVersion + 2);
+
+    }
+
+
+    [Fact]
+    public async Task Should_Put_Many_New_DTOs_FluentAssertions()
+    {
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+
+        var initialDatasetVersion = await azBlobStorageDatasetReader.GetLatestVersion();
+        var changes = new List<(string name, byte[])>();
+        for (int i = 1; i <= 250; i++)
+        {
+            changes.Add(($"ParentEntity/A/Should_Put_All_Children_DTOs/{i}", GenerateRandomData(UNIT_KB, i)));
+        }
+
+        for (int i = 251; i <= 500; i++)
+        {
+            changes.Add(($"ParentEntity/B/Should_Put_All_Children_DTOs/{i}", GenerateRandomData(UNIT_KB, i)));
+        }
+
+        var res = await storageDatasetWriter.PutMany(changes.ToAsyncEnumerable());
+
+        res.Should().NotBeNull();
+        res.NumAddedEntities.Should().Be(500);
+        res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
+
+        var readRes = (await azBlobStorageDatasetReader.BatchGet(changes.Select(c => c.name).ToList(), null)).ToList();
+        for (var i = 0; i < changes.Count; i++)
+        {
+            readRes[i].name.Should().Be(changes[i].name);
+        }
+
+        var newChanges = new List<(string name, byte[])>
+        {
+            ("ParentEntity/A/Should_Put_All_Children_DTOs/1", GenerateRandomData(UNIT_KB, 2)), //to update
+            ("ParentEntity/A/Should_Put_All_Children_DTOs/3", GenerateRandomData(UNIT_KB, 4)), //to update
+
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/251", GenerateRandomData(UNIT_KB, 252)), //to update
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/262", GenerateRandomData(UNIT_KB, 263)), //to update
+
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/1000", GenerateRandomData(UNIT_KB, 1000)), //to add
+            ("ParentEntity/B/Should_Put_All_Children_DTOs/10001", GenerateRandomData(UNIT_KB, 1001)) //to add
+        };
+
+        var newRes = await storageDatasetWriter.PutMany(newChanges.ToAsyncEnumerable());
+
+        newRes.Should().NotBeNull();
+        newRes.NumAddedEntities.Should().Be(2);
+        newRes.NumUpdatedEntities.Should().Be(4);
+        newRes.NumDeletedEntities.Should().Be(0);
+        newRes.NewDatasetVersion.Should().Be(initialDatasetVersion + 2);
+
+    }
+
+
+    [Fact]
     public async Task Should_Delete_DTO()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var randomBytes = GenerateRandomData(UNIT_MB);
+        var randomBytes = GenerateRandomData(UNIT_KB);
         var key = "Should_Delete_DTO";
 
         await azBlobStorageDatasetWriter.Put("Should_Delete_DTO", randomBytes);
@@ -129,7 +230,7 @@ public abstract class StorageTestSpec
     public async Task Should_Not_Delete_Deleted_DTO()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var randomBytes = GenerateRandomData(UNIT_MB);
+        var randomBytes = GenerateRandomData(UNIT_KB);
         var key = "Should_Not_Delete_Deleted_DTO";
 
         await azBlobStorageDatasetWriter.Put(key, randomBytes);
@@ -275,7 +376,7 @@ public abstract class StorageTestSpec
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
         var key = "Should_Get_Entity";
-        var randomBytes = GenerateRandomData(UNIT_MB);
+        var randomBytes = GenerateRandomData(UNIT_KB);
 
         await azBlobStorageDatasetWriter.Put(key, randomBytes);
 
@@ -291,7 +392,7 @@ public abstract class StorageTestSpec
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
         var key = "Should_Not_Get_Deleted_Entity";
-        var randomBytes = GenerateRandomData(UNIT_MB);
+        var randomBytes = GenerateRandomData(UNIT_KB);
 
         await azBlobStorageDatasetWriter.Put(key, randomBytes);
         await azBlobStorageDatasetWriter.Delete(key);
@@ -306,8 +407,8 @@ public abstract class StorageTestSpec
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
         var key = "Should_Get_Undeleted_Entity";
-        var randomBytes = GenerateRandomData(UNIT_MB);
-        var randomBytes2 = GenerateRandomData(UNIT_MB, 1);
+        var randomBytes = GenerateRandomData(UNIT_KB);
+        var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
 
         await azBlobStorageDatasetWriter.Put(key, randomBytes);
         await azBlobStorageDatasetWriter.Delete(key);
@@ -316,7 +417,7 @@ public abstract class StorageTestSpec
         var entity = await azBlobStorageDatasetReader.Get(key);
 
         entity.Should().NotBeNull();
-        entity.Value.name.Should().Be(key);
+        entity!.Value.name.Should().Be(key);
         entity.Value.entityBytes.ToArray().Should().BeEquivalentTo(randomBytes2);
         entity.Value.entityBytes.ToArray().Should().NotBeEquivalentTo(randomBytes);
     }
@@ -448,14 +549,14 @@ public abstract class StorageTestSpec
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
         // Put entities with the same parent
-        var bytes1 = GenerateRandomData(UNIT_MB, 1);
+        var bytes1 = GenerateRandomData(UNIT_KB, 1);
         await azBlobStorageDatasetWriter.Put("Parent1/Should_List_With_Parent_1", bytes1);
 
-        var bytes2 = GenerateRandomData(UNIT_MB, 2);
+        var bytes2 = GenerateRandomData(UNIT_KB, 2);
         await azBlobStorageDatasetWriter.Put("Parent1/Should_List_With_Parent_2", bytes2);
 
         // Put entities with a different parent
-        var bytes3 = GenerateRandomData(UNIT_MB, 3);
+        var bytes3 = GenerateRandomData(UNIT_KB, 3);
         await azBlobStorageDatasetWriter.Put("Parent2/Should_List_With_Parent_3", bytes3);
 
         // List entities with the matching parent
@@ -475,8 +576,8 @@ public abstract class StorageTestSpec
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
-        await azBlobStorageDatasetWriter.Put("Parent1/Should_Not_List_Without_Parent_1", GenerateRandomData(UNIT_MB));
-        await azBlobStorageDatasetWriter.Put("Parent2/Should_Not_List_Without_Parent_2", GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put("Parent1/Should_Not_List_Without_Parent_1", GenerateRandomData(UNIT_KB));
+        await azBlobStorageDatasetWriter.Put("Parent2/Should_Not_List_Without_Parent_2", GenerateRandomData(UNIT_KB));
 
         var resultList = await azBlobStorageDatasetReader.List("Parent3").ToListAsync();
         resultList.Should().BeEmpty();
@@ -492,7 +593,7 @@ public abstract class StorageTestSpec
 
         string parent = "Parent";
         string key = $"{parent}/Should_Not_List_Deleted_Entities";
-        await azBlobStorageDatasetWriter.Put(key, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(key, GenerateRandomData(UNIT_KB));
 
         await azBlobStorageDatasetWriter.Delete(key);
         var resultList = await azBlobStorageDatasetReader.List(parent).ToListAsync();
@@ -511,13 +612,13 @@ public abstract class StorageTestSpec
         var key1 = "Should_Get_Changed_Names_Updates_1";
         var key2 = "Should_Get_Changed_Names_Updates_2";
 
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 1));
         var changedNames01 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
 
-        await azBlobStorageDatasetWriter.Put(key2, GenerateRandomData(UNIT_MB, 2));
+        await azBlobStorageDatasetWriter.Put(key2, GenerateRandomData(UNIT_KB, 2));
         var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
 
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 3));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 3));
         var changedNames03 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
 
         var changedNames13 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).changes.ToList();
@@ -549,15 +650,15 @@ public abstract class StorageTestSpec
         var initialVersion = await azBlobStorageDatasetReader.GetLatestVersion();
 
         var key1 = "Should_Get_Changed_Names_Updates_1";
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 1));
         var changedNames01 =( await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
 
         await azBlobStorageDatasetWriter.Delete(key1);
         var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).changes.ToList();
 
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 2));
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 3));
-        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_MB, 4));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 2));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 3));
+        await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 4));
         var changedNames05 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 3)).changes.ToList();
 
         await azBlobStorageDatasetWriter.Delete(key1);
@@ -582,7 +683,7 @@ public abstract class StorageTestSpec
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
         var initialVersion = await azBlobStorageDatasetReader.GetLatestVersion();
-        await azBlobStorageDatasetWriter.Put("Should_Update_Latest_Version_Number_On_Put", GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put("Should_Update_Latest_Version_Number_On_Put", GenerateRandomData(UNIT_KB));
 
         var updatedVersion = await azBlobStorageDatasetReader.GetLatestVersion();
 
@@ -593,7 +694,7 @@ public abstract class StorageTestSpec
     public async Task Should_Not_Update_Latest_Version_Number_On_Ignored_Put()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var bytes = GenerateRandomData(UNIT_MB);
+        var bytes = GenerateRandomData(UNIT_KB);
 
         await azBlobStorageDatasetWriter.Put("Should_Not_Update_Latest_Version_Number_On_Ignored_Put", bytes);
         var initialVersion = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -612,8 +713,8 @@ public abstract class StorageTestSpec
         var initialVersion = await azBlobStorageDatasetReader.GetLatestVersion();
         var changes = new List<(string, byte[])>
         {
-            ("Should_Update_Latest_Version_Number_On_Put_All_1", GenerateRandomData(UNIT_MB)),
-            ("Should_Update_Latest_Version_Number_On_Put_All_2", GenerateRandomData(UNIT_MB)),
+            ("Should_Update_Latest_Version_Number_On_Put_All_1", GenerateRandomData(UNIT_KB)),
+            ("Should_Update_Latest_Version_Number_On_Put_All_2", GenerateRandomData(UNIT_KB)),
         };
 
         await azBlobStorageDatasetWriter.PutAll(changes.ToAsyncEnumerable());
@@ -629,8 +730,8 @@ public abstract class StorageTestSpec
 
         var changes = new List<(string, byte[])>
         {
-            ("Should_Not_Update_Latest_Version_Number_On_Ignored_Put_All_1", GenerateRandomData(UNIT_MB)),
-            ("Should_Not_Update_Latest_Version_Number_On_Ignored_Put_All_2", GenerateRandomData(UNIT_MB)),
+            ("Should_Not_Update_Latest_Version_Number_On_Ignored_Put_All_1", GenerateRandomData(UNIT_KB)),
+            ("Should_Not_Update_Latest_Version_Number_On_Ignored_Put_All_2", GenerateRandomData(UNIT_KB)),
         };
 
         await azBlobStorageDatasetWriter.PutAll(changes.ToAsyncEnumerable());
@@ -678,7 +779,7 @@ public abstract class StorageTestSpec
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
         // Given
-        var bytes = GenerateRandomData(UNIT_MB);
+        var bytes = GenerateRandomData(UNIT_KB);
         var putResult = await azBlobStorageDatasetWriter.Put("AddingOneShouldLeadToListOfOneNewEntity", bytes);
 
         // When
@@ -701,7 +802,7 @@ public abstract class StorageTestSpec
         CancellationToken cancellationToken = new();
 
         // Given
-        var bytes = GenerateRandomData(UNIT_MB);
+        var bytes = GenerateRandomData(UNIT_KB);
   
         Func<Task<ChangeSet>> action = async () => await azBlobStorageDatasetReader.WaitChangedNames(0, cancellationToken);
         var waitChangedListTask = action.Invoke();
@@ -735,17 +836,17 @@ public abstract class StorageTestSpec
         CancellationTokenSource cancellationTokenSource = new();
 
         // Given
-        var bytes = GenerateRandomData(UNIT_MB);
+        var bytes = GenerateRandomData(UNIT_KB);
 
         Func<Task<ChangeSet>> action = async () => await azBlobStorageDatasetReader.WaitChangedNames(0, cancellationTokenSource.Token);
         var waitChangedListTask = action.Invoke();
 
-        await Task.Delay(TimeSpan.FromSeconds(3), cancellationTokenSource.Token);
+        await Task.Delay(TimeSpan.FromSeconds(0.3), cancellationTokenSource.Token);
        
         waitChangedListTask.Status.Should().Be(TaskStatus.WaitingForActivation);
         await cancellationTokenSource.CancelAsync();
 
-        await Task.Delay(TimeSpan.FromSeconds(2)); //wait to return from listTask
+        await Task.Delay(TimeSpan.FromSeconds(0.2)); //wait to return from listTask
 
         waitChangedListTask.Status.Should().Be(TaskStatus.Canceled);
     }
@@ -757,7 +858,7 @@ public abstract class StorageTestSpec
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToEmptyResultOverBothChanges";
-        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
         var deleteResult = await azBlobStorageDatasetWriter.Delete(name);
 
         // When
@@ -774,8 +875,8 @@ public abstract class StorageTestSpec
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToEmptyResultOverBothChanges";
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
-        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
+        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         // When
         var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).changes.ToList();
@@ -792,8 +893,8 @@ public abstract class StorageTestSpec
 
         // Given
         string name = "AddingOneThenChangingOneShouldLeadToListWithChangeOverTheLastDeltaOnly";
-        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
-        var updateResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
+        var updateResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         // When
         var result = (await azBlobStorageDatasetReader.GetChangedNames(putResult.NewDatasetVersion)).changes.ToList();
@@ -810,7 +911,7 @@ public abstract class StorageTestSpec
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToListWithDeleteOverTheLastDeltaOnly";
-        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
         var deleteResult = await azBlobStorageDatasetWriter.Delete(name);
 
         // When
@@ -833,7 +934,7 @@ public abstract class StorageTestSpec
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //D
         await azBlobStorageDatasetWriter.Delete(name);
@@ -856,7 +957,7 @@ public abstract class StorageTestSpec
         string name = "Should_Return_Single_In_Changelist_On_IFDID";
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //F
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -865,7 +966,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Delete(name);
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //D
         await azBlobStorageDatasetWriter.Delete(name);
@@ -889,7 +990,7 @@ public abstract class StorageTestSpec
         string name = "Should_Return_Single_In_Changelist_On_IFDI";
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //F
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -898,7 +999,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Delete(name);
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //T
         var to = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -922,13 +1023,13 @@ public abstract class StorageTestSpec
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //D
         await azBlobStorageDatasetWriter.Delete(name);
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //T
         var to = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -949,13 +1050,13 @@ public abstract class StorageTestSpec
         string name = "Should_Return_Single_In_Changelist_On_IFC";
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //F
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
 
         //C
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //T
         var to = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -979,10 +1080,10 @@ public abstract class StorageTestSpec
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //C
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //T
         var to = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -1003,7 +1104,7 @@ public abstract class StorageTestSpec
         string name = "Should_Return_Single_In_Changelist_On_IFDIC";
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //F
         var from = await azBlobStorageDatasetReader.GetLatestVersion();
@@ -1012,10 +1113,10 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Delete(name);
 
         //I
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB));
 
         //C
-        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_MB, 1));
+        await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         //T
         var to = await azBlobStorageDatasetReader.GetLatestVersion();

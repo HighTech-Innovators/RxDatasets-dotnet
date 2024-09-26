@@ -1,5 +1,5 @@
-﻿using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
+using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
@@ -16,8 +16,37 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
         return await GetIndexOfVersion(availableVersion.newestDelta);
     }
 
+    public static string? FindParentOfEntity(string name)
+    {
+        // Remove any trailing slashes to handle cases like "parent/child/"
+        name = name.TrimEnd('/');
 
-    public static int WriteLengthPrefix(Stream stream, int length)
+        var typeAndId = "[^/]+/[^/]+";
+        var regex = new Regex($"^({typeAndId}(/{typeAndId})*)/[^/]+(/[^/]+)?$");
+        var match = regex.Match(name);
+
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    public static IEnumerable<string> GetImplicitDeletes(ImmutableDatasetState index, HashSet<string> receivedNames)
+    {
+        return index.Entities
+            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+            .Select(x => x.Key)
+            .Except(receivedNames);
+    }
+
+    public static IEnumerable<string> GetImplicitDeletesForParentNames(ImmutableDatasetState index, HashSet<string> receivedNames,
+        HashSet<string> allParents)
+    {
+        return index.Entities
+            .Where(entity => entity.Value.GetLatestChangeType() != ChangeType.Deleted)
+            .Where(entity => allParents.Contains(FindParentOfEntity(entity.Key)??String.Empty))
+            .Select(x => x.Key)
+            .Except(receivedNames);
+    }
+
+    public static int WriteProtobufLengthPrefix(Stream stream, int length)
     {
         // Google.Protobuf.CodedOutputStream has a method for writing a length prefix as a varint
         using var cos = new CodedOutputStream(stream, true);
@@ -25,7 +54,6 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
         var lengthOfTheVarPrefix = CodedOutputStream.ComputeLengthSize(length);
         return lengthOfTheVarPrefix;
     }
-
 
     /// <summary>
     /// Builds up a SnapshotIndex based on the provided version and the latest snapshot
@@ -45,7 +73,8 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
         catch (FileNotFoundException e)
         {
             // There are no snapshots available
-            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableEntity>().ToImmutableDictionary(), 0, version);
+            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableEntity>().ToImmutableDictionary(),
+                0, version);
         }
 
         if (snapshotIndex.SnapshotVersion == 0)
@@ -66,11 +95,14 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
     {
         var availableVersions = await storageProvider.ListVersions();
 
-        if (specificSnapshot != null){
-            specificSnapshot = availableVersions.snapshots.Count > 0 ? availableVersions.snapshots.MaxBy((s) => s.version).version : 0ul;
+        if (specificSnapshot != null)
+        {
+            specificSnapshot = availableVersions.snapshots.Count > 0
+                ? availableVersions.snapshots.MaxBy((s) => s.version).version
+                : 0ul;
             return await TryGetSnapshot(specificSnapshot.Value);
         }
-        
+
         foreach (var version in availableVersions.snapshots.Select(s => s.version).OrderDescending())
         {
             try
@@ -94,7 +126,8 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
 
         if (mutableSnapshotIndex.SnapshotVersion != snapshotVersion)
         {
-            logger.LogWarning($"Snapshot version {mutableSnapshotIndex.SnapshotVersion} does not match the requested version {snapshotVersion}, overwriting it");
+            logger.LogWarning(
+                $"Snapshot version {mutableSnapshotIndex.SnapshotVersion} does not match the requested version {snapshotVersion}, overwriting it");
             mutableSnapshotIndex.SnapshotVersion = snapshotVersion;
         }
 
@@ -104,27 +137,28 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
 
     public async Task<List<DeltaIndex>> GetChangedDeltas(ulong fromVersion, ulong toVersion)
     {
-        if(fromVersion > toVersion)
+        if (fromVersion > toVersion)
         {
             throw new InvalidOperationException("fromVersion is higher than toVersion");
         }
 
-        ulong itterations = (toVersion - fromVersion);
+        ulong iterations = (toVersion - fromVersion);
 
-        if(itterations <= 0)
+        if (iterations <= 0)
         {
-            return new List<DeltaIndex>();
+            return [];
         }
 
-        if(itterations > int.MaxValue)
+        if (iterations > int.MaxValue)
         {
             throw new InvalidOperationException("Too many versions to load");
         }
 
-        List<Task<DeltaIndex>> indexes = Enumerable.Range(1, (int)itterations)
+        List<Task<DeltaIndex>> indexes = Enumerable.Range(1, (int)iterations)
             .Select(async i =>
             {
-                var index = DeltaIndex.Parser.ParseFrom((await storageProvider.ReadDeltaIndex(fromVersion + (ulong)i)).Span);
+                var readDeltaIndex = await storageProvider.ReadDeltaIndex(fromVersion + (ulong)i);
+                var index = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
                 return index;
             })
             .ToList();
@@ -134,9 +168,9 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
             .ToList();
     }
 
-    public static uint ComputeCrc32(ReadOnlySpan<byte> inputData) => inputData.Length == 0 ? 0 : System.IO.Hashing.Crc32.HashToUInt32(inputData);
+    public static uint ComputeCrc32(ReadOnlySpan<byte> inputData) =>
+        inputData.Length == 0 ? 0 : System.IO.Hashing.Crc32.HashToUInt32(inputData);
 }
-
 
 internal class ActionDisposable : IDisposable
 {

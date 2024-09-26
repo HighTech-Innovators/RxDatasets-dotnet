@@ -1,0 +1,11 @@
+﻿<ProjectConfiguration>
+  <Settings>
+    <AdditionalFilesToIncludeForProject>
+      <Value>Models\DatasetEntities.proto</Value>
+      <Value>Models\Legacy-Entities.proto</Value>
+    </AdditionalFilesToIncludeForProject>
+    <HiddenComponentWarnings>
+      <Value>UnnecessaryFileIncludeWarning</Value>
+    </HiddenComponentWarnings>
+  </Settings>
+</ProjectConfiguration>

@@ -45,40 +45,102 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default){
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    {
+        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: true, ct);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    {
+        return await PutEntitiesAsync(entities, includeParents: true, performDeletes: true, ct);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    {
+        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: false, ct);
+    }
+
+    private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
+        IAsyncEnumerable<(string name, byte[] entityBytes)> entities,
+        bool includeParents,
+        bool performDeletes,
+        CancellationToken ct)
+    {
         using var slot = await Lock(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
         var receivedNames = new HashSet<string>();
+        var allParents = new HashSet<string>();
+
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
         {
+            if (includeParents)
+            {
+                var parent = DatasetHelper.FindParentOfEntity(name);
+                if (string.IsNullOrEmpty(parent)) continue;
+                allParents.Add(parent);
+            }
+
             receivedNames.Add(name);
+
             if (!_currentSnapshot.TryGetValue(name, out var oldEntityBytes))
             {
-                changes[name] = (name, (byte[]?)entityBytes, ChangeType.New);
+                changes[name] = (name, entityBytes, ChangeType.New);
             }
-            else
+            else if (!entityBytes.SequenceEqual(oldEntityBytes))
             {
-                if (entityBytes.Length == oldEntityBytes.Length && entityBytes.SequenceEqual(oldEntityBytes))
-                    continue;
-
-                changes[name] = (name, (byte[]?)entityBytes, ChangeType.Changed);
+                changes[name] = (name, entityBytes, ChangeType.Changed);
             }
         }
 
-        var implicitDeletes = _currentSnapshot.Keys.Except(receivedNames);
-        foreach (var name in implicitDeletes)
-            changes[name] = (name, null, ChangeType.Deleted);
+        // Handle deletes if needed
+        if (performDeletes)
+        {
+            if (includeParents)
+            {
+                foreach (var parent in allParents)
+                {
+                    var parentDeletes = HandleParentDeletes(receivedNames, parent);
+                    foreach (var deleteName in parentDeletes)
+                    {
+                        changes[deleteName] = (deleteName, null, ChangeType.Deleted);
+                    }
+                }
+            }
+            else
+            {
+                var implicitDeletes = HandleImplicitDeletes(receivedNames);
+                foreach (var name in implicitDeletes)
+                {
+                    changes[name] = (name, null, ChangeType.Deleted);
+                }
+            }
+        }
 
         if (changes.Count == 0)
         {
             return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
         }
 
-        var theDelta = new Delta([.. changes.Values], LatestVersion + 1);
-
+        // Create delta and apply it
+        var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
         ApplyDelta(theDelta);
+
         return WriteResponseFor(theDelta);
     }
+
+    private IEnumerable<string> HandleImplicitDeletes(HashSet<string> receivedNames)
+    {
+        return _currentSnapshot.Keys.Except(receivedNames);
+    }
+
+    private IEnumerable<string> HandleParentDeletes(HashSet<string> receivedNames, string parent)
+    {
+        return _currentSnapshot
+            .Where(kvp => kvp.Key.StartsWith(parent) && !_currentSnapshot[kvp.Key].SequenceEqual(Array.Empty<byte>()))
+            .Select(kvp => kvp.Key)
+            .Except(receivedNames);
+    }
+
 
     public async Task<ulong> GetLatestVersion()
     {
