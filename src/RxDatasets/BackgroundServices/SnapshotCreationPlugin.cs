@@ -127,7 +127,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
 
             if (targetSnapshotStreamPosition == 0)
-                DatasetHelper.WriteLengthPrefix(targetSnapshotStream, 0);
+                DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, 0);
 
             await targetSnapshotStream.FlushAsync(stoppingToken);
             targetSnapshotStream.Close();
@@ -171,7 +171,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 var entityLength = entity.Value.Length;
 
-                targetSnapshotStreamPosition += DatasetHelper.WriteLengthPrefix(targetSnapshotStream, entityLength);
+                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
                 var targetEntityPosition = targetSnapshotStreamPosition;
 
                 var latestEntityVersion = entity.Value.GetLatestEntityVersion();
@@ -212,7 +212,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 {
                     var entityLength = entity.Value.Length;
 
-                    targetSnapshotStreamPosition += DatasetHelper.WriteLengthPrefix(targetSnapshotStream, entityLength);
+                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
                     var targetEntityPosition = targetSnapshotStreamPosition;
 
                     var gap = entity.Value.Position - sourceStreamPosition;

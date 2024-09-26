@@ -6,4 +6,15 @@
     <AllowParallelTestExecution>True</AllowParallelTestExecution>
     <SolutionConfigured>True</SolutionConfigured>
   </Settings>
+  <EngineModes>
+    <EngineMode>
+      <Name>Run impacted tests automatically, others manually</Name>
+      <Settings>
+        <AlignOutOfDateStatusWithImpactStatus>True</AlignOutOfDateStatusWithImpactStatus>
+        <AllowParallelTestExecution>True</AllowParallelTestExecution>
+        <EngineModeColor>a255, r128, g128, b0</EngineModeColor>
+        <TestsToExecuteAutomatically>IsImpacted</TestsToExecuteAutomatically>
+      </Settings>
+    </EngineMode>
+  </EngineModes>
 </SolutionConfiguration>

@@ -26,8 +26,6 @@ public class StorageCleanTaskTests
 
 
     private const ulong UNIT_KB = 1024;
-    private const ulong UNIT_MB = 1024 * UNIT_KB;
-
 
     private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
@@ -55,7 +53,7 @@ public class StorageCleanTaskTests
         return (inMemoryStorage, datasetReader, datasetWriter);
     }
 
-    private static byte[] GenerateRandomData(ulong length = UNIT_MB, int seed = 0)
+    private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
         var random = new Random(seed);
@@ -72,30 +70,29 @@ public class StorageCleanTaskTests
         _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
         var scheduler = new TestScheduler();
         var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
-
         
         scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
-        var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+        var (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         var firstSnapshot = snapshots[0].version;
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         var secondSnapshot = snapshots[1].version;
 
         await storageProvider.StoreProcessedVersion("unittest", 10);
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //act
         await Create6Deltas(datasetWriter);
         await storageProvider.StoreProcessedVersion("unittest", 15);
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
 
         //assert
@@ -128,18 +125,18 @@ public class StorageCleanTaskTests
         scheduler.Schedule(TimeSpan.FromMinutes(3), () => Create6Deltas(datasetWriter).Wait());
         scheduler.Schedule(TimeSpan.FromMinutes(6), () => Create6Deltas(datasetWriter).Wait());
         await storageProvider.StoreProcessedVersion("unittest", 10);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //create 3 snapshots as a setup with 18 deltas
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         await Create6Deltas(datasetWriter);
         await storageProvider.StoreProcessedVersion("unittest", 25);
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         //assert nothing is deleted even tho the threshold for snapshots is met at minimum 2 snapshots
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -150,7 +147,7 @@ public class StorageCleanTaskTests
 
         // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
         scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         int fiveSnapshots = 5;
@@ -159,7 +156,7 @@ public class StorageCleanTaskTests
 
         //act
         scheduler.AdvanceBy(TimeSpan.FromMinutes(6).Ticks);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
 
         //assert
@@ -187,15 +184,15 @@ public class StorageCleanTaskTests
 
         //act
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -215,23 +212,22 @@ public class StorageCleanTaskTests
         var scheduler = new TestScheduler();
         var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
 
-
         scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //act
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -249,14 +245,14 @@ public class StorageCleanTaskTests
         {
             if (i % 2 == 0)
             {
-                var randomBytes = GenerateRandomData(UNIT_MB, i);
+                var randomBytes = GenerateRandomData(UNIT_KB, i);
 
                 await s3DatasetWriter?.Put("Same_DTO", randomBytes)!;
             }
             else
             {
 
-                var randomBytes2 = GenerateRandomData(UNIT_MB, 1);
+                var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
                 await s3DatasetWriter?.Put("Same_DTO", randomBytes2)!;
             }
         }

@@ -1,4 +1,6 @@
-﻿using System.Reactive.Subjects;
+﻿using System.Linq;
+using System.Reactive.Subjects;
+using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -142,95 +144,132 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
     {
+        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: true, ct);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    {
+        return await PutEntitiesAsync(entities, includeParents: true, performDeletes: true, ct);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    {
+        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: false, ct);
+    }
+
+    private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
+        IAsyncEnumerable<(string name, byte[] entityBytes)> entities,
+        bool includeParents,
+        bool performDeletes,
+        CancellationToken ct)
+    {
         using var slot = await Lock(ct);
         EnsureInitialized();
-        
-        var receivedNames = new List<string>();
+
         var tempDataFilePath = Path.GetTempFileName();
         await using var fileStream = new FileStream(tempDataFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
-        var deltaIndex = new DeltaIndex() { DeltaVersion = _index!.LatestVersion + 1 };
+        var (deltaIndex, receivedNames, allParents) = await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, ct);
 
-        long byteArrayPosition = 0;
-
-        await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+        // Handle deletes based on parent inclusion and only if deletes are allowed
+        if (performDeletes)
         {
-             receivedNames.Add(name);
-                var changeType = ChangeType.None;
-
-                if (deltaIndex.NewEntities.All(entity => entity.Name != name) && (!_index.Entities.TryGetValue(name, out var existingEntity) ||
-                                                                                  existingEntity.GetLatestChangeType() == ChangeType.Deleted))
-                {
-                    changeType = ChangeType.New;
-                    
-                }
-                else if (_index.Entities.TryGetValue(name, out _) && await IsByteArrayUpdated(name, entityBytes))
-                {
-                    changeType = ChangeType.Changed;
-                }
-
-                if (changeType == ChangeType.None) continue;
-
-                var deltaEntity = new DeltaEntity()
-                {
-                    Position = byteArrayPosition,
-                    Length = entityBytes.Length,
-                    Name = name
-                }; 
-                
-                if (changeType == ChangeType.New)
-                {
-                    deltaIndex.NewEntities.Add(deltaEntity);
-                }
-                else //It will never be None or Deleted here
-                {
-                    deltaIndex.ChangedEntities.Add(deltaEntity);
-                }
-                await fileStream.WriteAsync(entityBytes, ct);
-                byteArrayPosition += entityBytes.Length;
-        }
-        // Handle deletes
-        var implicitDeletes = _index.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(x => x.Key)
-            .Except(receivedNames);
-
-        foreach (var name in implicitDeletes)
-        {
-            deltaIndex.DeletedNames.Add(name);
+            if (includeParents)
+            {
+                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletesForParentNames(_index, receivedNames, allParents));
+            }
+            else
+            {
+                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletes(_index, receivedNames));
+            }
         }
 
-        var snapshotTrailingBytes = new byte[1];
-        await fileStream.WriteAsync(snapshotTrailingBytes, ct);
+        // Finalize write (directly in main method)
+        await fileStream.WriteAsync(new byte[1], ct); // Write a trailing byte for the snapshot
         await fileStream.FlushAsync(ct);
         fileStream.Close();
 
         if (deltaIndex.NewEntities.Count == 0 && deltaIndex.ChangedEntities.Count == 0 && deltaIndex.DeletedNames.Count == 0)
         {
             File.Delete(tempDataFilePath);
-
-            return new IDatasetWriter<T>.WriteResponse()
+            return new IDatasetWriter<T>.WriteResponse
             {
                 NewDatasetVersion = _index.LatestVersion
             };
         }
 
-        //upload 
+        // Apply the delta and store it
         _index = _index.ApplyDelta(deltaIndex);
-
-        var newTempFileStream = File.OpenRead(tempDataFilePath);
-        newTempFileStream.Position = 0;
+        using var newTempFileStream = File.OpenRead(tempDataFilePath);
         await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), newTempFileStream);
         newTempFileStream.Close();
-        
         File.Delete(tempDataFilePath);
-        _logger.LogInformation($"PutAll entities with version {_index.LatestVersion}, changed {deltaIndex.ChangedEntities.Count} entities of which {deltaIndex.DeletedNames.Count} were implicit deletes");
-        return new IDatasetWriter<T>.WriteResponse()
+
+        _logger.LogInformation($"Put many entities with version {_index.LatestVersion}, changed {deltaIndex.ChangedEntities.Count} entities of which {deltaIndex.DeletedNames.Count} were implicit deletes");
+
+        return new IDatasetWriter<T>.WriteResponse
         {
             NewDatasetVersion = _index.LatestVersion,
             NumAddedEntities = (uint)deltaIndex.NewEntities.Count,
             NumUpdatedEntities = (uint)deltaIndex.ChangedEntities.Count,
-            NumDeletedEntities = (uint)deltaIndex.DeletedNames.Count,
+            NumDeletedEntities = (uint)deltaIndex.DeletedNames.Count
         };
+    }
+
+    private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(ImmutableDatasetState index, IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeParents, Stream stream, CancellationToken ct)
+    {
+        var deltaIndex = new DeltaIndex { DeltaVersion = index!.LatestVersion + 1 };
+
+        var receivedNames = new HashSet<string>();
+        var allParents = new HashSet<string>();
+
+        long byteArrayPosition = 0;
+
+        await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+        {
+            if (includeParents)
+            {
+                var parent = DatasetHelper.FindParentOfEntity(name);
+                if (string.IsNullOrEmpty(parent)) continue;
+                if (!allParents.Contains(parent)) allParents.Add(parent);
+            }
+
+            receivedNames.Add(name);
+            var changeType = await DetermineChangeType(name, entityBytes);
+
+            if (changeType == ChangeType.None) continue;
+
+            var deltaEntity = new DeltaEntity
+            {
+                Position = byteArrayPosition,
+                Length = entityBytes.Length,
+                Name = name
+            };
+
+            if (changeType == ChangeType.New)
+            {
+                deltaIndex.NewEntities.Add(deltaEntity);
+            }
+            else
+            {
+                deltaIndex.ChangedEntities.Add(deltaEntity);
+            }
+
+            await stream.WriteAsync(entityBytes, ct);
+            byteArrayPosition += entityBytes.Length;
+        }
+
+        return (deltaIndex, receivedNames, allParents);
+    }
+
+    private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
+    {
+        if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
+            existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+        {
+            return ChangeType.New;
+        }
+
+        return await IsByteArrayUpdated(name, entityBytes) ? ChangeType.Changed : ChangeType.None;
     }
 
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
@@ -295,7 +334,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
             switch (change)
             {
                 case ChangeType.New:
-                    var lengthOfTheVarPrefix = DatasetHelper.WriteLengthPrefix(concatenatedByteStream, entityBytes!.Length);
+                    var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(concatenatedByteStream, entityBytes!.Length);
                     targetPosition += lengthOfTheVarPrefix;
                     deltaIndex.NewEntities.Add(new DeltaEntity()
                     {
@@ -308,7 +347,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
                     targetPosition += entityBytes.Length;
                     break;
                 case ChangeType.Changed:
-                    lengthOfTheVarPrefix = DatasetHelper.WriteLengthPrefix(concatenatedByteStream, entityBytes!.Length);
+                    lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(concatenatedByteStream, entityBytes!.Length);
                     targetPosition += lengthOfTheVarPrefix; 
                     deltaIndex.ChangedEntities.Add(new DeltaEntity()
                     {

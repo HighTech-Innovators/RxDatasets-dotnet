@@ -15,15 +15,9 @@ namespace RxDatasets.StorageTests.Services;
 public class SnapshotCreationPluginTests
 {
     private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
-    private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions = Options.Create(new SnapshotCreationConfig
-    {
-        SnapshotInterval = 5
-    });
     private IOptions<SnapshotCreationConfig> _snapshotCreationConfig = Options.Create(new SnapshotCreationConfig());
     private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
     private const ulong UNIT_KB = 1024;
-    private const ulong UNIT_MB = 1024 * UNIT_KB;
-
 
     private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
@@ -49,7 +43,7 @@ public class SnapshotCreationPluginTests
         return (inMemoryStorage, datasetReader, datasetWriter);
     }
 
-    private static byte[] GenerateRandomData(ulong length = UNIT_MB, int seed = 0)
+    private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
         var random = new Random(seed);
@@ -76,7 +70,7 @@ public class SnapshotCreationPluginTests
 
         const ulong howManyDeltasToCreate = 4ul;
         await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
@@ -222,14 +216,14 @@ private static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, Datase
         {
             if (i % 2 == 0)
             {
-                var randomBytes = GenerateRandomData(UNIT_MB, (int)i);
+                var randomBytes = GenerateRandomData(UNIT_KB, (int)i);
 
                 await s3DatasetWriter?.Put("Same_DTO", randomBytes)!;
             }
             else
             {
 
-                var randomBytes2 = GenerateRandomData(UNIT_MB, 1);
+                var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
                 await s3DatasetWriter?.Put("Same_DTO", randomBytes2)!;
             }
         }

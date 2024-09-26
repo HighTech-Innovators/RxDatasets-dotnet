@@ -28,7 +28,7 @@ public class DataReaderTests
         _dataset = new InMemoryDataset<Demodto>();
         var configuration = Substitute.For<IConfiguration>();
         var configurationSection = Substitute.For<IConfigurationSection>();
-        var cacheDuration = "5";
+        var cacheDuration = "1";
         configurationSection.Value.Returns(cacheDuration);
         configuration.GetSection("PaginationCacheDuration").Returns(configurationSection);
         _sut = new GrpcReaderServiceImpl<Demodto>(Substitute.For<ILogger<GrpcReaderServiceImpl<Demodto>>>(),
@@ -216,7 +216,7 @@ public class DataReaderTests
         _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
         var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
-        await Task.Delay(TimeSpan.FromSeconds(7));
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
 
         // When
         Func<Task> repeatedCall = () => _sut.ListChanges(new() { PageToken = firstPage.NextPageToken, PageSize = 1 }, default);
@@ -231,7 +231,7 @@ public class DataReaderTests
         _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
         var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
         var firstPage = await _sut.ListChanges(new() {FromDatasetVersion = 0, PageSize = 1}, default);
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(.3));
 
         // When
         var result = await _sut.ListChanges(new() {PageToken = firstPage.NextPageToken, PageSize = 1}, default);
