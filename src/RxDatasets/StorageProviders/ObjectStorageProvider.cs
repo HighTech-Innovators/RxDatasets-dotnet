@@ -19,8 +19,9 @@ public class ObjectStorageProvider<T>(
     bool retryInit = true)
     : IStorageProvider<T>, IHostedService
 {
-    private readonly SemaphoreSlim _semaphore = new(1);
-    private readonly SemaphoreSlim _versionInfoSemaphore = new(1);
+    private readonly SemaphoreSlim _deltaSemaphore = new(1);
+    private readonly SemaphoreSlim _snapshotSemaphore = new(1);
+    private readonly SemaphoreSlim _processedVersionsSemaphore = new(1);
     private Task? _initTask;
 
     private DeltaInfo _deltaInfo = new();
@@ -50,9 +51,10 @@ public class ObjectStorageProvider<T>(
 
     public async Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
-        using var slot = await Lock();
         if (_snapshotInfo.SnapshotVersions.All(x => x.Version != version))
             throw new InvalidOperationException($"Snapshot version {version} does not exist");
+        
+        using var slotSnapshot = await SnapshotLock();
 
         foreach (var snapshot in _snapshotInfo.SnapshotVersions.Where(k => k.Version < version).ToList())
         {
@@ -69,6 +71,8 @@ public class ObjectStorageProvider<T>(
 
         if (!keepAllDeltas)
         {
+            using var slotDelta = await DeltaLock();
+
             for (var deltaToDelete = _deltaInfo.EarliestDeltaVersion;
                  deltaToDelete <= version;
                  deltaToDelete++)
@@ -95,7 +99,7 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
-        using var slot = await Lock();
+        using var slot = await DeltaLock();
         var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
             storageConfig.Value);
         var dataObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
@@ -117,7 +121,7 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
-        using var slot = await Lock();
+        using var slot = await SnapshotLock();
         var indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX,
             ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
         var dataObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
@@ -151,7 +155,7 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
-        using var slot = await Lock();
+        using var slot = await SnapshotLock();
         string indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
         string dataObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
 
@@ -215,7 +219,7 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
-        using var slot = await Lock();
+        using var slot = await DeltaLock();
         var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
             storageConfig.Value);
         var dataObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
@@ -237,15 +241,22 @@ public class ObjectStorageProvider<T>(
     {
         await EnsureProviderIsInitialized();
 
-        // TODO add a lock here too!
+        await _processedVersionsSemaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+        try
+        {
+            if (_processedVersionsInfo.ProcessedVersions.ContainsKey(who))
+                _processedVersionsInfo.ProcessedVersions[who] = version;
+            else
+                _processedVersionsInfo.ProcessedVersions.TryAdd(who, version);
 
-        if (_processedVersionsInfo.ProcessedVersions.ContainsKey(who))
-            _processedVersionsInfo.ProcessedVersions[who] = version;
-        else
-            _processedVersionsInfo.ProcessedVersions.TryAdd(who, version);
+            await SaveProcessedVersionsInfo();
+            await notificationsHub.Notify(new VersionProcessedNotification(who, version));
 
-        await SaveProcessedVersionsInfo();
-        await notificationsHub.Notify(new VersionProcessedNotification(who, version));
+        }
+        finally
+        {
+            _processedVersionsSemaphore.Release();
+        }
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(
@@ -567,13 +578,14 @@ public class ObjectStorageProvider<T>(
         await SaveProcessedVersionsInfo();
     }
 
-    private Task EnsureProviderIsInitialized()
+    private async Task EnsureProviderIsInitialized()
     {
         // TODO if not initialized but the task is there, at least wait for a second before throwing.
         // This might save end-users the trouble of having to retry in a 'quick call after startup' scenario
 
         if (_initTask is null || !_initTask.IsCompleted)
         {
+            await Task.Delay(TimeSpan.FromSeconds(1));
             logger.LogError("Received a request before dataset it was initialized");
             throw new InvalidOperationException("Initialization is not yet completed");
         }
@@ -583,8 +595,6 @@ public class ObjectStorageProvider<T>(
             logger.LogError(_initTask.Exception, "Received a request, but the dataset initialization failed");
             throw new InvalidOperationException("Initialization failed", _initTask.Exception);
         }
-
-        return Task.CompletedTask;
     }
 
 
@@ -606,24 +616,23 @@ public class ObjectStorageProvider<T>(
     public async Task Initialize(CancellationToken cancellationToken)
     {
         if (storageProvider == null) throw new InvalidOperationException("Storage Provider was not initialized");
-        await _versionInfoSemaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        try
-        {
-            await InitVersionInfos();
-        }
-        finally
-        {
-            _versionInfoSemaphore.Release();
-
-        }
+        await InitVersionInfos();
     }
 
-    private async Task<IDisposable> Lock(CancellationToken cancellationToken = default)
+    private async Task<IDisposable> DeltaLock(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
 
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
+        await _deltaSemaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+        return new ActionDisposable(() => _deltaSemaphore.Release());
+    }
+
+    private async Task<IDisposable> SnapshotLock(CancellationToken cancellationToken = default)
+    {
+        await EnsureProviderIsInitialized();
+
+        await _snapshotSemaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+        return new ActionDisposable(() => _snapshotSemaphore.Release());
     }
 
 }
