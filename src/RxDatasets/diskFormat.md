@@ -3,14 +3,16 @@ For the storage of DTOs, the Protobuf encoding is used. Protobuf is a binary fil
 Three different object types are used:
 - Deltas: for each update made to the dataset, a delta is created and stored, containing the changes made to the dataset.
 - Snapshots: these files contain the full state of the data at a certain point in time.
-- VersionInfo: this file contains metadata about the delta and snapshot files that are available.
+- `DeltaInfo.pb` and `SnapshotInfo.pb`: this file contains metadata about the delta and snapshot files that are available.
 
 In total, there are five different file types stored on disk:
 - `deltas/{delta_version}/data.pbs`: Storing the actual (concatinated) data of the entities that have been changed or added.
 - `deltas/{delta_version}/index.pb`: Storing the metadata of entities in the delta, and their position in the data file.
 - `snapshot/{snapshot_version}/data.pbs`: Storing the actual (concatenated) data of the entities that are part of the snapshot.
 - `snapshot/{snapshot_version}/index.pb`: Storing the metadata of entities in the snapshot, and their position in the data file.
-- `VersionInfo.pb`: Storing the metadata about the delta and snapshot files that are available.
+- `DeltaInfo.pb`: Storing the metadata about the delta files that are available.
+- `SnapshotInfo.pb`: Storing the metadata about the snapshot files that are available.
+- `ProcessedVersions.pb`: Storing the metadata about the services that process delta notifications.
 
 The full .proto file containing the object definitions can be found [here](src/RxDatasets/Models/DatasetEntities.proto)
 
@@ -96,22 +98,29 @@ message SnapshotEntity {
 }
 ```
 
-## VersionInfo
-The `VersionIndex.pb` file contains metadata about the delta and snapshots files that are available.
+## DeltaInfo
+- `DeltaInfo.pb`: Storing the metadata about the delta files that are available.
 
 It conatins the following fields:
 - `earliest_delta_version`: the version number of the earliest delta file that is still available.
 - `latest_delta_version`: the version number of the latest delta file that has been created.
+```protobuf
+message DeltaInfo {
+	uint64 earliest_delta_version = 1;
+	uint64 latest_delta_version = 2;
+}
+```
+
+This file can be used to determine which delta files are available. Using this file is highly recommended compared to listing all files since this can be a very time-consuming/expensive operation.
+## SnapshotInfo
+- `SnapshotInfo.pb`: Storing the metadata about the snapshot files that are available.
+
+It conatins the following fields:
 - `snapshot_versions`: This is a list of snapshot versions that are available. For each snapshot version, the version number and the timestamp at which the snapshot was created are stored.
-- `processes_versions`: This is a map/dictionary that stores the delta version up to where the data has been processed by a service. The key is the name of the service and the value is a delta version number.
 
 ```protobuf
-message VersionInfo {
-	uint64 latest_delta_version = 1;
-	repeated snapshotVersion snapshot_versions = 2; 
-	uint64 earliest_delta_version = 3;
-	map<string, uint64> processed_versions = 4;
-
+message SnapshotInfo {
+	repeated snapshotVersion snapshot_versions = 1; 
 	message snapshotVersion {
 		uint64 version = 1;
 		google.protobuf.Timestamp timestamp = 2;
@@ -119,11 +128,27 @@ message VersionInfo {
 }
 ```
 
-This file can be used to determine which delta and snapshot files are available and which files have been processed by a service. This can be used to determine which files need to be processed by a service and which files can be skipped. Using this file is highly recommended compared to listing all files since this can be a very time-consuming/expensive operation.
+This file can be used to determine which snapshot files are available. Using this file is highly recommended compared to listing all files since this can be a very time-consuming/expensive operation.
+
+## ProcessedVersions
+- `ProcessedVersions.pb`: Storing the metadata about the services that process delta notifications.
+
+It conatins the following fields:
+- `processes_versions`: This is a map/dictionary that stores the delta version up to where the data has been processed by a service. The key is the name of the service and the value is a delta version number.
+
+```protobuf
+message ProcessedVersionsInfo {
+	map<string, uint64> processed_versions = 1;
+}
+
+```
+
+This file can be used to determine which files have been processed by a service. This can be used to determine which files need to be processed by a service and which files can be skipped.
+
 
 # Reading the protobuf files using the index
 Assuming you want to get a list of all the entities that currently exist in the dataset, you can follow these steps:
-1. Read the `VersionInfo.pb` file to determine which delta and snapshot files are available.
+1. Read the `DeltaInfo.pb` and `SnapshotInfo.pb` file to determine which delta and snapshot files are available.
 2. Read the snapshot `index.pb` file of the latest snapshot.
 3. Read the remaining deltas `index.pb` starting from the latest snapshot version up to the latest delta version.
 
@@ -135,9 +160,9 @@ Note that the actual entities are stored in a delimited format in the `data.pbs`
 # Reading the protobuf files without using the index
 
 If you want to read the `data.pbs` file without using the `index.pb` file, you can still do this by reading the `data.pbs` file directly.
-In this case, you probably still want to use the `VersionInfo.pb` file to determine which delta and snapshot files are available. Listing all deltas and snapshots can be a very time-consuming/expensive operation, especially when there are many files.
+In this case, you probably still want to use the `DeltaInfo.pb` and `SnapshotInfo.pb` file to determine which delta and snapshot files are available. Listing all deltas and snapshots can be a very time-consuming/expensive operation, especially when there are many files.
 
-1. Read the `VersionInfo.pb` file to determine which delta and snapshot files are available.
+1. Read the `DeltaInfo.pb` and `SnapshotInfo.pb` file to determine which delta and snapshot files are available.
 2. Read / stream the `data.pbs` file of the latest snapshot.
 3. The first bytes of the stream will contain the length delimiter (number of bytes) of the first entity, this value is encoded as a [varint](https://protobuf.dev/programming-guides/encoding/#varints), and therefore is not of a constant size.
 Using this length delimiter, you can read the next n bytes of the stream, where n is the length of the entity.
