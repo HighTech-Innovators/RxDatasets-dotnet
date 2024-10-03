@@ -53,7 +53,15 @@ namespace RxDatasets.BackgroundServices
             var optionalState = await reportingImplementation.OpenDeltaTransaction(deltaVersion);
             try
             {
-                logger.LogDebug("Processing {NewCount} new entities", deltaIndexParsed.NewEntities.Count);
+                if(deltaIndexParsed.NewEntities.Count > 0) 
+                    logger.LogDebug("Processing {NewCount} new entities", deltaIndexParsed.NewEntities.Count);
+
+                if (deltaIndexParsed.ChangedEntities.Count > 0)
+                    logger.LogDebug("Processing {ChangeCount} changed entities", deltaIndexParsed.ChangedEntities.Count);
+
+                if (deltaIndexParsed.DeletedNames.Count > 0)
+                    logger.LogDebug("Processing {DeleteCount} deleted entities", deltaIndexParsed.DeletedNames.Count);
+
                 foreach (var newEntity in deltaIndexParsed.NewEntities)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -62,7 +70,6 @@ namespace RxDatasets.BackgroundServices
                         optionalState);
                 }
 
-                logger.LogDebug("Processing {ChangeCount} changed entities", deltaIndexParsed.ChangedEntities.Count);
                 foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -72,7 +79,6 @@ namespace RxDatasets.BackgroundServices
                         optionalState);
                 }
 
-                logger.LogDebug("Processing {DeleteCount} deleted entities", deltaIndexParsed.DeletedNames.Count);
                 foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
                 {
                     
