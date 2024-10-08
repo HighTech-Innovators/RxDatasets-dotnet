@@ -44,7 +44,30 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
             throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
         }
     }
-
+    public override async Task<WriteResponse> PutAllChildren(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
+    {
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        try
+        {
+            return Map(await dataset.PutAllChildren(stream, context.CancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+        }
+    }
+    public override async Task<WriteResponse> PutMany(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
+    {
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        try
+        {
+            return Map(await dataset.PutMany(stream, context.CancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+        }
+    }
     private WriteResponse Map(IDatasetWriter<Demodto>.WriteResponse response)
     {
             return new ()
