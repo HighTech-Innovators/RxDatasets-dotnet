@@ -16,4 +16,17 @@ var app = builder.Build();
 
 Host.DI.ConfigureApp(app);
 
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+
+lifetime.ApplicationStarted.Register(() =>
+{
+    // Run a health check here to allow to app to instantiate before other calls
+    Task.Run(async () =>
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        using var client = new HttpClient();
+        await client.GetAsync("http://localhost:18080/healthz");
+    });
+});
+
 app.Run();

@@ -55,14 +55,11 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
+        var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
+        
 
-        var datasetReader = new DatasetReader<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
-
-         return (datasetReader, datasetWriter);
+        return (datasetReader, datasetWriter);
     }
 
 

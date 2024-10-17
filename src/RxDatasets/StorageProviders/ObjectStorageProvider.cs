@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
@@ -16,14 +17,16 @@ public class ObjectStorageProvider<T>(
     IOptions<StorageConfig> storageConfig,
     IObjectStorageProvider<T> storageProvider,
     INotificationsHub<T> notificationsHub,
-    bool retryInit = true)
+    bool retryInit = true,
+    DistributedLockService<T>? lockService = null
+    )
     : IStorageProvider<T>, IHostedService
 {
     private readonly SemaphoreSlim _deltaSemaphore = new(1);
     private readonly SemaphoreSlim _snapshotSemaphore = new(1);
     private readonly SemaphoreSlim _processedVersionsSemaphore = new(1);
     private Task? _initTask;
-
+    private IDisposable _disposableSubscription;
     private DeltaInfo _deltaInfo = new();
     private SnapshotInfo _snapshotInfo = new();
     private ProcessedVersionsInfo _processedVersionsInfo = new();
@@ -34,11 +37,27 @@ public class ObjectStorageProvider<T>(
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+
+        _disposableSubscription = notificationsHub.Subscribe<DistributedLockNotification>(async (notification) => {
+            if (notification.LockStatus == DistirbutedLockStatus.Acquried)
+            {
+                _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+                await _initTask;
+                return;
+            }
+
+            _initTask = null;
+            await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
+        });
+
         return _initTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _disposableSubscription?.Dispose();
+        notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
+
         return Task.CompletedTask;
     }
 
@@ -51,10 +70,14 @@ public class ObjectStorageProvider<T>(
 
     public async Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
+        ThrowIfNoLockIsAcquired();
+
+        using var slotSnapshot = await SnapshotLock();
+
         if (_snapshotInfo.SnapshotVersions.All(x => x.Version != version))
             throw new InvalidOperationException($"Snapshot version {version} does not exist");
         
-        using var slotSnapshot = await SnapshotLock();
+        logger.LogInformation($"Storage Cleaning is happening, deleting anything older than version {version}!");
 
         foreach (var snapshot in _snapshotInfo.SnapshotVersions.Where(k => k.Version < version).ToList())
         {
@@ -99,6 +122,8 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
+        ThrowIfNoLockIsAcquired();
+
         using var slot = await DeltaLock();
         var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
             storageConfig.Value);
@@ -119,8 +144,15 @@ public class ObjectStorageProvider<T>(
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
 
+    private void ThrowIfNoLockIsAcquired()
+    {
+        if (lockService != null && !lockService.HasLock)
+            throw new SynchronizationLockException("We can't write to storage as we have to get a lock first");
+    }
+
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
+        ThrowIfNoLockIsAcquired();
         using var slot = await SnapshotLock();
         var indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX,
             ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
@@ -155,6 +187,8 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
+        ThrowIfNoLockIsAcquired();
+
         using var slot = await SnapshotLock();
         string indexObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
         string dataObjectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
@@ -219,6 +253,8 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
+        ThrowIfNoLockIsAcquired();
+        
         using var slot = await DeltaLock();
         var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
             storageConfig.Value);
@@ -239,6 +275,7 @@ public class ObjectStorageProvider<T>(
 
     public async Task StoreProcessedVersion(string who, ulong version)
     {
+        ThrowIfNoLockIsAcquired();
         await EnsureProviderIsInitialized();
 
         await _processedVersionsSemaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
@@ -385,6 +422,8 @@ public class ObjectStorageProvider<T>(
         logger.LogInformation(
             "Primary files not found or could not retrieve latest version, falling back to alternative methods.");
 
+        ThrowIfNoLockIsAcquired();
+
         await TryGetVersionFromFallbacks();
     }
 
@@ -392,7 +431,7 @@ public class ObjectStorageProvider<T>(
     {
         try
         {
-            logger.LogInformation("Attempting to retrieve latest version from Delta and Snapshot Info files.");
+            logger.LogInformation($"Attempting to retrieve latest version from Delta and Snapshot Info files. for {typeof(T).Name}");
 
             var deltaTask = DownloadAndParseProtobufFileAsync<DeltaInfo>(GetDeltaInfoFilename(), DeltaInfo.Parser);
             var snapshotTask = DownloadAndParseProtobufFileAsync<SnapshotInfo>(GetSnapshotInfoFilename(), SnapshotInfo.Parser);
@@ -404,7 +443,7 @@ public class ObjectStorageProvider<T>(
             _deltaInfo = await deltaTask;
             _snapshotInfo = await snapshotTask;
 
-            logger.LogInformation("Successfully loaded DeltaInfo and SnapshotInfo files.");
+            logger.LogInformation($"Successfully loaded DeltaInfo and SnapshotInfo files for {typeof(T).Name}.");
 
             await TryLoadProcessedVersionsInfo();
 
@@ -443,7 +482,7 @@ public class ObjectStorageProvider<T>(
         var versionV2 = await TryParseVersionFileAsync<ObsoleteV2VersionInfo>("VersionIndex.pb", ObsoleteV2VersionInfo.Parser);
         if (versionV2 != null)
         {
-            logger.LogInformation("Successfully retrieved version from VersionIndexV2.");
+            logger.LogInformation($"Successfully retrieved version from VersionIndexV2 for {typeof(T).Name}.");
             await CreateVersionFromV2Data(versionV2);
             return;
         }
@@ -452,12 +491,12 @@ public class ObjectStorageProvider<T>(
         var versionV1 = await TryParseVersionFileAsync<ObsoleteV1LatestVersion>("latestVersion.pb", ObsoleteV1LatestVersion.Parser);
         if (versionV1 != null)
         {
-            logger.LogInformation("Successfully retrieved version from VersionIndexV1.");
+            logger.LogInformation($"Successfully retrieved version from VersionIndexV1 for {typeof(T).Name}.");
             await CreateVersionFromV1Data(versionV1);
             return;
         }
 
-        logger.LogInformation("No valid fallback versions found. Creating new latest version.");
+        logger.LogInformation($"No valid fallback versions found. Creating new latest version for {typeof(T).Name}.");
         await CreateLatestVersionFromObjectLists();
     }
 
@@ -580,9 +619,6 @@ public class ObjectStorageProvider<T>(
 
     private async Task EnsureProviderIsInitialized()
     {
-        // TODO if not initialized but the task is there, at least wait for a second before throwing.
-        // This might save end-users the trouble of having to retry in a 'quick call after startup' scenario
-
         if (_initTask is null || !_initTask.IsCompleted)
         {
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -595,15 +631,21 @@ public class ObjectStorageProvider<T>(
             logger.LogError(_initTask.Exception, "Received a request, but the dataset initialization failed");
             throw new InvalidOperationException("Initialization failed", _initTask.Exception);
         }
-    }
+     }
 
 
     private async Task InitLoop(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
+        {
             try
             {
                 await Initialize(cancellationToken);
+                break;
+            }
+            catch (SynchronizationLockException ex)
+            {
+                logger.LogError(ex, "Failed to initialize object storage provider because no lock to write version files was available");
                 break;
             }
             catch (Exception ex)
@@ -611,12 +653,14 @@ public class ObjectStorageProvider<T>(
                 logger.LogError(ex, "Failed to initialize object storage provider");
                 await Task.Delay(5 * 1000, cancellationToken);
             }
+        }
     }
 
     public async Task Initialize(CancellationToken cancellationToken)
     {
         if (storageProvider == null) throw new InvalidOperationException("Storage Provider was not initialized");
         await InitVersionInfos();
+        await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
 
     private async Task<IDisposable> DeltaLock(CancellationToken cancellationToken = default)

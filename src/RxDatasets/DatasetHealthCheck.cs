@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 
 namespace RxDatasets;
 
@@ -29,5 +30,21 @@ public class DatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCh
         }
 
         return HealthCheckResult.Healthy();
+    }
+}
+public class DistributedLockHealthCheck<T>(DistributedLockService<T> lockService) : IHealthCheck
+{
+    private readonly DistributedLockService<T> _lockService = lockService;
+
+    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        if (_lockService.HasLock)
+        {
+            return Task.FromResult(HealthCheckResult.Healthy("Lock acquired."));
+        }
+        else
+        {
+            return Task.FromResult(HealthCheckResult.Degraded("Waiting for lock."));
+        }
     }
 }

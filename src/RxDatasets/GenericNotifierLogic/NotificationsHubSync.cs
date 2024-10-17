@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Reactive.Subjects;
 
 namespace RxDatasets.GenericNotifierLogic
@@ -7,35 +8,35 @@ namespace RxDatasets.GenericNotifierLogic
     {
         private readonly ConcurrentDictionary<Type, object> _subjects = new();
 
-        public IDisposable Subscribe<TNotification>(Func<TNotification, Task> handler) where TNotification : INotification 
+        public IDisposable Subscribe<TNotification>(Func<TNotification, Task> handler) where TNotification : INotification
         {
             var subject = GetOrCreateSubject<TNotification>();
-            var subscription = subject.Subscribe(update => handler(update).Wait()); 
+            var subscription = subject.Subscribe(update => handler(update).Wait());
             return subscription;
         }
 
         public Task Notify<TNotification>(TNotification notification) where TNotification : INotification
         {
-            if (!_subjects.TryGetValue(typeof(TNotification), out var subjectObj))
-                return Task.CompletedTask;
+            var subject = GetOrCreateSubject<TNotification>();
 
-            var subject = (ISubject<TNotification>)subjectObj;
             subject.OnNext(notification);
 
             return Task.CompletedTask;
         }
 
-        private ISubject<TNotification> GetOrCreateSubject<TNotification>()
+        private ReplaySubject<TNotification> GetOrCreateSubject<TNotification>()
         {
-            return (ISubject<TNotification>)_subjects.GetOrAdd(typeof(TNotification), _ => new Subject<TNotification>());
+            return (ReplaySubject<TNotification>)_subjects.GetOrAdd(typeof(TNotification), _ => new ReplaySubject<TNotification>(1));
         }
 
         public void Dispose()
         {
             foreach (var subjectObj in _subjects.Values)
             {
-                var subject = (ISubject<object>)subjectObj;
-                subject.OnCompleted();
+                if (subjectObj is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
             }
             _subjects.Clear();
         }

@@ -1,17 +1,14 @@
 using System.Reactive.Linq;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetReader<T> : IDatasetReader<T>, IHostedService
+public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 {
     private readonly ILogger<DatasetReader<T>> _logger;
     private readonly IStorageProvider<T> _storageProvider;
@@ -21,11 +18,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public Task? InitializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly bool _retryInitialization;
+    private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
     private TaskCompletionSource _indexChangedTaskCompletionSource = new();
 
 
     public DatasetReader(INotificationsHub<T> notificationsHub,
-        IOptions<StorageConfig> dtoConfig,
         ILogger<DatasetReader<T>> logger,
         IStorageProvider<T> storageProvider,
         bool retryInitialization = true)
@@ -34,20 +31,23 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
         _retryInitialization = retryInitialization;
-        notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated);
-        notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated);
+        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
+        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        {
+            if (notification.ServiceStatus == ServiceStatus.NotReady)
+            {
+                InitializationTask = null;
+                _index = null;
+                _indexBasedOnMostRecentSnapshot = null;
+                return;
+            }
+
+            InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+            await InitializationTask;
+        }));
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
-        return InitializationTask;
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
     private async Task InitializationLoop()
     {
         while (true)
@@ -90,10 +90,18 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
     {
         using var updateSlot = await Lock(_writerSemaphore);
-        _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
-        var tcs = _indexChangedTaskCompletionSource;
-        _indexChangedTaskCompletionSource = new TaskCompletionSource();
-        tcs.SetResult();
+        try
+        {
+            EnsureInitialized();
+            _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
+            var tcs = _indexChangedTaskCompletionSource;
+            _indexChangedTaskCompletionSource = new TaskCompletionSource();
+            tcs.SetResult();
+        }
+        catch (InvalidOperationException)
+        { 
+            // we are not ready
+        }
     }
 
     public async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
@@ -121,6 +129,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private ImmutableDatasetState EnsureInitialized()
     {
+        if (InitializationTask == null)
+        {
+            _logger.LogError("Received a request, however we are not ready yet");
+            throw new InvalidOperationException("Initialization is not yet completed");
+        }
+
         if (!InitializationTask!.IsCompleted)
         {
             _logger.LogError("Dataset received a request before it was initialized");
@@ -132,6 +146,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             _logger.LogError(InitializationTask.Exception, "Dataset received a request, but initialization failed");
             throw new InvalidOperationException("Initialization failed", InitializationTask.Exception);
         }
+
         return _index!;
     }
 
@@ -208,7 +223,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return (name, entityBytes);
     }
 
-    public Task<ChangeSet> GetChangedNames(ulong fromVersion)
+    public async Task<ChangeSet> GetChangedNames(ulong fromVersion)
     {
         var indexRef = EnsureInitialized();
         var toVersion = indexRef.LatestVersion;
@@ -219,7 +234,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
 
         var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return Task.FromResult(new ChangeSet(toVersion, changedNames));
+        return new ChangeSet(toVersion, changedNames);
     }
 
     private ICollection<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
@@ -278,10 +293,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return HealthCheckResult.Healthy();
     }
 
-    public Task<ulong> GetLatestVersion()
+    public ulong GetLatestVersion()
     {
         var indexRef = EnsureInitialized();
-        return Task.FromResult(indexRef.LatestVersion);
+        return indexRef.LatestVersion;
     }
 
     public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
@@ -315,4 +330,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return new ActionDisposable(() => semaphore.Release());
     }
 
+    public void Dispose()
+    {
+        foreach (var subscription in _disposableNotificationSubscriptions)
+        {
+            subscription.Dispose();
+        }
+    }
 }

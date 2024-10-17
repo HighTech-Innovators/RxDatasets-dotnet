@@ -7,11 +7,21 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets.StorageProviders;
 
-public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _logger, INotificationsHub<T> notificationsHub) : IStorageProvider<T>
+public class InMemoryStorageProvider<T> : IStorageProvider<T>
 {
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data)> _deltas = new();
     private readonly ConcurrentDictionary<ulong, (ReadOnlyMemory<byte> index, ReadOnlyMemory<byte> data, DateTimeOffset creationTime)> _snapshots = new();
     private readonly ConcurrentDictionary<string, ulong> _processedVersions = new();
+    private readonly ILogger<InMemoryStorageProvider<T>> _logger;
+    private readonly INotificationsHub<T> _notificationsHub;
+
+    public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> Logger, INotificationsHub<T> notificationsHub)
+    {
+        _logger = Logger;
+        _notificationsHub = notificationsHub;
+        _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready)).Wait();
+
+    }
 
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
@@ -49,7 +59,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
 
         _deltas[deltaVersion] = (index, dataBytes);
 
-        await notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
     public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions()
@@ -101,13 +111,13 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
         _snapshots[snapshotVersion] = (index, data, DateTimeOffset.UtcNow);
-        await notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
+        await _notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
         _deltas[deltaVersion] = (index, data);
-        await notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
@@ -116,7 +126,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
         MemoryStream memoryStream = new MemoryStream();
         await data.CopyToAsync(memoryStream);
         _snapshots[snapshotVersion] = (index, memoryStream.ToArray(), DateTimeOffset.UtcNow);
-        await notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
+        await _notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
     }
 
     public async Task StoreProcessedVersion(string who, ulong version)
@@ -130,7 +140,7 @@ public class InMemoryStorageProvider<T>(ILogger<InMemoryStorageProvider<T>> _log
             _processedVersions.TryAdd(who, version);
         };
 
-        await notificationsHub.Notify(new VersionProcessedNotification(NewVersion: version, Who: who));
+        await _notificationsHub.Notify(new VersionProcessedNotification(NewVersion: version, Who: who));
     }
 
     public Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)

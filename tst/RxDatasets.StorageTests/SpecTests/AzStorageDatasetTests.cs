@@ -52,16 +52,11 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
 
 
         IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, notificationsHub);
-
-        var datasetReader = new DatasetReader<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(notificationsHub, DtoOptions, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
-
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, notificationsHub, false);
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
+        var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
 
         return (datasetReader, datasetWriter);
     }

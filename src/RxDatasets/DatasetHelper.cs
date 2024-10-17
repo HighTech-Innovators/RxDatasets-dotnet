@@ -70,7 +70,7 @@ public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvi
         {
             snapshotIndex = await GetLatestSnapshotIndex();
         }
-        catch (FileNotFoundException e)
+        catch (FileNotFoundException)
         {
             // There are no snapshots available
             snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableEntity>().ToImmutableDictionary(),

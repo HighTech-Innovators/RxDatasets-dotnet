@@ -25,11 +25,8 @@ public class InMemoryDatasetTests : StorageTestSpec
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
         
-        var datasetReader = new DatasetReader<object>(_notificationsHub, DtoOptions, readerLogger.Object, _storageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, DtoOptions, writerLogger.Object, _storageProvider, false);
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
+        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, false);
 
         return (datasetReader, datasetWriter);
     }

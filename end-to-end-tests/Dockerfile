@@ -17,6 +17,8 @@ FROM bash AS tests-base
 
 COPY --from=fullstorydev/grpcurl /bin/grpcurl /bin/grpcurl
 COPY --from=ghcr.io/jqlang/jq /jq /bin/jq
+COPY --from=ghcr.io/tarampampam/curl /bin/curl /bin/curl
+
 
 WORKDIR /work
 COPY e2e_tests.sh .
