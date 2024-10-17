@@ -24,6 +24,13 @@ if [[ -z "$server2" && $generate_data == false ]]; then
   exit 1
 fi
 
+# Install curl
+if ! command -v curl &> /dev/null
+then
+    echo "curl could not be found, installing..."
+    sudo apt-get update && sudo apt-get install -y curl
+fi
+
 # Install grpcurl
 if ! command -v grpcurl &> /dev/null
 then
@@ -38,31 +45,63 @@ then
     sudo apt-get update && sudo apt-get install -y jq
 fi
 
-timeout=60 #seconds
+timeout=120 #seconds
 start_time=$(date +%s)
 
 # Function to check if a server is up
 check_server() {
   local server=$1
-  while ! grpcurl -plaintext $server list; do
+  local server_host=${server%%:*}  # Extract the hostname from server (e.g., dtoserver-actual)
+
+  while true; do
+    grpcurl_ok=false
+    healthz_ok=false
+
+    # Check grpcurl readiness
+    if grpcurl -plaintext $server list > /dev/null 2>&1; then
+      grpcurl_ok=true
+    else
+      echo "grpcurl check failed for $server"
+    fi
+
+    # Check /healthz endpoint
+    healthz_response=$(curl -s http://$server_host:18080/healthz || echo "")
+    if [ "$healthz_response" == "Healthy" ]; then
+      healthz_ok=true
+    else
+      echo "/healthz endpoint check failed for $server_host:18080"
+    fi
+
+    if $grpcurl_ok && $healthz_ok; then
+      echo "Server $server is up and healthy."
+      break
+    fi
+
     current_time=$(date +%s)
     elapsed_time=$(( current_time - start_time ))
     if [ $elapsed_time -ge $timeout ]; then
-      echo "Timeout waiting for $server to start. Exiting with error."
+      echo "Timeout waiting for $server to start and be healthy. Exiting with error."
       exit 1
     fi
-    echo "Waiting for $server to start..."
+    echo "Waiting for $server to start and be healthy..."
     sleep 5
   done
+
+  echo "Server $server is responding to grpcurl and /healthz, waiting additional 5 seconds for full initialization..."
+  sleep 5
 }
+
+
 
 check_server $server1
 echo "Server1 is up and running."
+sleep 5  # Add this line
 
 # Check if server2 is provided and check its status
 if [ -n "$server2" ]; then
   check_server $server2
   echo "Server2 is up and running."
+  sleep 5  # Add this line
 elif $generate_data; then
   echo "Running with --generate-data option, Server2 not provided."
 else

@@ -11,6 +11,9 @@ cleanup_and_exit() {
     exit_code=$?;
     local error=${1:-Error};
     echo -e "\033[0;31m${error} (code ${exit_code})\033[0m"
+    # Display logs before shutting down
+    echo "Displaying logs before shutting down the services:"
+    docker compose --project-name $CI_JOB_ID logs
     # Always bring down the Docker Compose setup
     docker compose --project-name $CI_JOB_ID down -v
     exit $exit_code
@@ -26,6 +29,10 @@ exit_code=$?
 
 # Show the exit code of the 'tests' container
 echo "Exit code from tests container: $exit_code"
+
+# Display logs before shutting down
+echo "Displaying logs before shutting down the services:"
+docker compose --project-name $CI_JOB_ID logs
 
 # Always bring down the Docker Compose setup
 docker compose --project-name $CI_JOB_ID down -v

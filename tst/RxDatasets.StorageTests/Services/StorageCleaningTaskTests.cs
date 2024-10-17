@@ -8,7 +8,6 @@ using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.Services;
@@ -37,8 +36,8 @@ public class StorageCleanTaskTests
         var snapshotCreationPlugInLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
-        var datasetReader = new DatasetReader<object>(_notificationsHub, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
+        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, false);
         
         var storageCleaningTask = new StorageCleaningService<object>(_notificationsHub, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);
@@ -46,9 +45,6 @@ public class StorageCleanTaskTests
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationPlugInLogger.Object, inMemoryStorage, _snapshotsOptions, ts);
         var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
 
         return (inMemoryStorage, datasetReader, datasetWriter);
     }

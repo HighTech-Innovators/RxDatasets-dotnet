@@ -2,6 +2,7 @@ using RxDatasets;
 using RxDatasets.BackgroundServices;
 using RxDatasets.StorageProvider.LocalDisk;
 using RxDatasets.StorageProvider.Minio;
+using RxDatasets.StorageProvider.S3;
 
 namespace Host;
 
@@ -10,11 +11,11 @@ public static class DI
     public static void ConfigureServices(IServiceCollection builderServices)
     { 
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithMinioStorage().WithCache().WithSnapshot().WithCleanup().Build();
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build();
 
         //new testdto
         RxDatasets.TestdtoV1.Server.DI.ConfigureServices(builderServices);
-        builderServices.AddDtoServer<Hightechinnovators.Dtos.TestdtoV1.Testdto>().WithMinioStorage().WithCache().WithSnapshot().WithCleanup().Build();
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.TestdtoV1.Testdto>().WithS3Storage().WithCache().WithSnapshot().WithCleanup().Build();
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();

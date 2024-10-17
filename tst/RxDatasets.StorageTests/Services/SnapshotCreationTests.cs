@@ -30,15 +30,12 @@ public class SnapshotCreationPluginTests
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
 
-        var datasetReader = new DatasetReader<object>(_notificationsHub, _dtoConfigOptions, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, _dtoConfigOptions, writerLogger.Object, inMemoryStorage, false);
+        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, false);
 
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _snapshotCreationConfig, ts);
         var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
 
         return (inMemoryStorage, datasetReader, datasetWriter);
     }

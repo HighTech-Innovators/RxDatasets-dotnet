@@ -14,7 +14,9 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj" />
       <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
+      <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
       <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
       <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.Minio\RxDatasets.StorageProvider.Minio.csproj" />
       <ProjectReference Include="..\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />

@@ -1,22 +1,15 @@
-﻿using System.Linq;
-using System.Reactive.Subjects;
-using System.Text.RegularExpressions;
-using Google.Protobuf;
+﻿using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
+public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 {
-    private readonly IOptions<StorageConfig> _dtoConfig;
     private readonly ILogger<DatasetWriter<T>> _logger;
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
@@ -24,15 +17,38 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
     private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
+    private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
 
-    public DatasetWriter(INotificationsHub<T> notificationsHub, IOptions<StorageConfig> dtoConfig, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
+    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
     {
         _storageProvider = storageProvider;
-        notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated);
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
-        _dtoConfig = dtoConfig;
         _retryInitialization = retryInitialization;
+        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        {
+            if (notification.ServiceStatus == ServiceStatus.NotReady)
+            {
+                InitializationTask = null;
+                _index = null;
+                _indexBasedOnMostRecentSnapshot = null;
+                return;
+            }
+
+            InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+            await InitializationTask;
+        }));
+        
+
+    }
+
+    public void Dispose()
+    {
+        foreach (var subscription in _disposableNotificationSubscriptions)
+        {
+            subscription.Dispose();
+        }
     }
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
@@ -86,7 +102,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
 
     private void EnsureInitialized()
     {
-        if (!InitializationTask!.IsCompleted)
+        if (InitializationTask == null)
+        {
+            _logger.LogError("Received a request, however we are not ready yet");
+            throw new InvalidOperationException("Initialization is not yet completed");
+        }
+
+        if (!InitializationTask.IsCompleted)
         {
             _logger.LogError("Received a request before dataset it was initialized");
             throw new InvalidOperationException("Initialization is not yet completed");
@@ -419,17 +441,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         };
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
-
-        return InitializationTask;
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
 
     private record Delta
     {
@@ -450,8 +461,5 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IHostedService
         }
     }
 
-    private readonly Subject<(string Name, byte[] NewProtoBytes)> _onNewDtoSubject = new();
-    private readonly Subject<(string Name, byte[] NewProtoBytes)> _onChangedDtoSubject = new();
-    private readonly Subject<string> _onDeletedDtoSubject = new();
     private readonly bool _retryInitialization;
 }

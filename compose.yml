@@ -15,6 +15,9 @@ services:
       - MINIOS3__ACCESSKEY=ROOTUSER
       - MINIOS3__SECRETKEY=MINIOPASSWORD
       - MINIOS3__SERVICEURL=minio:9000
+      - S3__ACCESSKEY=ROOTUSER
+      - S3__SECRETKEY=MINIOPASSWORD
+      - S3__SERVICEURL=minio:9000
     depends_on:
       minio:
         condition: service_healthy

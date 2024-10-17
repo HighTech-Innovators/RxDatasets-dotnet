@@ -79,26 +79,35 @@ public class DemodtoHostContainerFixture : IAsyncLifetime
         return matches.Count > 0 ? matches[^1].Value : null;
     }
 
-    public async Task StartContainer(MinioS3Config? s3Config, INetwork network, string bucketName)
+    public async Task StartContainer(MinioS3Config? s3Config, INetwork network, string bucketName, bool waitUntilHealthy = true)
     {
         Console.WriteLine("start container!");
 
         if (_hostImageName==string.Empty) throw new Exception("Docker image sha was not found after building without errors");
 
-        DemoDtoHostContainerInstance = new ContainerBuilder()
-            .WithImage(_hostImageName)
-            .WithNetwork(network)
-            .WithEnvironment("MINIOS3__ACCESSKEY", s3Config?.AccessKey)
-            .WithEnvironment("MINIOS3__SECRETKEY", s3Config?.SecretKey)
-            .WithEnvironment("MINIOS3__SERVICEURL", s3Config?.ServiceURL)
-            .WithEnvironment("MINIOS3__BucketName", bucketName)
-            .WithEnvironment("Storage__CustomRootFolder", "customRootFolder/")
-            .WithEnvironment("SnapshotCreation__SnapshotInterval", "5")
-            .WithPortBinding(10080, true)
-            .WithPortBinding(18080, true)
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilContainerIsHealthy(10))
-            .WithEntrypoint("/bin/dtoserver/Host")
-            .Build();
+        ContainerBuilder containerBuilder = new ContainerBuilder()
+                    .WithImage(_hostImageName)
+                    .WithNetwork(network)
+                    .WithEnvironment("MINIOS3__ACCESSKEY", s3Config?.AccessKey)
+                    .WithEnvironment("MINIOS3__SECRETKEY", s3Config?.SecretKey)
+                    .WithEnvironment("MINIOS3__SERVICEURL", s3Config?.ServiceURL)
+                    .WithEnvironment("MINIOS3__BucketName", bucketName)
+                    .WithEnvironment("S3__ACCESSKEY", s3Config?.AccessKey)
+                    .WithEnvironment("S3__SECRETKEY", s3Config?.SecretKey)
+                    .WithEnvironment("S3__SERVICEURL", s3Config?.ServiceURL)
+                    .WithEnvironment("S3__BucketName", bucketName)
+                    .WithEnvironment("Storage__CustomRootFolder", "customRootFolder/")
+                    .WithEnvironment("SnapshotCreation__SnapshotInterval", "5")
+                    .WithPortBinding(10080, true)
+                    .WithPortBinding(18080, true)
+                    .WithEntrypoint("/bin/dtoserver/Host");
+
+        if (waitUntilHealthy)
+        {
+            containerBuilder = containerBuilder.WithWaitStrategy(Wait.ForUnixContainer().UntilContainerIsHealthy(10));
+        }
+
+        DemoDtoHostContainerInstance = containerBuilder.Build();
         await DemoDtoHostContainerInstance.StartAsync();
     }
 

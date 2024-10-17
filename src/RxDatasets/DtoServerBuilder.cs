@@ -77,6 +77,15 @@ namespace RxDatasets
             return this;
         }
 
+        public DtoServerBuilder<TEntity> WithDistributedLock(params string[] healthTags)
+        {
+            services.AddSingleton<DistributedLockService<TEntity>>();
+            services.AddHostedService(sp => sp.GetRequiredService<DistributedLockService<TEntity>>());
+            services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, healthTags);
+
+            return this;
+        }
+        
         public IServiceCollection Build()
         {
             AddDefaultStorageProvider();
@@ -85,9 +94,7 @@ namespace RxDatasets
 
             services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
                      .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
-                     .AddHostedService(sp => (DatasetReader<TEntity>)sp.GetRequiredService<IDatasetReader<TEntity>>())
-                     .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>()
-                     .AddHostedService(sp => (DatasetWriter<TEntity>)sp.GetRequiredService<IDatasetWriter<TEntity>>());
+                     .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
 
             return services;
         }

@@ -31,6 +31,7 @@ public class LocalDiskDatasetTests : StorageTestSpec
         LocalDiskStorageProvider<object> localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, config);
         _storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig()), localStorageProvider, _notificationsHub, false);
         ((ObjectStorageProvider<object>)_storageProvider).StartAsync(CancellationToken.None).Wait();
+
     }
 
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
@@ -38,12 +39,8 @@ public class LocalDiskDatasetTests : StorageTestSpec
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
-        
-        var datasetReader = new DatasetReader<object>(_notificationsHub, DtoOptions, readerLogger.Object, _storageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, DtoOptions, writerLogger.Object, _storageProvider, false);
-
-        await datasetReader.StartAsync(CancellationToken.None);
-        await datasetWriter.StartAsync(CancellationToken.None);
+        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, false);
 
         return (datasetReader, datasetWriter);
     }

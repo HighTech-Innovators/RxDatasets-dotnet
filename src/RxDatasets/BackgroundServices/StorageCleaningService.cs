@@ -22,13 +22,6 @@ namespace RxDatasets.BackgroundServices
         private readonly List<DateTime> _listOfSnapshotsDatesScheduledForDeleting = [];
         private IDisposable? _disposableVersionProcessedNotificationSubscription;
 
-
-        public async Task CleanStorageAsync(ulong versionOfOldestToKeepSnapshot)
-        {
-            logger.LogInformation($"Storage Cleaning is happening, deleting anything older than version {versionOfOldestToKeepSnapshot}!");
-            await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot, config.Value.KeepAllDeltas);
-        }
-
         public async Task SearchForOutdatedData()
         {
             try
@@ -65,18 +58,19 @@ namespace RxDatasets.BackgroundServices
                 }
 
                 if (toDeleteSnapshots.Count == 0) return;
-                await CleanStorageAsync(versionOfProcessedToKeepSnapshot);
+                await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot, config.Value.KeepAllDeltas);
             }
 
-            catch (Exception)
+            catch (Exception ex)
             {
-                scheduler.ScheduleAsync(TimeSpan.FromSeconds(15), (_, _) => SearchForOutdatedData());
+                logger.LogWarning($"Failed to clean storage: {ex}");
+                scheduler.ScheduleAsync(TimeSpan.FromSeconds(30), (_, _) => SearchForOutdatedData());
             }
         }
 
         private void ScheduleItemsToBeDeletedAt(DateTime earliestSnapshotTime)
         {
-            if(_listOfSnapshotsDatesScheduledForDeleting.Any(s=>s == earliestSnapshotTime)) return;
+            if(_listOfSnapshotsDatesScheduledForDeleting.Any(s=>s <= earliestSnapshotTime)) return;
             
             var currentTime = scheduler.Now.UtcDateTime;
 
@@ -101,8 +95,11 @@ namespace RxDatasets.BackgroundServices
             _disposableSnapshotNotificationSubscription = notificationsHub
                 .Subscribe<SnapshotCreatedNotification>( (_) => SearchForOutdatedData());
 
-            _disposableVersionProcessedNotificationSubscription = notificationsHub
-                .Subscribe<VersionProcessedNotification>((_) => SearchForOutdatedData());
+            if (!config.Value.KeepAllDeltas)
+            {
+                _disposableVersionProcessedNotificationSubscription = notificationsHub
+                    .Subscribe<VersionProcessedNotification>((_) => SearchForOutdatedData());
+            }
 
             _ = SearchForOutdatedData();
             logger.LogInformation(typeof(T).Name + " cleaning schedule started");
