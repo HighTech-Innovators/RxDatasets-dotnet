@@ -37,7 +37,7 @@ public class StorageCleanTaskTests
         var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
         var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
         
         var storageCleaningTask = new StorageCleaningService<object>(_notificationsHub, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);

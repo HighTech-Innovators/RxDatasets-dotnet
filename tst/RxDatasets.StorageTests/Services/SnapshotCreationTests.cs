@@ -31,7 +31,7 @@ public class SnapshotCreationPluginTests
 
 
         var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
 
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _snapshotCreationConfig, ts);
         var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);

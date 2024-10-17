@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
 using RxDatasets.StorageProviders;
@@ -26,7 +28,7 @@ public class InMemoryDatasetTests : StorageTestSpec
 
         
         var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
 
         return (datasetReader, datasetWriter);
     }

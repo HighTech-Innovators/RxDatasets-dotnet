@@ -40,7 +40,7 @@ public class LocalDiskDatasetTests : StorageTestSpec
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
         var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
 
         return (datasetReader, datasetWriter);
     }
