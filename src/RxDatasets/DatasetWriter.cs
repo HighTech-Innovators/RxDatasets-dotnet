@@ -1,10 +1,13 @@
 ﻿using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
+using System.Text.RegularExpressions;
 
 namespace RxDatasets;
 
@@ -13,15 +16,17 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly ILogger<DatasetWriter<T>> _logger;
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
+    private readonly IOptions<WriterConfig> _writerConfig;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
 
-    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, bool retryInitialization = true)
+    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
     {
         _storageProvider = storageProvider;
+        _writerConfig = writerConfig;
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _retryInitialization = retryInitialization;
@@ -125,7 +130,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         using var slot = await Lock(ct);
         EnsureInitialized();
-
+        EnsureNameIsValid(name);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
@@ -141,10 +146,24 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta);
     }
 
+    private void EnsureNameIsValid(string entityName)
+    {
+        if (_writerConfig.Value.AllowedNamesRegex is null)
+           return;
+        
+        var result = _writerConfig.Value.AllowedNamesRegex.Match(entityName);
+        if (result.Success)
+            return;
+
+        throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"valiation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
+    }
+
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         EnsureInitialized();
+        EnsureNameIsValid(name);
+
         Delta delta;
 
         if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
@@ -248,6 +267,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
         {
+            try { EnsureNameIsValid(name); }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                _logger.LogWarning(ex, "Skipping entity");
+                continue;
+            }
+
             if (includeParents)
             {
                 var parent = DatasetHelper.FindParentOfEntity(name);

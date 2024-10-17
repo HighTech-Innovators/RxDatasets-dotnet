@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.Minio;
@@ -16,6 +17,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
 {
     private readonly MinioTestContainerFixture _minioContainer;
     private IOptions<MinioS3Config>? _s3Config;
+    private IOptions<WriterConfig>? _writerConfig;
 
     public MinIOS3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     {
@@ -32,6 +34,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
             SecretKey = _minioContainer.Container.GetSecretKey(),
             ServiceURL = $"{_minioContainer.Container.Hostname}:{_minioContainer.Container.GetMappedPublicPort(9000)}"
         });
+        _writerConfig = Options.Create<WriterConfig>(new() { AllowedNamesPattern = "" });
     }
 
     public async Task DisposeAsync()
@@ -56,7 +59,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, _writerConfig, false);
         
 
         return (datasetReader, datasetWriter);
@@ -88,4 +91,47 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
         var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
+
+    [Theory]
+    [MemberData(nameof(TestData))]
+    public async Task Should_Throw_ArgumentOutOfRangeException_On_Invalid_Name(
+        string validationRegex, string name, bool shouldSucceed)
+    {
+        // Arrange
+        _writerConfig!.Value.AllowedNamesPattern = validationRegex;
+
+        // Assuming SetupStorageAsync sets up the necessary objects
+        var (_, datasetWriter) = await SetupStorageAsync();
+        var bytes = GenerateRandomData();
+
+        // Act
+        Func<Task> putAction = () => datasetWriter.Put(name, bytes);
+
+        // Assert
+        if (shouldSucceed)
+        {
+            await putAction.Should().NotThrowAsync();
+        }
+        else
+        {
+            await putAction.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        }
+    }
+
+    public static IEnumerable<object[]> TestData()
+    {
+      return
+        [
+          ["", "validName", true],               // Should pass: empty pattern
+          ["^[a-zA-Z]+$", "ValidName", true],    // Should pass: only letters
+          ["^[a-zA-Z]+$", "Invalid123", false],  // Should fail: contains numbers
+          ["^\\d+$", "12345", true],             // Should pass: only digits
+          ["^\\d+$", "abc123", false],           // Should fail: contains letters
+          ["^[a-z]+$", "lowercase", true],       // Should pass: lowercase letters
+          ["^[a-z]+$", "UPPERCASE", false],      // Should fail: uppercase letters
+          ["^$", "", true],                      // Should pass: empty string matches empty pattern
+          ["^$", "nonempty", false],             // Should fail: non-empty string with empty pattern
+        ];
+    }
+
 }

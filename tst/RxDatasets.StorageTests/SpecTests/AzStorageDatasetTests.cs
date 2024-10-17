@@ -4,8 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.AzBlob;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
@@ -56,7 +56,8 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, false);
+        IOptions<WriterConfig> writerConfig = Options.Create(new WriterConfig { });
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, writerConfig, false);
 
         return (datasetReader, datasetWriter);
     }
