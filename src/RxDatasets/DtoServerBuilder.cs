@@ -43,8 +43,9 @@ namespace RxDatasets
                 new CacheStorageProvider<TEntity>(
                     sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
                     sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
-                    sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>()
-                ));
+                    sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>(),
+                    sp.GetRequiredService<INotificationsHub<TEntity>>()
+            ));
 
             services.AddHostedService(sp => (CacheStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
             _isCacheConfigured = true;

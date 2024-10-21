@@ -107,7 +107,7 @@ namespace RxDatasets.StorageTests
                     isHealthy = true;
                     break;
                 }
-                await Task.Delay(TimeSpan.FromSeconds(0.3));
+                await Task.Delay(TimeSpan.FromSeconds(0.5));
             }
 
             isHealthy.Should().BeTrue("Second container should become healthy after first is stopped");

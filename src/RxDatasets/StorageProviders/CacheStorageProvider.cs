@@ -4,17 +4,40 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 
 namespace RxDatasets.StorageProviders;
 
-public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptions<DtoStorageCacheConfig> cacheConfig, ILogger<CacheStorageProvider<T>> logger) : IStorageProvider<T>, IHostedService
+public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptions<DtoStorageCacheConfig> cacheConfig, ILogger<CacheStorageProvider<T>> logger, INotificationsHub<T> notificationsHub) : IStorageProvider<T>, IHostedService
 {
     private const int MB_BYTES = 1024 * 1024;
     private readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions()
     {
         SizeLimit = cacheConfig.Value.CacheSizeMB * MB_BYTES
     });
-    public async Task StartAsync(CancellationToken cancellationToken)
+    private IDisposable _storageSubscription;
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _storageSubscription = notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        {
+            if(notification.ServiceStatus == ServiceStatus.NotReady)
+                return;
+
+            try
+            {
+                await InitCache();
+            }
+            catch
+            {
+                // we cant init for now
+            }
+        });
+       return Task.CompletedTask;
+    }
+
+    private async Task InitCache()
     {
         var (_, _, snapshots) = await ListVersions();
         foreach (var version in snapshots.Select(s => s.version).OrderDescending())

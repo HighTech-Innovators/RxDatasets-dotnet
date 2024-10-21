@@ -36,12 +36,13 @@ public class ObjectStorageProvider<T>(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+        if(lockService is null)
+            _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
 
         _disposableSubscription = notificationsHub.Subscribe<DistributedLockNotification>(async (notification) => {
             if (notification.LockStatus == DistirbutedLockStatus.Acquried)
             {
-                _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+                _initTask = InitLoop(cancellationToken);
                 await _initTask;
                 return;
             }
@@ -50,7 +51,7 @@ public class ObjectStorageProvider<T>(
             await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
         });
 
-        return _initTask;
+        return _initTask ?? Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
