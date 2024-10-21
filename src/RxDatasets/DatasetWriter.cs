@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,6 +7,7 @@ using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
+using System.Reactive.Disposables;
 using System.Text.RegularExpressions;
 
 namespace RxDatasets;
@@ -22,6 +23,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
+    private readonly CompositeDisposable _subscriptions = new CompositeDisposable();
 
     public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
     {
@@ -30,30 +32,31 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _retryInitialization = retryInitialization;
-        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
-        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
-                InitializationTask = null;
-                _index = null;
-                _indexBasedOnMostRecentSnapshot = null;
-                return;
+                Uninitialize();
             }
 
-            InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+            InitializationTask = InitializationLoop();
             await InitializationTask;
         }));
         
 
     }
 
+    private void Uninitialize()
+    {
+        InitializationTask = null;
+        _index = null;
+        _indexBasedOnMostRecentSnapshot = null;
+    }
+
     public void Dispose()
     {
-        foreach (var subscription in _disposableNotificationSubscriptions)
-        {
-            subscription.Dispose();
-        }
+        _subscriptions?.Dispose();
     }
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
@@ -105,7 +108,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
-    private void EnsureInitialized()
+    private void ThrowIfNotInitialized()
     {
         if (InitializationTask == null)
         {
@@ -129,7 +132,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
-        EnsureInitialized();
+        ThrowIfNotInitialized();
         EnsureNameIsValid(name);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
@@ -161,9 +164,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
-        EnsureInitialized();
+        ThrowIfNotInitialized();
         EnsureNameIsValid(name);
-
         Delta delta;
 
         if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
@@ -205,7 +207,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         CancellationToken ct)
     {
         using var slot = await Lock(ct);
-        EnsureInitialized();
+        ThrowIfNotInitialized();
 
         var tempDataFilePath = Path.GetTempFileName();
         await using var fileStream = new FileStream(tempDataFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);

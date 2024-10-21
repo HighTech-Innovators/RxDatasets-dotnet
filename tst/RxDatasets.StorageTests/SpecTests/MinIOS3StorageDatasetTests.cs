@@ -6,7 +6,6 @@ using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;

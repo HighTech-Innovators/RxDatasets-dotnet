@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
+using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests
@@ -20,7 +21,8 @@ namespace RxDatasets.StorageTests
                 CacheSizeMB = 100
             });
             var storageProviderMock = new Mock<IStorageProvider<object>>();
-            var cacheStorageProvider = new CacheStorageProvider<object>(storageProviderMock.Object, cacheConfig, storageLogger.Object);
+            var notificationsHubMock = new Mock<INotificationsHub<object>>();
+            var cacheStorageProvider = new CacheStorageProvider<object>(storageProviderMock.Object, cacheConfig, storageLogger.Object, notificationsHubMock.Object);
 
             return (cacheStorageProvider, storageProviderMock);
         }

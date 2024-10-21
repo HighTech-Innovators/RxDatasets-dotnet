@@ -1,3 +1,4 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
     public Task? InitializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly bool _retryInitialization;
-    private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
+    private readonly CompositeDisposable _subscriptions = new CompositeDisposable();
     private TaskCompletionSource _indexChangedTaskCompletionSource = new();
 
 
@@ -31,21 +32,25 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
         _retryInitialization = retryInitialization;
-        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
-        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
-        _disposableNotificationSubscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        _subscriptions.Add(notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
+        _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
-                InitializationTask = null;
-                _index = null;
-                _indexBasedOnMostRecentSnapshot = null;
-                return;
+                Uninitialize();
             }
 
-            InitializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+            InitializationTask = InitializationLoop();
             await InitializationTask;
         }));
+    }
+
+    private void Uninitialize()
+    {
+        InitializationTask = null;
+        _index = null;
+        _indexBasedOnMostRecentSnapshot = null;
     }
 
     private async Task InitializationLoop()
@@ -92,7 +97,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         using var updateSlot = await Lock(_writerSemaphore);
         try
         {
-            EnsureInitialized();
+            ThrowIfNotInitialized();
             _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
             var tcs = _indexChangedTaskCompletionSource;
             _indexChangedTaskCompletionSource = new TaskCompletionSource();
@@ -127,7 +132,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         return tempState;
     }
 
-    private ImmutableDatasetState EnsureInitialized()
+    private ImmutableDatasetState ThrowIfNotInitialized()
     {
         if (InitializationTask == null)
         {
@@ -152,7 +157,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 
     public async Task<ICollection<(string name, ReadOnlyMemory<byte>? entityBytes)>> BatchGet(IEnumerable<string> names, string? parent)
     {
-        var indexRef = EnsureInitialized();
+        var indexRef = ThrowIfNotInitialized();
         var tasks = names.Select(async name => {
             if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
@@ -210,7 +215,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string name)
     {
-        var indexRef = EnsureInitialized();
+        var indexRef = ThrowIfNotInitialized();
 
         if (!indexRef.Entities.TryGetValue(name, out var entity))
             return null;
@@ -223,9 +228,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         return (name, entityBytes);
     }
 
-    public async Task<ChangeSet> GetChangedNames(ulong fromVersion)
+    public Task<ChangeSet> GetChangedNames(ulong fromVersion)
     {
-        var indexRef = EnsureInitialized();
+        var indexRef = ThrowIfNotInitialized();
         var toVersion = indexRef.LatestVersion;
 
         if (fromVersion > toVersion)
@@ -234,7 +239,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         }
 
         var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return new ChangeSet(toVersion, changedNames);
+        return Task.FromResult(new ChangeSet(toVersion, changedNames));
     }
 
     private ICollection<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
@@ -295,13 +300,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 
     public ulong GetLatestVersion()
     {
-        var indexRef = EnsureInitialized();
+        var indexRef = ThrowIfNotInitialized();
         return indexRef.LatestVersion;
     }
 
     public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
     {
-        var indexRef = EnsureInitialized();
+        var indexRef = ThrowIfNotInitialized();
         List<(string name, ReadOnlyMemory<byte> bytes)> entities = [];
         var prefix = parent + "/";
 
@@ -332,9 +337,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 
     public void Dispose()
     {
-        foreach (var subscription in _disposableNotificationSubscriptions)
-        {
-            subscription.Dispose();
-        }
+        _subscriptions?.Dispose();
     }
 }
