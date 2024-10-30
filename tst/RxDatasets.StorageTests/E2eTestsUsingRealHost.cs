@@ -228,7 +228,7 @@ namespace RxDatasets.StorageTests
             var counter = 0;
             while (hostContainer.DemoDtoHostContainerInstance!.Health != TestcontainersHealthStatus.Healthy && counter < 100)
             {
-                await Task.Delay(TimeSpan.FromSeconds(0.3));
+                await Task.Delay(TimeSpan.FromSeconds(1));
                 counter++;
             }
 
@@ -291,7 +291,7 @@ namespace RxDatasets.StorageTests
             counter = 0; 
             while(hostContainer.DemoDtoHostContainerInstance.Health != TestcontainersHealthStatus.Healthy && counter <100)
             {
-                await Task.Delay(TimeSpan.FromSeconds(0.3));
+                await Task.Delay(TimeSpan.FromSeconds(0.5));
                 counter++;
             }
             appUri = new UriBuilder("http", hostContainer.DemoDtoHostContainerInstance.Hostname,

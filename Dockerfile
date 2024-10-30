@@ -12,7 +12,7 @@ FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.10.1 AS curl
 FROM sdk8 AS nuget-config
 
 # Optional support for 1 private package source without auth
-ARG PRIVATE_NUGET
+ARG PRIVATE_NUGET=""
 RUN if [ -n "${PRIVATE_NUGET}" ]; \
   then \
     if echo "${PRIVATE_NUGET}" | grep -E -q "\.json/?$"; then \
@@ -25,7 +25,7 @@ RUN if [ -n "${PRIVATE_NUGET}" ]; \
   fi
 
 # Optional support for a nuget proxy instead of nuget.org
-ARG NUGET_PROXY
+ARG NUGET_PROXY=""
 RUN if [ -n "${NUGET_PROXY}" ]; \
   then \
     if echo "${NUGET_PROXY}" | grep -E -q "\.json/?$"; then \
@@ -56,7 +56,12 @@ ENV PATH="${PATH}:/root/.dotnet/tools"
 ENV CI=true
 COPY --from=prepare-restore-tool /root/.dotnet/tools /root/.dotnet/tools/
 WORKDIR /code
-COPY . .
+COPY src src
+COPY tst tst
+COPY testapps testapps
+COPY *.sln ./
+COPY Directory.Build.props ./
+
 COPY --from=nuget-config /root/.nuget/NuGet/NuGet.Config ./nuget.config
 RUN dotnet subset restore *.sln --root-directory . --output restore_subset/
 
@@ -87,6 +92,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 FROM build AS test
 COPY Dockerfile .
+COPY .dockerignore .
 COPY --from=docker:cli /usr/local/bin/docker /usr/bin/docker
 COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 ARG DOCKER_HOST=
