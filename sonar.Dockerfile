@@ -3,16 +3,7 @@
 ARG REGISTRY_PREFIX=
 FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:8.0 AS sdk8
 
-
-###########################################################################################################
-###########################################################################################################
-###                                                                                                    ####
-###                                               sonarqube                                            ####
-###                                                                                                    ####
-###########################################################################################################
-###########################################################################################################
-FROM sdk8 AS sonarqube-check
-WORKDIR /code
+FROM sdk8 AS sonarqube-prepare
 
 # Install Java (OpenJDK 17)
 RUN apt-get update && \
@@ -28,22 +19,33 @@ RUN dotnet tool install --global dotnet-sonarscanner
 # Add SonarScanner to PATH
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
-# Set environment variables for SonarQube
-ARG SONAR_PROJECT_KEY
-ARG SONAR_HOST_URL
-ARG SONAR_TOKEN
-ARG SONAR_USER_HOME
-ARG VERSION
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
+###                                               sonarqube                                            ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
 
-ARG CI_COMMIT_REF_NAME
-ARG CI_MERGE_REQUEST_IID
-ARG CI_MERGE_REQUEST_TARGET_BRANCH_NAME
-ARG CI_PROJECT_ID
+FROM sonarqube-prepare AS sonarqube-check
+WORKDIR /code
+
+# Set environment variables for SonarQube
+ARG SONAR_PROJECT_KEY=""
+ARG SONAR_HOST_URL=""
+ARG SONAR_TOKEN=""
+ARG SONAR_USER_HOME=""
+ARG VERSION=""
+
+ARG CI_COMMIT_REF_NAME=""
+ARG CI_MERGE_REQUEST_IID=""
+ARG CI_MERGE_REQUEST_TARGET_BRANCH_NAME=""
+ARG CI_PROJECT_ID=""
 
 ENV SONAR_USER_HOME=${SONAR_USER_HOME}
 ENV VERSION=${VERSION}
 
-ARG DOCKER_HOST=
+ARG DOCKER_HOST
 ENV DOCKER_HOST=${DOCKER_HOST}
 
 # Copy solution file(s)
@@ -59,6 +61,7 @@ RUN dotnet restore
 
 COPY .git /code/.git
 
+
 RUN dotnet sonarscanner begin \
       /k:"${SONAR_PROJECT_KEY}" \
       /d:sonar.host.url="${SONAR_HOST_URL}" \
@@ -69,6 +72,7 @@ RUN dotnet sonarscanner begin \
       /d:sonar.pullrequest.branch="${CI_COMMIT_REF_NAME}" \
       /d:sonar.pullrequest.base="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" \
       /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+
 
 RUN dotnet build --no-restore
 
