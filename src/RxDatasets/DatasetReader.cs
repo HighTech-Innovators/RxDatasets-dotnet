@@ -19,7 +19,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
     public Task? InitializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly bool _retryInitialization;
-    private readonly CompositeDisposable _subscriptions = new CompositeDisposable();
+    private readonly CompositeDisposable _subscriptions = [];
     private TaskCompletionSource _indexChangedTaskCompletionSource = new();
 
 

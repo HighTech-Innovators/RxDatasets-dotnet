@@ -93,7 +93,6 @@ namespace RxDatasets
             services.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
             services.AddValidatedConfigSection<StorageConfig>();
             services.AddValidatedConfigSection<WriterConfig>();
-
             services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
                      .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
                      .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
