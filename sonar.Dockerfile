@@ -59,19 +59,24 @@ COPY tst/ ./tst/
 
 RUN dotnet restore
 
+# This copy is for sonar to determine what issues were fixed or not
 COPY .git /code/.git
 
-
-RUN dotnet sonarscanner begin \
-      /k:"${SONAR_PROJECT_KEY}" \
-      /d:sonar.host.url="${SONAR_HOST_URL}" \
-      /d:sonar.token="${SONAR_TOKEN}" \
-      /d:sonar.scm.provider=git \
-      /d:sonar.pullrequest.provider="gitlab" \
-      /d:sonar.pullrequest.key="${CI_MERGE_REQUEST_IID}" \
-      /d:sonar.pullrequest.branch="${CI_COMMIT_REF_NAME}" \
-      /d:sonar.pullrequest.base="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" \
-      /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+# handle branch vs merge request contexts 
+RUN set -e; \
+    SONAR_SCANNER_PARAMS="/k:${SONAR_PROJECT_KEY} \
+    /d:sonar.host.url=${SONAR_HOST_URL} \
+    /d:sonar.token=${SONAR_TOKEN} \
+    /d:sonar.scm.provider=git \
+    /d:sonar.cs.opencover.reportsPaths=**/coverage.opencover.xml"; \
+    if [ -n "${CI_MERGE_REQUEST_IID}" ] && [ -n "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" ]; then \
+      SONAR_SCANNER_PARAMS="${SONAR_SCANNER_PARAMS} \
+      /d:sonar.pullrequest.provider=gitlab \
+      /d:sonar.pullrequest.key=${CI_MERGE_REQUEST_IID} \
+      /d:sonar.pullrequest.branch=${CI_COMMIT_REF_NAME} \
+      /d:sonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"; \
+    fi; \
+    dotnet sonarscanner begin ${SONAR_SCANNER_PARAMS}
 
 
 RUN dotnet build --no-restore
