@@ -11,7 +11,7 @@ using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests;
+namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
 
 public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
@@ -34,8 +34,8 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     {
         await minioContainer.DisposeAsync();
     }
-    
-    
+
+
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -47,13 +47,13 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
 
 
         IObjectStorageProvider<object> s3StorageProvider = new S3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), notificationsHub, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, s3StorageProvider, notificationsHub, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, Options.Create(new WriterConfig { }), false);
-        
+
 
         return (datasetReader, datasetWriter);
     }

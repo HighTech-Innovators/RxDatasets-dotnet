@@ -5,13 +5,7 @@
 !testapps/
 !*.sln
 !Directory.Build.props
-!icon.png
-!README.md
 !.git/
-
-#For E2e tests to build host images
-!Dockerfile
-!.dockerignore
 
 **/[Bb]in/
 **/[Oo]bj/

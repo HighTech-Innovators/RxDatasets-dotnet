@@ -7,7 +7,7 @@ using RxDatasets.Models;
 
 namespace RxDatasets;
 
-public partial class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
+public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
 {
     public async Task<ImmutableDatasetState> GetLatestIndex()
     {

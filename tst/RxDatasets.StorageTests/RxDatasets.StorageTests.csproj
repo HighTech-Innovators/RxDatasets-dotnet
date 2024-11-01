@@ -11,7 +11,9 @@
   <ItemGroup>
     <PackageReference Include="FluentAssertions" Version="6.12.1" />
     <PackageReference Include="Grpc.Net.Client" Version="2.66.0" />
+    <PackageReference Include="Grpc.Net.Client.Web" Version="2.66.0" />
     <PackageReference Include="Grpc.Reflection" Version="2.66.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="Microsoft.Reactive.Testing" Version="6.0.1" />
     <PackageReference Include="Moq" Version="4.20.72" />
@@ -31,12 +33,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.Minio\RxDatasets.StorageProvider.Minio.csproj" />
+    <ProjectReference Include="..\..\testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />
     <ProjectReference Include="..\..\testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
+    <ProjectReference Include="..\..\testapps\Testserver\Host.Testserver.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,8 +8,5 @@
 !icon.png
 !README.md
 
-#For E2e tests to build host images
-!Dockerfile
-!.dockerignore
 **/[Bb]in/
 **/[Oo]bj/

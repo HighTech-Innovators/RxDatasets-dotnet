@@ -10,7 +10,7 @@ using RxDatasets.StorageProvider.AzBlob;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests;
+namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
 
 public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteContainerInstanceFixture>, IAsyncLifetime
 {
@@ -42,7 +42,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
         _azConfig!.Value.ContainerName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-        _azConfig.Value.ConnectionString = _azuriteContainer.Container.GetConnectionString(); 
+        _azConfig.Value.ConnectionString = _azuriteContainer.Container.GetConnectionString();
 
         var storageLogger = new Mock<ILogger<AzStorageProvider<object>>>();
 

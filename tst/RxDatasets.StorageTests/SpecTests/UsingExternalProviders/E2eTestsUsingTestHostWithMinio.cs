@@ -15,13 +15,20 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageProvider.Minio;
+using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Grpc.Net.Client.Web;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using RxDatasets.StorageProvider.S3;
 
-namespace RxDatasets.StorageTests
+namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders
 {
-    public class E2ETestsUsingRealHost(
+    public class E2eTestsUsingTestHostWithMinio(
         MinioTestContainerFixture minioContainer,
-        DemodtoHostContainerFixture hostContainer)
-        : IClassFixture<MinioTestContainerFixture>, IClassFixture<DemodtoHostContainerFixture>, IAsyncLifetime
+        GrpcWebApplicationFactory factory)
+        : IClassFixture<MinioTestContainerFixture>, IClassFixture<GrpcWebApplicationFactory>, IAsyncLifetime
     {
         private IMinioClient? _minioClient;
         private string _bucketName = "";
@@ -44,64 +51,107 @@ namespace RxDatasets.StorageTests
             {
                 AccessKey = minioContainer.Container.GetAccessKey(),
                 SecretKey = minioContainer.Container.GetSecretKey(),
-                ServiceURL = $"{minioContainer.Container.IpAddress}:{9000}"
+                ServiceURL = $"{minioContainer.Container.Hostname}:{minioContainer.Container.GetMappedPublicPort(9000)}"
             });
 
             _minioClient = new MinioClient().WithEndpoint($"{minioContainer.Container.Hostname}:{minioContainer.Container.GetMappedPublicPort(9000)}")
                 .WithCredentials(_s3Config.Value.AccessKey, _s3Config.Value.SecretKey)
                 .Build();
+
+
+            Environment.SetEnvironmentVariable("MINIOS3__ACCESSKEY", _s3Config.Value.AccessKey);
+            Environment.SetEnvironmentVariable("MINIOS3__SECRETKEY", _s3Config.Value.SecretKey);
+            Environment.SetEnvironmentVariable("MINIOS3__SERVICEURL", _s3Config.Value.ServiceURL);
+            Environment.SetEnvironmentVariable("S3__ACCESSKEY", _s3Config.Value.AccessKey);
+            Environment.SetEnvironmentVariable("S3__SECRETKEY", _s3Config.Value.SecretKey);
+            Environment.SetEnvironmentVariable("S3__SERVICEURL", _s3Config.Value.ServiceURL);
+            Environment.SetEnvironmentVariable("Storage__CustomRootFolder", "customRootFolder/");
+            Environment.SetEnvironmentVariable("SnapshotCreation__SnapshotInterval", "5");
+
         }
 
-        private async Task<(Uri? _appUri, Uri? _healthCheckUri)> StartHostContainer(DemodtoHostContainerFixture containerFixture, bool waitUntilHealthy = true, [CallerMemberName] string memberName = "")
+        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(bool WaitForHealthy = true, GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
         {
-            _bucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-            await containerFixture.StartContainer(_s3Config?.Value, minioContainer.Network, _bucketName, waitUntilHealthy).WaitAsync(CancellationToken.None);
-            var healthCheckUri = new UriBuilder("http", containerFixture.DemoDtoHostContainerInstance?.Hostname,
-                containerFixture.DemoDtoHostContainerInstance!.GetMappedPublicPort(18080), "/healthz").Uri;
-            var appUri = new UriBuilder("http", containerFixture.DemoDtoHostContainerInstance.Hostname,
-                containerFixture.DemoDtoHostContainerInstance.GetMappedPublicPort(10080)).Uri;
+            factoryInput ??= new GrpcWebApplicationFactory();
 
-            return (appUri, healthCheckUri);
+
+            _bucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+            // Create a new factory with custom configuration
+            var customFactory = factoryInput.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((context, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        { "S3:BucketName", _bucketName },
+                        { "MINIOS3:BucketName", _bucketName }
+                    });
+                });
+
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddValidatedConfigSection<S3Config>();
+                    services.AddSingleton<IObjectStorageProvider<Demodto>, S3StorageProvider<Demodto>>();
+                    services.AddHealthChecks().AddCheck<S3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
+                });
+            });
+
+
+            var healthClient = customFactory.CreateClient();
+            var grpcWebHandler = new GrpcWebHandler(GrpcWebMode.GrpcWebText, customFactory.Server.CreateHandler());
+            var httpClient = customFactory.CreateDefaultClient(grpcWebHandler);
+            var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
+            var counter = 0;
+            var healthResponse = await healthClient.GetAsync("/healthz");
+            string healthContent = await healthResponse.Content.ReadAsStringAsync();
+
+            while (WaitForHealthy && healthContent != "Healthy" && counter < 100)
+            {
+                healthResponse = await healthClient.GetAsync("/healthz");
+                healthContent = await healthResponse.Content.ReadAsStringAsync();
+
+                await Task.Delay(TimeSpan.FromSeconds(0.5));
+                counter++;
+            }
+
+            if (WaitForHealthy && healthContent != "Healthy")
+                throw new InvalidOperationException("Waiting for healthy status is enabled and we are not healthy, sorry, you can set the method not to wait :) ");
+
+            return (customFactory, healthClient, channel);
         }
 
         public async Task DisposeAsync()
         {
-            await hostContainer.DisposeAsync();
+            await factory.DisposeAsync();
             await minioContainer.DisposeAsync();
         }
 
         [Fact]
         public async Task Test_Second_Service_Not_Healthy_While_First_Running()
         {
-            // Start the first host container
-            var (appUri1, healthCheckUri1)  = await StartHostContainer(hostContainer, true);
-            
-            // Start the second host container
-            var secondHostContainer = new DemodtoHostContainerFixture();
-            await secondHostContainer.InitializeAsync();
-            var (appUri2, healthCheckUri2) = await StartHostContainer(secondHostContainer, false);
+            (var factory1, HttpClient healthClient, _) = await CreateWebhostFactoryAsync(); //and wait until healthy
 
-            var httpClient = new HttpClient();
-            var response = await httpClient.GetAsync(healthCheckUri1);
-            response = await httpClient.GetAsync(healthCheckUri1);
-            var content = await response.Content.ReadAsStringAsync();
-            content.Should().Be("Healthy", "First container should be healthy after startup");
-            await Task.Delay(TimeSpan.FromSeconds(4));
-            // Check that the second container is not healthy
-            response = await httpClient.GetAsync(healthCheckUri2);
-            response = await httpClient.GetAsync(healthCheckUri2);
-            content = await response.Content.ReadAsStringAsync();
+            // Start the second host
+            (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(false);
+            var healthResponse2 = await healthClient2.GetAsync("/healthz");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+
+            // Check that the second host is not healthy
+            healthResponse2 = await healthClient2.GetAsync("/healthz");
+            var content = await healthResponse2.Content.ReadAsStringAsync();
             content.Should().Be("Unhealthy", "Second container should not be healthy while first is running");
 
-            // Stop the first container
-            await hostContainer.DemoDtoHostContainerInstance!.StopAsync();
+            // Stop the first host
+            await factory1.DisposeAsync();
 
-            // Wait for the second container to become healthy
+
+            // Wait for the second host to become healthy
             var isHealthy = false;
             for (int i = 0; i < 50; i++)
             {
-                response = await httpClient.GetAsync(healthCheckUri2);
-                content = await response.Content.ReadAsStringAsync();
+                healthResponse2 = await healthClient2.GetAsync("/healthz");
+                content = await healthResponse2.Content.ReadAsStringAsync();
                 if (content == "Healthy")
                 {
                     isHealthy = true;
@@ -110,41 +160,25 @@ namespace RxDatasets.StorageTests
                 await Task.Delay(TimeSpan.FromSeconds(0.5));
             }
 
-            isHealthy.Should().BeTrue("Second container should become healthy after first is stopped");
+            isHealthy.Should().BeTrue("Second host should become healthy after first is stopped");
 
-            // Dispose of the second container
-            await hostContainer.DisposeAsync();
-            await secondHostContainer.DisposeAsync();
+            await factory2.DisposeAsync();
         }
 
         [Fact]
         public async Task Test_Service_Started_And_Healthy()
         {
-            var (appUri, healthCheckUri) = await StartHostContainer(hostContainer);
-            var httpClient = new HttpClient();
-            var response = await httpClient.GetAsync(healthCheckUri);
-            response = await httpClient.GetAsync(healthCheckUri);
-            response = await httpClient.GetAsync(healthCheckUri);
-            var content = await response.Content.ReadAsStringAsync();
-            content.Should().Be("Healthy");
+            var createHostAction = async () => await CreateWebhostFactoryAsync();
+            await createHostAction.Should().NotThrowAsync();
         }
 
         [Fact]
         public async Task Read_Raw_Snapshot_Data_Tests()
         {
+            (var factory1, HttpClient healthClient, var channel) = await CreateWebhostFactoryAsync();
 
-            var (appUri, healthCheckUri1) = await StartHostContainer(hostContainer);
-            using var channel = GrpcChannel.ForAddress(appUri!);
             var writerClient = new WriterService.WriterServiceClient(channel);
-            MessageParser<Demodto> protoParser = new(() => (Demodto)Activator.CreateInstance(typeof(Demodto))!);
-            var counter = 0;
-            while (hostContainer.DemoDtoHostContainerInstance!.Health != TestcontainersHealthStatus.Healthy && counter < 100)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(0.3));
-                counter++;
-            }
-            var httpClient = new HttpClient();
-            await httpClient.GetAsync(healthCheckUri1);
+
             // Load base payload
             var basePayload = new Demodto();
             // Perform initial gRPC calls with unique names and some_string values
@@ -179,7 +213,9 @@ namespace RxDatasets.StorageTests
                 await Task.Delay(10);
             }
 
-            await hostContainer.DemoDtoHostContainerInstance?.StopAsync()!;
+            await factory1.DisposeAsync();
+
+            MessageParser<Demodto> protoParser = new(() => (Demodto)Activator.CreateInstance(typeof(Demodto))!);
             using var resultStream = new MemoryStream();
             await _minioClient?.GetObjectAsync(new GetObjectArgs()
                 .WithBucket(_bucketName)
@@ -220,20 +256,11 @@ namespace RxDatasets.StorageTests
         [Fact]
         public async Task Do_Generic_Write_And_Read_Tests()
         {
+            (var factory1, _, var channel) = await CreateWebhostFactoryAsync();
 
-            var (appUri, healthCheckUri) = await StartHostContainer(hostContainer);
-            using var channel = GrpcChannel.ForAddress(appUri!);
             var writerClient = new WriterService.WriterServiceClient(channel);
             var readerClient = new ReaderService.ReaderServiceClient(channel);
-            var counter = 0;
-            while (hostContainer.DemoDtoHostContainerInstance!.Health != TestcontainersHealthStatus.Healthy && counter < 100)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-                counter++;
-            }
 
-            var httpClient = new HttpClient();
-            await httpClient.GetAsync(healthCheckUri);
             // Load base payload
             var basePayload = new Demodto();
 
@@ -278,8 +305,9 @@ namespace RxDatasets.StorageTests
             });
             var snapshotCount = await fetchSnapshots.WaitAsync(TimeSpan.FromSeconds(5));
             snapshotCount.Should().BeInRange(1, 3, "Ideally we get 1, 6, 11; but also valid is just 14 on the other end of the spectrum. More than 3 is never good as the interval should be 5 at least");
-            // action 
-            await hostContainer.DemoDtoHostContainerInstance?.StopAsync()!;
+
+            // act
+            await factory1.DisposeAsync();
 
             // assert
             var action = async (int i = 0) => await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = SevenUniqueNames[i] });
@@ -287,20 +315,10 @@ namespace RxDatasets.StorageTests
             await actionWrapper.Should().ThrowAsync<RpcException>();
 
             //more action
-            await hostContainer.DemoDtoHostContainerInstance?.StartAsync()!;
-            counter = 0; 
-            while(hostContainer.DemoDtoHostContainerInstance.Health != TestcontainersHealthStatus.Healthy && counter <100)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(0.5));
-                counter++;
-            }
-            appUri = new UriBuilder("http", hostContainer.DemoDtoHostContainerInstance.Hostname,
-            hostContainer.DemoDtoHostContainerInstance.GetMappedPublicPort(10080)).Uri;
-            healthCheckUri = new UriBuilder("http", hostContainer.DemoDtoHostContainerInstance.Hostname,
-            hostContainer.DemoDtoHostContainerInstance.GetMappedPublicPort(18080)).Uri;
-            using var newChannel = GrpcChannel.ForAddress(appUri!);
+            (_, _, var newChannel) = await CreateWebhostFactoryAsync();
+
             readerClient = new ReaderService.ReaderServiceClient(newChannel);
-            await httpClient.GetAsync(healthCheckUri);
+
             // more assert
             for (var i = 0; i < SevenUniqueNames.Count; i++)
             {

@@ -11,7 +11,7 @@ public class S3HealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
     {
         var storageProvider = serviceProvider.GetRequiredService<IObjectStorageProvider<T>>();
         if (storageProvider is not S3StorageProvider<T> provider)
-            return HealthCheckResult.Unhealthy();
+            return HealthCheckResult.Degraded();
 
         var isLastResultFilled = provider?.LastResult != null;
         var isLastCheckStillValid = DateTimeOffset.Now - provider!.LastResult.ObtainedAt < TimeSpan.FromMinutes(5);
