@@ -1,5 +1,7 @@
 ﻿using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.S3
@@ -9,9 +11,8 @@ namespace RxDatasets.StorageProvider.S3
         public static DtoServerBuilder<TEntity> WithS3Storage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
         {
             builder.Services.AddValidatedConfigSection<S3Config>();
-            builder.Services.AddSingleton<IObjectStorageProvider<TEntity>, S3StorageProvider<TEntity>>();
-            builder.Services.AddHealthChecks().AddCheck<S3HealthCheck<TEntity>>($"storage.s3.{typeof(TEntity).Name}");
-
+            builder.Services.TryAddSingleton<IObjectStorageProvider<TEntity>, S3StorageProvider<TEntity>>();
+            builder.Services.AddHealthChecks().AddCheck<S3HealthCheck<TEntity>>($"storage.s3.{typeof(TEntity).Name}", tags: ["s3", typeof(TEntity).Name]);
             return builder;
         }
     }

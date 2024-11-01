@@ -10,9 +10,6 @@ RUN apt-get update && \
     apt-get install --yes --no-install-recommends openjdk-17-jre git && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=docker:cli /usr/local/bin/docker /usr/bin/docker
-COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
-
 # Install SonarScanner if not already installed
 RUN dotnet tool install --global dotnet-sonarscanner
 
@@ -48,6 +45,8 @@ ENV VERSION=${VERSION}
 ARG DOCKER_HOST
 ENV DOCKER_HOST=${DOCKER_HOST}
 
+ARG RunExternalProvidersTests=false
+
 # Copy solution file(s)
 COPY *.sln ./
 COPY Directory.Build.props ./
@@ -81,10 +80,9 @@ RUN set -e; \
 
 RUN dotnet build --no-restore
 
-COPY Dockerfile .
-COPY .dockerignore .
-
-RUN dotnet test --no-build --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+RUN dotnet test --no-build \
+    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~UsingExternalProviders"'; fi) \
+    --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
 RUN dotnet sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
 

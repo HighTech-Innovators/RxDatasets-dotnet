@@ -7,14 +7,12 @@ using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.Services;
 
 public class SnapshotCreationPluginTests
 {
-    private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
     private IOptions<SnapshotCreationConfig> _snapshotCreationConfig = Options.Create(new SnapshotCreationConfig());
     private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
     private const ulong UNIT_KB = 1024;
@@ -213,15 +211,14 @@ private static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, Datase
         {
             if (i % 2 == 0)
             {
-                var randomBytes = GenerateRandomData(UNIT_KB, (int)i);
+                var randomBytes = GenerateRandomData((i + 6) * UNIT_KB, (int)i);
 
-                await s3DatasetWriter?.Put("Same_DTO", randomBytes)!;
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes)!;
             }
             else
             {
-
-                var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
-                await s3DatasetWriter?.Put("Same_DTO", randomBytes2)!;
+                var randomBytes2 = GenerateRandomData((i + 6) * UNIT_KB, 1);
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes2)!;
             }
         }
     }

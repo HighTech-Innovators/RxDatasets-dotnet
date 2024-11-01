@@ -91,14 +91,14 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 # TEST
 #
 FROM build AS test
-COPY Dockerfile .
-COPY .dockerignore .
-COPY --from=docker:cli /usr/local/bin/docker /usr/bin/docker
-COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 ARG DOCKER_HOST=
 ENV DOCKER_HOST=${DOCKER_HOST}
+
+ARG RunExternalProvidersTests=true
+
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
-    dotnet test --no-build -c Release
+    dotnet test --no-build -c Release \
+    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~UsingExternalProviders"'; fi)
 
 ###########################################################################################################
 ###########################################################################################################

@@ -10,7 +10,7 @@ using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests;
+namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
 
 public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {
@@ -40,8 +40,8 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
     {
         await _minioContainer.DisposeAsync();
     }
-    
-    
+
+
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -53,13 +53,13 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
 
 
         IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, (s3StorageProvider), notificationsHub);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, s3StorageProvider, notificationsHub);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, _writerConfig, false);
-        
+
 
         return (datasetReader, datasetWriter);
     }
@@ -119,9 +119,9 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
 
     public static IEnumerable<object[]> TestData()
     {
-      return
-        [
-          ["", "validName", true],               // Should pass: empty pattern
+        return
+          [
+            ["", "validName", true],               // Should pass: empty pattern
           ["^[a-zA-Z]+$", "ValidName", true],    // Should pass: only letters
           ["^[a-zA-Z]+$", "Invalid123", false],  // Should fail: contains numbers
           ["^\\d+$", "12345", true],             // Should pass: only digits
