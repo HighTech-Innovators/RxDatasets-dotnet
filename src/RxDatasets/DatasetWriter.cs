@@ -209,7 +209,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
 
-        var tempDataFilePath = Path.GetTempFileName();
+        var tempDataFilePath = DatasetHelper.GetTempFilePath();
         await using var fileStream = new FileStream(tempDataFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
         var (deltaIndex, receivedNames, allParents) = await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, ct);
 

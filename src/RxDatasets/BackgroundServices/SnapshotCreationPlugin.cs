@@ -111,7 +111,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         Dictionary<string, ImmutableEntity> newSnapshotEntities = [];
 
-        var tempPath = Path.GetTempFileName();
+        var tempPath = DatasetHelper.GetTempFilePath();
 
         await using var targetSnapshotStream = File.OpenWrite(tempPath);
         try

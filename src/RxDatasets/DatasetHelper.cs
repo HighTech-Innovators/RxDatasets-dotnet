@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.Models;
 
 namespace RxDatasets;
@@ -170,6 +171,17 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
 
     public static uint ComputeCrc32(ReadOnlySpan<byte> inputData) =>
         inputData.Length == 0 ? 0 : System.IO.Hashing.Crc32.HashToUInt32(inputData);
+
+    public static string GetTempFilePath()
+    {
+        string? TempFolderPath = Environment.GetEnvironmentVariable("TEMP_FILE_DIRECTORY");
+
+        if (string.IsNullOrWhiteSpace(TempFolderPath))
+            return Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+        Directory.CreateDirectory(TempFolderPath);
+        return Path.Combine(TempFolderPath, Path.GetRandomFileName());
+    }
 }
 
 internal class ActionDisposable : IDisposable
