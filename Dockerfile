@@ -257,6 +257,9 @@ HEALTHCHECK --interval=5s --timeout=2s --retries=2 --start-period=2s CMD [ \
 ]
 
 ENV COMPlus_EnableDiagnostics=0
+ENV TEMP_FILE_DIRECTORY=/temp_file_directory
+RUN mkdir -p $TEMP_FILE_DIRECTORY
+VOLUME $TEMP_FILE_DIRECTORY
 
 EXPOSE 10080/tcp
 EXPOSE 18080/tcp

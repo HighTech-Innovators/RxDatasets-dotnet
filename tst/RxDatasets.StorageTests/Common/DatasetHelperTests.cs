@@ -1,4 +1,9 @@
 ﻿using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Moq;
+using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.Models;
 using System.Collections.Immutable;
 
@@ -6,6 +11,34 @@ namespace RxDatasets.StorageTests.Common;
 
 public class DatasetHelperTests
 {
+    [Fact]
+    public void GetRandomTempFilePath_Should_Return_CustomTempPathWhenConfigured()
+    {
+        // Arrange
+        var datasetHelper = new DatasetHelper(Mock.Of<ILogger<DatasetHelper>>(), Mock.Of<IStorageProvider<object>>());
+        const string customPath = "tempOfTests";
+        Environment.SetEnvironmentVariable("TEMP_FILE_DIRECTORY", customPath);
+
+        // Act
+        var result = DatasetHelper.GetTempFilePath();
+
+        // Assert
+        result.Should().StartWith(customPath);
+    }
+
+    [Fact]
+    public void GetRandomTempFilePath_Should_Return_SystemTempPathWhenNotConfigured()
+    {
+        // Arrange
+        var datasetHelper = new DatasetHelper(Mock.Of<ILogger<DatasetHelper>>(), Mock.Of<IStorageProvider<object>>());
+
+        // Act
+        var result = DatasetHelper.GetTempFilePath();
+
+        // Assert
+        result.Should().StartWith(Path.GetTempPath());
+    }
+
     [Theory]
     [InlineData("channels/64090/days/20240923/events/287431128", "channels/64090/days/20240923")]
     [InlineData("bla/A/bla/K", "bla/A")]
