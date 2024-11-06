@@ -1,8 +1,10 @@
 ﻿using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
+using System.Security.AccessControl;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Minio;
+using Minio.DataModel;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
 using RxDatasets.Abstractions;
@@ -336,5 +338,41 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
     private void SetUnhealthy(Exception? exception)
     {
         _lastResult = new(DateTimeOffset.Now, exception);
+    }
+
+    public async Task<long> GetObjectContentLength(string objectKey)
+    {
+        await EnsureInitialized();
+        try
+        {
+            // Get object metadata
+            var statObjectArgs = new StatObjectArgs()
+            .WithBucket(_s3Config.Value.BucketName)
+                                    .WithObject(objectKey);
+
+            ObjectStat objectStat = await _s3Client.StatObjectAsync(statObjectArgs);
+
+            long size = objectStat.Size;
+
+            SetHealthy();
+            return size;
+
+        }
+        catch (MinioException ex) when (ex is ConnectionException or ObjectNotFoundException or InvalidObjectNameException)
+        {
+            if (ex is ObjectNotFoundException)
+            {
+                SetHealthy();
+                throw new FileNotFoundException($"File is not found.", objectKey, ex);
+            }
+
+            SetUnhealthy(ex);
+            throw ex switch
+            {
+                ConnectionException => new InvalidOperationException("S3 is unavailable", ex),
+                InvalidObjectNameException => new InvalidOperationException("Some S3 error happened but we don't know it, it's hidden in the response", ex),
+                _ => ex
+            };
+        }
     }
 }

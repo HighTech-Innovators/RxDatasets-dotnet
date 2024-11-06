@@ -23,6 +23,24 @@ public static class DatasetExtensions
         return ChangeType.Deleted;
     }
 
+    public static ulong GetLatestEntityVersion(this SnapshotEntity entity)
+    {
+        return Math.Max(entity.LastUpdatedVersion, Math.Max(entity.LastDeletedVersion.LastOrDefault(), entity.LastInsertedVersion.LastOrDefault()));
+    }
+
+    public static ChangeType GetLatestChangeType(this SnapshotEntity entity)
+    {
+        ulong latestVersion = entity.GetLatestEntityVersion();
+
+        if (latestVersion == entity.LastInsertedVersion.LastOrDefault())
+            return ChangeType.New;
+
+        if (latestVersion == entity.LastUpdatedVersion)
+            return ChangeType.Changed;
+
+        return ChangeType.Deleted;
+    }
+
     /// <summary>
     /// Applies the provided DeltaIndex to the provided SnapshotIndex
     /// </summary>

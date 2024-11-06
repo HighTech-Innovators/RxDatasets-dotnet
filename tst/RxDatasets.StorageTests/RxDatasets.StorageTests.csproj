@@ -33,7 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
@@ -42,6 +41,7 @@
     <ProjectReference Include="..\..\testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />
     <ProjectReference Include="..\..\testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
     <ProjectReference Include="..\..\testapps\Testserver\Host.Testserver.csproj" />
+    <ProjectReference Include="..\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
   </ItemGroup>
 
   <ItemGroup>

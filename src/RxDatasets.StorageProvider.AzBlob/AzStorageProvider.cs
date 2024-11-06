@@ -10,6 +10,9 @@ namespace RxDatasets.StorageProvider.AzBlob;
 
 public class AzStorageProvider<T> : IObjectStorageProvider<T>
 {
+    private const string UnavailableMessage = "Azure Blob Storage is unavailable";
+    private const string DownloadFailedMessage = "Failed to download from Azure Blob Storage";
+    private const string File404Message = $"File is not found.";
     private readonly BlobContainerClient _containerClient;
     private readonly ILogger<AzStorageProvider<T>> _logger;
     private bool _initialized;
@@ -85,13 +88,13 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             SetHealthy();
-            throw new FileNotFoundException($"File is not found.", objectKey);
+            throw new FileNotFoundException(File404Message, objectKey);
         }
         catch (Exception ex)
         {
             SetUnhealthy(ex);
-            _logger.LogError(ex, "Failed to download from Azure Blob Storage");
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            _logger.LogError(ex, DownloadFailedMessage);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -125,13 +128,13 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             SetHealthy();
-            throw new FileNotFoundException($"File is not found.", objectKey);
+            throw new FileNotFoundException(File404Message, objectKey);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download from Azure Blob Storage");
+            _logger.LogError(ex, DownloadFailedMessage);
             SetUnhealthy(ex);
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -161,13 +164,13 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             SetHealthy();
-            throw new FileNotFoundException($"File is not found.", objectKey);
+            throw new FileNotFoundException(File404Message, objectKey);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download from Azure Blob Storage");
+            _logger.LogError(ex, DownloadFailedMessage);
             SetUnhealthy(ex);
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -186,13 +189,13 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         catch (RequestFailedException ex) when (ex.Status==404)
         {
             SetHealthy();
-            throw new FileNotFoundException($"File is not found.", objectKey);
+            throw new FileNotFoundException(File404Message, objectKey);
         }
         catch (Exception ex)
         {
             SetUnhealthy(ex);
-            _logger.LogError(ex, "Failed to download from Azure Blob Storage");
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            _logger.LogError(ex, DownloadFailedMessage);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
     private async Task EnsureBucketExistsAsync()
@@ -228,7 +231,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         {
             SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -246,7 +249,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         {
             SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -272,7 +275,7 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         {
             SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to list objects from Azure Blob Storage");
-            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
         }
     }
 
@@ -297,5 +300,29 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
                 return;
         }
         throw new InvalidOperationException("Azure Blob Storage not yet initialized");
+    }
+
+    public async Task<long> GetObjectContentLength(string objectKey)
+    {
+        await EnsureInitialized();
+
+        try
+        {
+            var blobClient = _containerClient.GetBlobClient(objectKey);
+            var objectProperties = await blobClient.GetPropertiesAsync();
+            SetHealthy();
+            return objectProperties.Value.ContentLength;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            SetHealthy();
+            throw new FileNotFoundException(File404Message, objectKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, DownloadFailedMessage);
+            SetUnhealthy(ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
+        }
     }
 }

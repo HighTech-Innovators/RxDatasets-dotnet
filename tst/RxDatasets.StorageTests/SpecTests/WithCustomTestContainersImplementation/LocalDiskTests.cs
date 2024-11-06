@@ -4,12 +4,11 @@ using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.LocalDisk;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
+namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
 public class LocalDiskDatasetTests : StorageTestSpec
 {

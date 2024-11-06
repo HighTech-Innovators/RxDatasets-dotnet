@@ -3,5 +3,22 @@
     <HiddenComponentWarnings>
       <Value>UnnecessaryFileIncludeWarning</Value>
     </HiddenComponentWarnings>
+    <IgnoredTests>
+      <FixtureTestSelector>
+        <FixtureName>RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation.S3StorageDatasetTests</FixtureName>
+      </FixtureTestSelector>
+      <FixtureTestSelector>
+        <FixtureName>RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation.MinIOS3StorageDatasetTests</FixtureName>
+      </FixtureTestSelector>
+      <FixtureTestSelector>
+        <FixtureName>RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation.LocalDiskDatasetTests</FixtureName>
+      </FixtureTestSelector>
+      <FixtureTestSelector>
+        <FixtureName>RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation.E2ETestsUsingTestHostWithMinio</FixtureName>
+      </FixtureTestSelector>
+      <FixtureTestSelector>
+        <FixtureName>RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation.AzStorageDatasetTests</FixtureName>
+      </FixtureTestSelector>
+    </IgnoredTests>
   </Settings>
 </ProjectConfiguration>

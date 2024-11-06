@@ -177,6 +177,10 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<ulong> GetLowestProcessedVersion()
     {
         return Task.FromResult(_processedVersions.Count > 0 ? _processedVersions.Min(v => v.Value) : 0ul);
-        ;
+    }
+
+    public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
+    {
+        return Task.FromResult((long)_snapshots[snapshotVersion].data.Length);
     }
 }

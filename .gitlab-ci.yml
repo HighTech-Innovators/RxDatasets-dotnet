@@ -67,7 +67,7 @@ stages:
       --build-arg DOCKER_HOST=$DOCKER_HOST
       --build-arg VERSION=$VERSION
       --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
-      --build-arg RunExternalProvidersTests=false
+      --build-arg RunExternalProvidersTests=true
       --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
       --build-arg SONAR_TOKEN=$SONAR_TOKEN
       --build-arg SONAR_USER_HOME=$SONAR_USER_HOME

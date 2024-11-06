@@ -680,4 +680,10 @@ public class ObjectStorageProvider<T>(
         return new ActionDisposable(() => _snapshotSemaphore.Release());
     }
 
+    public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
+    {
+        var objectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+                    storageConfig.Value);
+        return storageProvider.GetObjectContentLength(objectName);
+    }
 }
