@@ -98,7 +98,7 @@ ARG RunExternalProvidersTests=true
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet test --no-build -c Release \
-    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~UsingExternalProviders"'; fi)
+    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~WithCustomTestContainersImplementation"'; fi)
 
 ###########################################################################################################
 ###########################################################################################################

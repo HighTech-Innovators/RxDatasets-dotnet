@@ -225,6 +225,28 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 return new List<(string ObjectKey, DateTimeOffset DateTime)>();
             }
         }
+
+        public Task<long> GetObjectContentLength(string objectKey)
+        {
+            try
+            {
+                var filePath = GetFullPath(objectKey);
+
+                if (!File.Exists(filePath))
+                {
+                    throw new FileNotFoundException($"File not found: {filePath}");
+                }
+
+               FileInfo fileInfo = new FileInfo(filePath);
+               return Task.FromResult(fileInfo.Length);
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error downloading file: {objectKey}");
+                throw;
+            }
+        }
     }
 
     public class LocalDiskStorageConfig

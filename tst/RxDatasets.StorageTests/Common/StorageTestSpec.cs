@@ -10,7 +10,7 @@ public abstract class StorageTestSpec
 {
     protected IOptions<StorageConfig> DtoOptions = Options.Create(new StorageConfig());
     protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig());
-    private const ulong UNIT_KB = 1024;
+    protected const ulong UNIT_KB = 1024;
     protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "");
     
     [Fact]
@@ -337,7 +337,7 @@ public abstract class StorageTestSpec
             bytesNewDataset.Value.entityBytes.ToArray().Should().BeEquivalentTo(bytesOldDataset.Value.entityBytes.ToArray());
         }
     }
-
+    
     [Fact]
     public async Task Should_Initialize_Index_Delta()
     {
@@ -1127,4 +1127,8 @@ public abstract class StorageTestSpec
         result.Should().ContainSingle();
         result.Should().Contain((name, ChangeType.Changed));
     }
+    
+    
+    
+    
 }

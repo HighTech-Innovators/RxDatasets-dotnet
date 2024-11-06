@@ -60,6 +60,7 @@ RUN dotnet restore
 
 # This copy is for sonar to determine what issues were fixed or not
 COPY .git /code/.git
+ENV sonar_coverage_exclusions="**/RxDatasets/Reporting/**/*,**/testapps/**/*,**/tst/**/*"
 
 # handle branch vs merge request contexts 
 RUN set -e; \
@@ -67,6 +68,7 @@ RUN set -e; \
     /d:sonar.host.url=${SONAR_HOST_URL} \
     /d:sonar.token=${SONAR_TOKEN} \
     /d:sonar.scm.provider=git \
+    /d:sonar.coverage.exclusions=${sonar_coverage_exclusions} \
     /d:sonar.cs.opencover.reportsPaths=**/coverage.opencover.xml"; \
     if [ -n "${CI_MERGE_REQUEST_IID}" ] && [ -n "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" ]; then \
       SONAR_SCANNER_PARAMS="${SONAR_SCANNER_PARAMS} \
@@ -81,7 +83,7 @@ RUN set -e; \
 RUN dotnet build --no-restore
 
 RUN dotnet test --no-build \
-    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~UsingExternalProviders"'; fi) \
+    $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~WithCustomTestContainersImplementation"'; fi) \
     --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
 RUN dotnet sonarscanner end /d:sonar.token="${SONAR_TOKEN}"

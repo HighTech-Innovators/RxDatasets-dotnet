@@ -68,7 +68,7 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
         var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => entity.Length);
         if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
         {
-            _ = await ReadSnapshotData(snapshotVersion);
+            _ = await ReadSnapshotData(snapshotVersion); // This triggers a cache set
         }
     }
 
@@ -285,5 +285,10 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
     public Task<ulong> GetLowestProcessedVersion()
     {
         return storageProvider.GetLowestProcessedVersion();
+    }
+
+    public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
+    {
+        return storageProvider.GetSnapshotDataContentLength(snapshotVersion);
     }
 }

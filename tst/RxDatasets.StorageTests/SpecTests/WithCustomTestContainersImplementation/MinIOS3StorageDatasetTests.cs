@@ -10,7 +10,7 @@ using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
+namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
 public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {

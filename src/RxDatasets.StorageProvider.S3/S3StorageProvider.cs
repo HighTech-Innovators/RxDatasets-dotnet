@@ -10,6 +10,9 @@ namespace RxDatasets.StorageProvider.S3
 {
     public class S3StorageProvider<T> : IObjectStorageProvider<T>, IDisposable
     {
+        private const string DownloadFailedMessage = "Failed to download metadata from S3";
+        private const string UnavailableMessage = $"S3 is unavailable.";
+        private const string File404Message = $"File is not found.";
         private readonly AmazonS3Client _s3Client;
         private readonly TransferUtility _transferUtility;
         private readonly ILogger<S3StorageProvider<T>> _logger;
@@ -177,13 +180,13 @@ namespace RxDatasets.StorageProvider.S3
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
@@ -195,7 +198,7 @@ namespace RxDatasets.StorageProvider.S3
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to download from S3");
-                var invalidOperationException = new InvalidOperationException($"S3 is unavailable.", ex);
+                var invalidOperationException = new InvalidOperationException(UnavailableMessage, ex);
                 SetUnhealthy(invalidOperationException);
                 throw invalidOperationException;
             }
@@ -225,13 +228,13 @@ namespace RxDatasets.StorageProvider.S3
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
@@ -243,7 +246,7 @@ namespace RxDatasets.StorageProvider.S3
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to download from S3");
-                var invalidOperationException = new InvalidOperationException($"S3 is unavailable.", ex);
+                var invalidOperationException = new InvalidOperationException(UnavailableMessage, ex);
                 SetUnhealthy(invalidOperationException);
                 throw invalidOperationException;
             }
@@ -278,13 +281,13 @@ namespace RxDatasets.StorageProvider.S3
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
-                throw new FileNotFoundException($"File is not found.", objectKey);
+                throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception s3e)
             {
@@ -447,6 +450,49 @@ namespace RxDatasets.StorageProvider.S3
             }
         }
 
+        public async Task<long> GetObjectContentLength(string objectKey)
+        {
+            await EnsureInitialized();
+            try
+            {
+                var getObjectRequest = new GetObjectMetadataRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey
+                };
+
+                var response = await _s3Client.GetObjectMetadataAsync(getObjectRequest);
+                return response.ContentLength;
+            }
+            catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
+            {
+                _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
+                throw new FileNotFoundException(File404Message, objectKey);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogError("File Does Not Exists, {Key}", objectKey);
+                SetHealthy();
+                throw new FileNotFoundException(File404Message, objectKey);
+            }
+            catch (AmazonS3Exception s3e)
+            {
+                _logger.LogError("Failed to read object {Key} metadata, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
+                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, DownloadFailedMessage);
+                var invalidOperationException = new InvalidOperationException(UnavailableMessage, ex);
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
+            }
+
+        }
+
         private void SetHealthy()
         {
             _lastResult = new(DateTimeOffset.Now, null);
@@ -460,5 +506,6 @@ namespace RxDatasets.StorageProvider.S3
             _transferUtility.Dispose();
             _s3Client.Dispose();
         }
+
     }
 }

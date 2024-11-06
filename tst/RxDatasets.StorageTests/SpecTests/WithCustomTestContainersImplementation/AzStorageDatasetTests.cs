@@ -10,7 +10,7 @@ using RxDatasets.StorageProvider.AzBlob;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
+namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
 public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteContainerInstanceFixture>, IAsyncLifetime
 {

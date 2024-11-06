@@ -1,39 +1,29 @@
-﻿using System.Reactive.Linq;
-using System.Reactive.Threading.Tasks;
-using System.Runtime.CompilerServices;
-using DotNet.Testcontainers.Containers;
+﻿using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Hightechinnovators.Dtos.DemodtoV1;
 using Hightechinnovators.Dtos.Type;
-using Minio.DataModel.Args;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProviders;
-using RxDatasets.StorageProvider.Minio;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Grpc.Net.Client.Web;
 using Moq;
 using Microsoft.Extensions.Logging;
-using RxDatasets.StorageProvider.InMemory;
-using RxDatasets.StorageProvider.AzBlob;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using RxDatasets.StorageProvider.S3;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
+using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.StorageTests
 {
-    public class E2eTestsUsingTestHost(
+    public class E2ETestsUsingTestHost(
         GrpcWebApplicationFactory factory)
         : IClassFixture<GrpcWebApplicationFactory>, IAsyncLifetime
     {
-        private string customPrefix = "";
+        private string _customPrefix = "";
         private static readonly List<string> SevenUniqueNames =
             ["unique_name1", "unique_name2", "unique_name3", "unique_name4", "unique_name5", "unique_name6", "unique_name7"];
 
@@ -41,25 +31,25 @@ namespace RxDatasets.StorageTests
             ["deserunt1", "deserunt2", "deserunt3", "deserunt4", "deserunt5", "deserunt6", "deserunt7"];
 
 
-        public async Task InitializeAsync()
+        public Task InitializeAsync()
         {
             Environment.SetEnvironmentVariable("SnapshotCreation__SnapshotInterval", "5");
-
+            return Task.CompletedTask;
         }
 
-        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IObjectStorageProvider<Demodto> storageProvider, bool WaitForHealthy = true,  GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
+        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IObjectStorageProvider<Demodto> storageProvider, bool waitForHealthy = true,  GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
         {
             factoryInput ??= new GrpcWebApplicationFactory();
-            customPrefix = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+            _customPrefix = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
 
             // Create a new factory with custom configuration
             var customFactory = factoryInput.WithWebHostBuilder(builder =>
             {
-                builder.ConfigureAppConfiguration((context, config) =>
+                builder.ConfigureAppConfiguration((_, config) =>
                 {
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        { "Storage:CustomRootFolder", customPrefix + "/customRootFolder/" },
+                        { "Storage:CustomRootFolder", _customPrefix + "/customRootFolder/" },
                     });
                 });
 
@@ -78,7 +68,7 @@ namespace RxDatasets.StorageTests
             var healthResponse = await healthClient.GetAsync("/healthz");
             string healthContent = await healthResponse.Content.ReadAsStringAsync();
 
-            while (WaitForHealthy && healthContent != "Healthy" && counter < 100)
+            while (waitForHealthy && healthContent != "Healthy" && counter < 100)
             {
                 healthResponse = await healthClient.GetAsync("/healthz");
                 healthContent = await healthResponse.Content.ReadAsStringAsync();
@@ -87,7 +77,7 @@ namespace RxDatasets.StorageTests
                 counter++;
             }
 
-            if (WaitForHealthy && healthContent != "Healthy")
+            if (waitForHealthy && healthContent != "Healthy")
                 throw new InvalidOperationException("Waiting for healthy status is enabled and we are not healthy, sorry, you can set the method not to wait :) ");
 
             return (customFactory, healthClient, channel);
@@ -102,16 +92,15 @@ namespace RxDatasets.StorageTests
         public async Task Test_Second_Service_Not_Healthy_While_First_Running()
         {
             var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
-            (var factory1, HttpClient healthClient, _) = await CreateWebhostFactoryAsync(storageProvider: storageProvider); //and wait until healthy
+            var (factory1, _, _) = await CreateWebhostFactoryAsync(storageProvider: storageProvider); //and wait until healthy
 
             // Start the second host
             (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(storageProvider: storageProvider, false);
-            var healthResponse2 = await healthClient2.GetAsync("/healthz");
             await Task.Delay(TimeSpan.FromSeconds(3));
 
 
             // Check that the second host is not healthy
-            healthResponse2 = await healthClient2.GetAsync("/healthz");
+            var healthResponse2 = await healthClient2.GetAsync("/healthz");
             var content = await healthResponse2.Content.ReadAsStringAsync();
             content.Should().Be("Unhealthy", "Second container should not be healthy while first is running");
 
@@ -150,7 +139,7 @@ namespace RxDatasets.StorageTests
         public async Task Read_Raw_Snapshot_Data_Tests()
         {
             var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
-            (var factory1, HttpClient healthClient, var channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
 
             var writerClient = new WriterService.WriterServiceClient(channel);
 
@@ -160,12 +149,12 @@ namespace RxDatasets.StorageTests
             for (var i = 0; i < SevenUniqueNames.Count; i++)
             {
                 var updatedPayload = UpdatePayload(basePayload, SevenUniqueNames[i], SevenStrings[i]);
-                var response = writerClient.Put(updatedPayload);
+                var response = await writerClient.PutAsync(updatedPayload);
                 // Verify response
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
 
-            var storageConfig = new StorageConfig { CustomRootFolder = customPrefix + "/customRootFolder/" };
+            var storageConfig = new StorageConfig { CustomRootFolder = _customPrefix + "/customRootFolder/" };
 
             ulong latestSnapshotVersion;
             while (true)
@@ -225,7 +214,7 @@ namespace RxDatasets.StorageTests
         {
             var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
 
-            (var factory1, _, var channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
 
             var writerClient = new WriterService.WriterServiceClient(channel);
             var readerClient = new ReaderService.ReaderServiceClient(channel);
@@ -237,7 +226,7 @@ namespace RxDatasets.StorageTests
             for (var i = 0; i < SevenUniqueNames.Count; i++)
             {
                 var updatedPayload = UpdatePayload(basePayload, SevenUniqueNames[i], SevenStrings[i]);
-                var response = writerClient.Put(updatedPayload);
+                var response = await writerClient.PutAsync(updatedPayload);
                 // Verify response
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
@@ -247,14 +236,14 @@ namespace RxDatasets.StorageTests
             {
                 var newString = $"updated_{SevenStrings[i]}";
                 var updatedPayload = UpdatePayload(basePayload, SevenUniqueNames[i], newString);
-                var response = writerClient.Put(updatedPayload);
+                var response = await writerClient.PutAsync(updatedPayload);
                 // Verify response
                 VerifyResponseIsExpected(response, 0, 1).Should().BeTrue();
             }
 
             // So now we have dataset versions 1..14
             // We expect a snaphot 1, 6, 11 - but can't guarantee that because of the async nature. But at least one should appear at some point, if all works.
-            var storageConfig = new StorageConfig { CustomRootFolder = customPrefix + "/customRootFolder/" };
+            var storageConfig = new StorageConfig { CustomRootFolder = _customPrefix + "/customRootFolder/" };
 
             var fetchSnapshots = Task.Run(async () =>
             {

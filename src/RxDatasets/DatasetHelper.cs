@@ -125,6 +125,21 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
 
+        var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
+            .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
+
+        if (lastEntityInDataFile is not null)
+        {
+            var actualSnapshotDataLength = await storageProvider.GetSnapshotDataContentLength(snapshotVersion);
+            var expectedLengthFromIndex = lastEntityInDataFile.Position + lastEntityInDataFile.Length;
+
+            if (actualSnapshotDataLength < expectedLengthFromIndex)
+            {
+                throw new InvalidOperationException(
+                    $"Looks like there is a data corruption for snapshot {snapshotVersion}; it's {actualSnapshotDataLength} bytes instead of the expected {expectedLengthFromIndex}");
+            }
+        }
+
         if (mutableSnapshotIndex.SnapshotVersion != snapshotVersion)
         {
             logger.LogWarning(

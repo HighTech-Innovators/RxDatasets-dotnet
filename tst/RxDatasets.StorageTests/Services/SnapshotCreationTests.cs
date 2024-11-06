@@ -205,7 +205,7 @@ public class SnapshotCreationPluginTests
     }
 
 
-private static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, DatasetWriter<object>? s3DatasetWriter)
+public static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, DatasetWriter<object>? s3DatasetWriter)
     {
         for (var i = 0ul; i < howManyDeltasToCreate; i++)
         {

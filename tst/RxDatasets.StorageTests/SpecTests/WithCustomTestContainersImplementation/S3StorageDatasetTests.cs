@@ -6,12 +6,11 @@ using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.Notifications;
 using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageTests.Common;
 
-namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders;
+namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
 public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime

@@ -6,26 +6,25 @@ using FluentAssertions;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Grpc.Net.Client.Web;
 using Hightechinnovators.Dtos.DemodtoV1;
 using Hightechinnovators.Dtos.Type;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
-using RxDatasets.StorageProviders;
 using RxDatasets.StorageProvider.Minio;
-using Microsoft.Extensions.Configuration;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Grpc.Net.Client.Web;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using RxDatasets.StorageProvider.S3;
+using RxDatasets.StorageProviders;
 
-namespace RxDatasets.StorageTests.SpecTests.UsingExternalProviders
+namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation
 {
-    public class E2eTestsUsingTestHostWithMinio(
+    public class E2ETestsUsingTestHostWithMinio(
         MinioTestContainerFixture minioContainer,
         GrpcWebApplicationFactory factory)
         : IClassFixture<MinioTestContainerFixture>, IClassFixture<GrpcWebApplicationFactory>, IAsyncLifetime
