@@ -10,29 +10,32 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class LocalDiskDatasetTests : StorageTestSpec
+public class LocalDiskDatasetTests : StorageTestSpec, IDisposable
 {
     private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
 
 
-    private IStorageProvider<object> _storageProvider;
+    private readonly IStorageProvider<object> _storageProvider;
+    private readonly IOptions<LocalDiskStorageConfig> _config;
 
     public LocalDiskDatasetTests()
     {
-        IOptions<LocalDiskStorageConfig> config = Options.Create(new LocalDiskStorageConfig());
-        config.Value.RootFolder = @"UnitTestsData/";
+        _config = Options.Create(new LocalDiskStorageConfig());
+        _config.Value.RootFolder = Path.Combine(DatasetHelper.GetTempFileDirectory(), "UnitTestsData/");
 
-        if (Directory.Exists(config.Value.RootFolder))
+        if (Directory.Exists(_config.Value.RootFolder))
         {
-            Directory.Delete(config.Value.RootFolder, recursive: true);
+            Directory.Delete(_config.Value.RootFolder, recursive: true);
         }
 
-        LocalDiskStorageProvider<object> localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, config);
+        LocalDiskStorageProvider<object> localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, _config);
         _storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig()), localStorageProvider, _notificationsHub, false);
         ((ObjectStorageProvider<object>)_storageProvider).StartAsync(CancellationToken.None).Wait();
 
     }
-
+    
+    
+    
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
     {
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
@@ -44,4 +47,9 @@ public class LocalDiskDatasetTests : StorageTestSpec
         return (datasetReader, datasetWriter);
     }
 
+    public void Dispose()
+    {
+        if(Directory.Exists(_config.Value.RootFolder))
+            Directory.Delete(_config.Value.RootFolder, true);
+    }
 }
