@@ -33,10 +33,8 @@ public class LocalDiskDatasetTests : StorageTestSpec, IDisposable
         ((ObjectStorageProvider<object>)_storageProvider).StartAsync(CancellationToken.None).Wait();
 
     }
-    
-    
-    
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
+
+    protected override Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
     {
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
@@ -44,7 +42,7 @@ public class LocalDiskDatasetTests : StorageTestSpec, IDisposable
         var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
         var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
 
-        return (datasetReader, datasetWriter);
+        return Task.FromResult((datasetReader, datasetWriter));
     }
 
     public void Dispose()

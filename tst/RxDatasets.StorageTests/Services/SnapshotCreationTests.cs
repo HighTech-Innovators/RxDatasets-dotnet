@@ -204,8 +204,7 @@ public class SnapshotCreationPluginTests
         result.Should().Be(TimeSpan.FromMinutes(-5));
     }
 
-
-public static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, DatasetWriter<object>? s3DatasetWriter)
+    internal static async Task CreateNumberDeltas(ulong howManyDeltasToCreate, DatasetWriter<object>? s3DatasetWriter)
     {
         for (var i = 0ul; i < howManyDeltasToCreate; i++)
         {

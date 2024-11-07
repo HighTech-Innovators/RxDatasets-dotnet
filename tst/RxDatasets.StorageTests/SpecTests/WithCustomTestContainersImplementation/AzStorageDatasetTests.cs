@@ -52,7 +52,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
 
 
         IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, azStorageProvider, notificationsHub, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, azStorageProvider, notificationsHub, false);
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
@@ -66,12 +66,10 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
     [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization()
     {
-        var config = DtoOptions;
-
         _azConfig!.Value.ContainerName = new string(
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync();
         await _azuriteContainer.Container.StopAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
@@ -83,7 +81,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
     [Fact]
     public async Task Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_AZ_Storage()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync();
 
         var bytes = GenerateRandomData();
 
