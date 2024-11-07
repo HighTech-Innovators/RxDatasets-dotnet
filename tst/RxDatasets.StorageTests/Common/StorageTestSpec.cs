@@ -8,7 +8,7 @@ namespace RxDatasets.StorageTests.Common;
 
 public abstract class StorageTestSpec
 {
-    protected IOptions<StorageConfig> DtoOptions = Options.Create(new StorageConfig());
+    protected IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig());
     protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig());
     protected const ulong UNIT_KB = 1024;
     protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "");
@@ -832,13 +832,13 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_No_New_Entity_After_Canceling()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (datasetReader, _) = await SetupStorageAsync();
         CancellationTokenSource cancellationTokenSource = new();
 
         // Given
         var bytes = GenerateRandomData(UNIT_KB);
 
-        Func<Task<ChangeSet>> action = async () => await azBlobStorageDatasetReader.WaitChangedNames(0, cancellationTokenSource.Token);
+        Func<Task<ChangeSet>> action = async () => await datasetReader.WaitChangedNames(0, cancellationTokenSource.Token);
         var waitChangedListTask = action.Invoke();
 
         await Task.Delay(TimeSpan.FromSeconds(0.3), cancellationTokenSource.Token);

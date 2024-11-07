@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -133,16 +134,43 @@ public class ObjectStorageProvider<T>(
 
         //Only upload the data file in case it is not empty (which can be the case in case the delta only contains deletes)
         if (data.Length > 0)
+        {
             await Task.WhenAll(
                 storageProvider.UploadBytes(indexObjectName, index),
                 storageProvider.UploadBytes(dataObjectName, data)
             );
+            await VerifyArrayUploadIfConfigured(dataObjectName, data.Length);
+        }
         else
             await storageProvider.UploadBytes(indexObjectName, index);
 
         _deltaInfo.LatestDeltaVersion++;
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+    }
+
+    private async Task VerifyArrayUploadIfConfigured(string dataObjectName, int expectedDataLength)
+    {
+        if (storageConfig.Value.UploadVerificationMode == UploadVerificationMode.VerifyAll)
+        {
+            await VerifyDataUpload(dataObjectName, expectedDataLength);
+        }
+    }
+
+    private async Task VerifyDataUpload(string dataObjectName, long expectedDataLength)
+    {
+        try
+        {
+            var actualUploadedDataLength = await storageProvider.GetObjectContentLength(dataObjectName);
+            if (actualUploadedDataLength != expectedDataLength)
+                throw new ExternalException(
+                    $"Delta {dataObjectName}: Expected uploaded data length to be {expectedDataLength}, but actual length is {actualUploadedDataLength}");
+        }
+        catch (FileNotFoundException)
+        {
+            throw new ExternalException(
+                $"Delta {dataObjectName}: Expected an uploaded data file, but nothing was uploaded");
+        }
     }
 
     private void ThrowIfNoLockIsAcquired()
@@ -165,6 +193,8 @@ public class ObjectStorageProvider<T>(
                 storageProvider.UploadBytes(indexObjectName, index),
                 storageProvider.UploadFileStream(dataObjectName, data)
             );
+            await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
+
         }
         else
         {
@@ -186,6 +216,14 @@ public class ObjectStorageProvider<T>(
             new SnapshotCreatedNotification(_snapshotInfo.SnapshotVersions.Max(sv => sv.Version)));
     }
 
+    private async Task VerifyStreamUploadIfConfigured(string dataObjectName, long expectedDataLength)
+    {
+        if (storageConfig.Value.UploadVerificationMode is UploadVerificationMode.VerifyAll or UploadVerificationMode.VerifyLargeDataOnly)
+        {
+            await VerifyDataUpload(dataObjectName, expectedDataLength);
+        }    
+    }
+
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
         ThrowIfNoLockIsAcquired();
@@ -201,6 +239,7 @@ public class ObjectStorageProvider<T>(
                 storageProvider.UploadBytes(indexObjectName, index),
                 storageProvider.UploadBytes(dataObjectName, data)
             );
+            await VerifyArrayUploadIfConfigured(dataObjectName, data.Length);
         }
         else
         {
@@ -263,10 +302,13 @@ public class ObjectStorageProvider<T>(
             storageConfig.Value);
 
         if (data.Length > 0)
+        {
             await Task.WhenAll(
                 storageProvider.UploadBytes(indexObjectName, index),
                 storageProvider.UploadFileStream(dataObjectName, data)
             );
+            await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
+        }
         else // Deleted Delta data
             await storageProvider.UploadBytes(indexObjectName, index);
         _deltaInfo.LatestDeltaVersion++;
@@ -632,7 +674,7 @@ public class ObjectStorageProvider<T>(
             logger.LogError(_initTask.Exception, "Received a request, but the dataset initialization failed");
             throw new InvalidOperationException("Initialization failed", _initTask.Exception);
         }
-     }
+    }
 
 
     private async Task InitLoop(CancellationToken cancellationToken)
@@ -683,7 +725,7 @@ public class ObjectStorageProvider<T>(
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var objectName = GetObjectName(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
-                    storageConfig.Value);
+            storageConfig.Value);
         return storageProvider.GetObjectContentLength(objectName);
     }
 }

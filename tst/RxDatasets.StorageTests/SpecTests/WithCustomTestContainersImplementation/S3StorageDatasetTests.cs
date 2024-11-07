@@ -46,7 +46,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
 
 
         IObjectStorageProvider<object> s3StorageProvider = new S3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, s3StorageProvider, notificationsHub, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3StorageProvider, notificationsHub, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 

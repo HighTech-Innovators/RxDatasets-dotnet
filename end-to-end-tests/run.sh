@@ -15,7 +15,7 @@ cleanup_and_exit() {
     echo "Displaying logs before shutting down the services:"
     docker compose --project-name $CI_JOB_ID logs
     # Always bring down the Docker Compose setup
-    docker compose --project-name $CI_JOB_ID down -v
+    docker compose --project-name $CI_JOB_ID down -v  --rmi local
     exit $exit_code
 }
 
@@ -35,7 +35,7 @@ echo "Displaying logs before shutting down the services:"
 docker compose --project-name $CI_JOB_ID logs
 
 # Always bring down the Docker Compose setup
-docker compose --project-name $CI_JOB_ID down -v
+docker compose --project-name $CI_JOB_ID down -v  --rmi local
 
 # Display colored text based on the exit code
 if [ $exit_code -eq 0 ]; then

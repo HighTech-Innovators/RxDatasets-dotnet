@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -37,7 +38,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, DtoOptions, _storageProvider, notificationsHub, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _storageProvider, notificationsHub, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
         IOptions<SnapshotCreationConfig> snapshotCreationConfig = Options.Create(new SnapshotCreationConfig {SnapshotInterval = 5});
@@ -164,4 +165,156 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         var (toTestReader, _) = await SetupStorageAsync();
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we corrupted the last snapshot version 11");
     }
+    
+    private async Task<IStorageProvider<object>> SetupProviderAsync(UploadVerificationMode verificationMode, 
+                                                                    Mock<IObjectStorageProvider<object>> lowLevelStorageProvider)
+    {
+        var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
+        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
+
+        StorageConfig.Value.UploadVerificationMode = verificationMode;
+        var persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, lowLevelStorageProvider.Object, notificationsHub, false);
+        await persistentStorageProvider.StartAsync(CancellationToken.None);
+
+        return persistentStorageProvider;
+    }
+
+    [Fact]
+    public async Task Verify_Data_Existence_After_Upload_With_IncorrectData()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length - 1);
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).ReturnsAsync(bytes.Length - 1);
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, bytes);
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().ThrowAsync<ExternalException>();
+        await deltaStoreAction.Should().ThrowAsync<ExternalException>();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Once);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Once);
+    }
+
+    [Fact]
+    public async Task DoNot_Verify_Data_Existence_After_Upload_EvenWithIncorrectData()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.DoNotVerify, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length - 1);
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).ReturnsAsync(bytes.Length - 1);
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, bytes);
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().NotThrowAsync();
+        await deltaStoreAction.Should().NotThrowAsync();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Never);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Never);
+    }
+
+    [Fact]
+    public async Task VerifyData_Existence_AfterUpload_WithNotFoundData()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).Throws(new FileNotFoundException());
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).Throws(new FileNotFoundException());
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, bytes);
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().ThrowAsync<ExternalException>();
+        await deltaStoreAction.Should().ThrowAsync<ExternalException>();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Once);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Once);
+    }
+
+    [Fact]
+    public async Task VerifyDataExistence_Always_AfterUpload()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length);
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).ReturnsAsync(bytes.Length);
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, bytes);
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().NotThrowAsync();
+        await deltaStoreAction.Should().NotThrowAsync();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Once);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Once);
+    }
+
+    [Fact]
+    public async Task VerifyData_Existence_ForStreamsOnly_AfterUploadingCorrectly()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyLargeDataOnly, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length);
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).ReturnsAsync(bytes.Length);
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, new MemoryStream(bytes));
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().NotThrowAsync();
+        await deltaStoreAction.Should().NotThrowAsync();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Once);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Never);
+    }
+
+    [Fact]
+    public async Task Verify_Data_Existence_ForStreams_OnlyAfterUpload_WithCorruptedFiles()
+    {
+        var lowLevelStorageProvider = new Mock<IObjectStorageProvider<object>>();
+        var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyLargeDataOnly, lowLevelStorageProvider);
+
+        var snapshotDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
+        var deltaDataObjectName = ObjectStorageProvider<object>.GetObjectName(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var bytes = new byte[5];
+
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).Throws(new FileNotFoundException());
+        lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(deltaDataObjectName)).ReturnsAsync(bytes.Length);
+
+        Func<Task> snapshotStoreAction = () => persistentStorageProvider.StoreSnapshot(1, bytes, new MemoryStream(bytes));
+        Func<Task> deltaStoreAction = () => persistentStorageProvider.StoreDelta(1, bytes, bytes);
+
+        await snapshotStoreAction.Should().ThrowAsync<ExternalException>();
+        await deltaStoreAction.Should().NotThrowAsync();
+
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(snapshotDataObjectName), Times.Once);
+        lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Never);
+    }
 }
+
