@@ -189,13 +189,18 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
 
     public static string GetTempFilePath()
     {
-        string? TempFolderPath = Environment.GetEnvironmentVariable("TEMP_FILE_DIRECTORY");
+        return Path.Combine(GetTempFileDirectory(), Path.GetRandomFileName());
+    }
+    
+    public static string GetTempFileDirectory()
+    {
+        string? tempFolderPath = Environment.GetEnvironmentVariable("TEMP_FILE_DIRECTORY");
 
-        if (string.IsNullOrWhiteSpace(TempFolderPath))
-            return Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        if (string.IsNullOrWhiteSpace(tempFolderPath))
+            return Path.GetTempPath();
 
-        Directory.CreateDirectory(TempFolderPath);
-        return Path.Combine(TempFolderPath, Path.GetRandomFileName());
+        Directory.CreateDirectory(tempFolderPath);
+        return Path.Combine(tempFolderPath);
     }
 }
 
