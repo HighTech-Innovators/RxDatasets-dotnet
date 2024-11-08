@@ -178,13 +178,11 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
-                _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
                 throw new FileNotFoundException(File404Message, objectKey);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                _logger.LogError("File Does Not Exists, {Key}", objectKey);
                 SetHealthy();
                 throw new FileNotFoundException(File404Message, objectKey);
             }
