@@ -6,7 +6,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 {
     public static class DtoServerBuilderExtensions
     {
-        public static DtoServerBuilder<TEntity> WithLocalStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
+        public static DtoServerBuilder<TEntity> WithLocalDiskStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
         {
             builder.Services.AddValidatedConfigSection<LocalDiskStorageConfig>();
             builder.Services.AddSingleton<IObjectStorageProvider<TEntity>, LocalDiskStorageProvider<TEntity>>();

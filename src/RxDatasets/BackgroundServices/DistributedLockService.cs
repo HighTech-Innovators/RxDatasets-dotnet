@@ -9,56 +9,53 @@ using RxDatasets.StorageProviders;
 
 namespace RxDatasets.BackgroundServices
 {
-    public class DistributedLockService<TEntity> : IHostedService, IDisposable
+    public class DistributedLockService<TEntity>(
+        IObjectStorageProvider<TEntity> storageProvider,
+        IOptions<StorageConfig> storageConfig,
+        ILogger<DistributedLockService<TEntity>> logger,
+        INotificationsHub<TEntity> notificationsHub)
+        : IHostedService, IDisposable
     {
         private readonly TimeSpan _renewalInterval = TimeSpan.FromMinutes(5); // Interval to attempt lock renewal
         private Timer? _renewalTimer;
         private string? _lockToken;
-        private bool _isDisposed = false;
-        private readonly IObjectStorageProvider<TEntity> _storageProvider;
-        private readonly IOptions<StorageConfig> storageConfig;
-        private readonly ILogger<DistributedLockService<TEntity>> _logger;
-        private readonly INotificationsHub<TEntity> notificationsHub;
-        private readonly string _lockName;
+        private bool _isDisposed;
+        private readonly string _lockName = ObjectStorageProvider<TEntity>.GetObjectNamePrefix(storageConfig.Value) + "lock-file";
 
-        public DistributedLockService(IObjectStorageProvider<TEntity> storageProvider, IOptions<StorageConfig> storageConfig
-        , ILogger<DistributedLockService<TEntity>> logger, INotificationsHub<TEntity> notificationsHub
-        )
-        {
-            _storageProvider = storageProvider;
-            this.storageConfig = storageConfig;
-            _logger = logger;
-            this.notificationsHub = notificationsHub;
-            _lockName = ObjectStorageProvider<TEntity>.GetObjectNamePrefix(storageConfig.Value) + "lock-file";
+        public bool HasLock => !string.IsNullOrEmpty(_lockToken);
 
-    }
-
-    public bool HasLock => !string.IsNullOrEmpty(_lockToken);
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Starting DistributedLockService...");
+            logger.LogInformation("Starting DistributedLockService...");
             Task.Run(async () =>
             {
                 await AttemptAcquireLockAsync();
+                var lastLogTime = DateTimeOffset.MinValue;
 
                 while (!HasLock && !cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning("Lock is currently held by another process. checking again in 5 seconds");
-                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    // Check if it's time to log (only every 5 minutes)
+                    if ((DateTimeOffset.UtcNow - lastLogTime).TotalMinutes >= 5)
+                    {
+                        logger.LogWarning("Lock is currently held by another process. Checking again in 5 seconds");
+                        lastLogTime = DateTimeOffset.UtcNow;
+                    }
+            
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                     await AttemptAcquireLockAsync();
                 }
-            });
+            }, cancellationToken);
 
             return Task.CompletedTask;
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Stopping DistributedLockService...");
+            logger.LogInformation("Stopping DistributedLockService...");
 
             _renewalTimer?.Change(Timeout.Infinite, 0);
-            _logger.LogInformation("Application is stopping. Releasing lock...");
+            logger.LogInformation("Application is stopping. Releasing lock...");
 
             try
             {
@@ -67,7 +64,7 @@ namespace RxDatasets.BackgroundServices
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error releasing lock during application stopping.");
+                logger.LogError(ex, "Error releasing lock during application stopping.");
             }
         }
 
@@ -87,18 +84,18 @@ namespace RxDatasets.BackgroundServices
                 return; // Already have the lock
             }
 
-            _logger.LogInformation("Attempting to acquire lock...");
+            logger.LogInformation("Attempting to acquire lock...");
             _lockToken = await AcquireLockAsync();
 
             if (HasLock)
             {
-                _logger.LogInformation("Lock acquired.");
+                logger.LogInformation("Lock acquired.");
                 TimeSpan renewAfterTime = _renewalInterval - TimeSpan.FromSeconds(30);
                 _renewalTimer = new Timer(async _ => await RenewLockAsync(), null, renewAfterTime, renewAfterTime);
             }
             else
             {
-                _logger.LogWarning("Failed to acquire lock.");
+                logger.LogWarning("Failed to acquire lock.");
             }
         }
 
@@ -129,7 +126,7 @@ namespace RxDatasets.BackgroundServices
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error acquiring lock.");
+                logger.LogError(ex, "Error acquiring lock.");
                 return null;
             }
         }
@@ -138,7 +135,7 @@ namespace RxDatasets.BackgroundServices
         {
             if (!HasLock)
             {
-                _logger.LogWarning("No lock to renew.");
+                logger.LogWarning("No lock to renew.");
                 return;
             }
 
@@ -152,12 +149,12 @@ namespace RxDatasets.BackgroundServices
                 {
                     DateTimeOffset expiryTime = DateTimeOffset.UtcNow.Add(_renewalInterval);
                     await WriteLockFile(lockKey, _lockToken!, expiryTime);
-                    _logger.LogInformation("Lock renewed.");
+                    logger.LogInformation("Lock renewed.");
                 }
                 else
                 {
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
-                    _logger.LogWarning("Cannot renew lock not owned by this instance.");
+                    logger.LogWarning("Cannot renew lock not owned by this instance.");
                     _renewalTimer?.Change(Timeout.Infinite, 0);
                     _renewalTimer?.Dispose();
                     _renewalTimer = null;
@@ -166,7 +163,7 @@ namespace RxDatasets.BackgroundServices
             catch (Exception ex)
             {
                 await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
-                _logger.LogError(ex, "Error renewing lock.");
+                logger.LogError(ex, "Error renewing lock.");
                 _renewalTimer?.Change(Timeout.Infinite, 0);
                 _renewalTimer?.Dispose();
                 _renewalTimer = null;
@@ -177,7 +174,7 @@ namespace RxDatasets.BackgroundServices
         {
             if (string.IsNullOrEmpty(_lockToken))
             {
-                _logger.LogWarning("No lock token available to release the lock.");
+                logger.LogWarning("No lock token available to release the lock.");
                 return;
             }
 
@@ -189,18 +186,18 @@ namespace RxDatasets.BackgroundServices
 
                 if (existingLock != null && existingLock.Value.Token == _lockToken)
                 {
-                    await _storageProvider.DeleteFile(lockKey);
-                    _logger.LogInformation("Lock released.");
+                    await storageProvider.DeleteFile(lockKey);
+                    logger.LogInformation("Lock released.");
                     _lockToken = null;
                 }
                 else
                 {
-                    _logger.LogWarning("Cannot release lock not owned by this instance.");
+                    logger.LogWarning("Cannot release lock not owned by this instance.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error releasing lock.");
+                logger.LogError(ex, "Error releasing lock.");
             }
         }
 
@@ -208,14 +205,14 @@ namespace RxDatasets.BackgroundServices
         {
             string lockContent = $"{lockToken}\n{expiryTime:o}";
             byte[] lockBytes = System.Text.Encoding.UTF8.GetBytes(lockContent);
-            await _storageProvider.UploadBytes(lockKey, lockBytes);
+            await storageProvider.UploadBytes(lockKey, lockBytes);
         }
 
         private async Task<(string Token, DateTimeOffset Expiry)?> TryReadLockFile(string lockKey)
         {
             try
             {
-                var lockBytes = await _storageProvider.DownloadBytes(lockKey);
+                var lockBytes = await storageProvider.DownloadBytes(lockKey);
                 string lockContent = System.Text.Encoding.UTF8.GetString(lockBytes.Span);
                 var lines = lockContent.Split('\n');
                 if (lines.Length >= 2 && DateTimeOffset.TryParse(lines[1], out var expiryTime))
@@ -229,7 +226,7 @@ namespace RxDatasets.BackgroundServices
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reading lock file.");
+                logger.LogError(ex, "Error reading lock file.");
             }
 
             return null; // Invalid lock file
