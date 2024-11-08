@@ -249,15 +249,24 @@ namespace RxDatasets.StorageTests
             {
                 while (true)
                 {
-                    var snapshots = await storageProvider.ListObjects(ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/");
+                    List<(string ObjectKey, DateTimeOffset DateTime)> snapshots =
+                        await storageProvider.ListObjects(
+                            ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/");
 
                     if (snapshots.Any())
-                        return snapshots.Count;
+                    {
+                        var snapshotVersions = snapshots
+                            .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey)).Select(g => g.First());
+                        return snapshotVersions.Count();
+                    }
+                
+
 
                     // Prevent an absolute racing thread
                     await Task.Delay(10);
                 }
             });
+            
             var snapshotCount = await fetchSnapshots.WaitAsync(TimeSpan.FromSeconds(15));
             snapshotCount.Should().BeInRange(1, 3, "Ideally we get 1, 6, 11; but also valid is just 14 on the other end of the spectrum. More than 3 is never good as the interval should be 5 at least");
 

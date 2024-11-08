@@ -7,20 +7,37 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets.BackgroundServices;
 
-public class DatasetUpdateConsumingService<TDto, TConsumer>(
-    ILogger<DatasetUpdateConsumingService<TDto, TConsumer>> logger,
-    INotificationsHub<TDto> notificationsHub,
-
-    TConsumer datasetUpdateConsumer) : BackgroundService
+public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
     where TConsumer : IDatasetUpdateConsumer<TDto>
 {
     private volatile TaskCompletionSource _thereIsANotificationToProcess = new();
     private volatile int _iteration;
+    private readonly ILogger<DatasetUpdateConsumingService<TDto, TConsumer>> _logger;
+    private readonly INotificationsHub<TDto> _notificationsHub;
+    private readonly TConsumer _datasetUpdateConsumer;
+    private bool _storageProviderIsReady;
+
+    public DatasetUpdateConsumingService(ILogger<DatasetUpdateConsumingService<TDto, TConsumer>> logger,
+        INotificationsHub<TDto> notificationsHub,
+
+        TConsumer datasetUpdateConsumer)
+    {
+        _logger = logger;
+        _notificationsHub = notificationsHub;
+        _datasetUpdateConsumer = datasetUpdateConsumer;
+        _notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(OnStorageProviderReadinessNotification);
+    }
+
+    private Task OnStorageProviderReadinessNotification(StorageProviderReadinessNotifcation notification)
+    {
+        _storageProviderIsReady = notification.ServiceStatus == ServiceStatus.Ready;
+        return Task.CompletedTask;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation($"DatasetUpdateConsumingService<{datasetUpdateConsumer.ConsumerIdentifier}> Started");
-        using var subscription = notificationsHub
+        _logger.LogInformation($"DatasetUpdateConsumingService<{_datasetUpdateConsumer.ConsumerIdentifier}> Started");
+        using var subscription = _notificationsHub
             .Subscribe<DatasetUpdatedNotification>((_)=>  OnDatasetUpdated());
 
         try
@@ -29,7 +46,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer>(
         }
         finally
         {
-            logger.LogInformation($"DatasetUpdateConsumingService<{datasetUpdateConsumer.ConsumerIdentifier}> Stopped");
+            _logger.LogInformation($"DatasetUpdateConsumingService<{_datasetUpdateConsumer.ConsumerIdentifier}> Stopped");
         }
     }
 
@@ -37,17 +54,23 @@ public class DatasetUpdateConsumingService<TDto, TConsumer>(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            if (!_storageProviderIsReady)
+            {
+                await Task.Delay(10, stoppingToken);
+                continue;
+            }
+            
             try
             {
                 // Process each consumer
-                await datasetUpdateConsumer.HandleNewDeltas(stoppingToken);
+                await _datasetUpdateConsumer.HandleNewDeltas(stoppingToken);
                 Interlocked.Increment(ref _iteration);
                 await _thereIsANotificationToProcess.Task.WaitAsync(stoppingToken);
                 _thereIsANotificationToProcess = new TaskCompletionSource();
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                logger.LogWarning(e, "Exception during consuming notification");
+                _logger.LogWarning(e, "Exception during consuming notification");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
