@@ -662,17 +662,36 @@ public class ObjectStorageProvider<T>(
 
     private async Task EnsureProviderIsInitialized()
     {
-        if (_initTask is null || !_initTask.IsCompleted)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(1));
-            logger.LogError("Received a request before dataset it was initialized");
-            throw new InvalidOperationException("Initialization is not yet completed");
-        }
-
-        if (_initTask.IsFaulted)
+        if (_initTask is { IsFaulted: true })
         {
             logger.LogError(_initTask.Exception, "Received a request, but the dataset initialization failed");
             throw new InvalidOperationException("Initialization failed", _initTask.Exception);
+        }
+
+        if (_initTask is { IsCompleted: true })
+            return;
+
+        if (_initTask is null)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            if (_initTask is null)
+            {
+                logger.LogError("Received a request before dataset started initializing");
+                throw new InvalidOperationException("Initialization is not yet completed");
+            }
+        }
+
+        if (!_initTask.IsCompleted)
+        {
+            try
+            {
+                await _initTask.WaitAsync(TimeSpan.FromSeconds(1));
+            }
+            catch (TimeoutException)
+            {
+                logger.LogError("Received a request before dataset is initialized");
+                throw new InvalidOperationException("Initialization is not yet completed");
+            }
         }
     }
 
