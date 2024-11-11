@@ -20,6 +20,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     private readonly DatasetHelper _datasetHelper;
     private readonly IScheduler _scheduler;
     private readonly TimeSpan _currentValuePeriodIntervalAsTimespan;
+    private readonly SemaphoreSlim _semaphore = new(1);
 
     public SnapshotCreationPlugin(
         ILogger<SnapshotCreationPlugin<T>> logger,
@@ -37,6 +38,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
     private async Task CreateSnapshotIfNecessary(CancellationToken stoppingToken)
     {
+        using var slot = await Lock(stoppingToken);
         var (_, newestDelta, snapshots) = await _storageProvider.ListVersions();
         var conditionsAreMet = AreSnapshotCreationConditionsMet(newestDelta, snapshots);
         if (!conditionsAreMet)
@@ -304,5 +306,11 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     public async Task HandleNewDeltas(CancellationToken stoppingToken)
     {
         await CreateSnapshotIfNecessary(stoppingToken);
+    }
+    
+    private async Task<IDisposable> Lock(CancellationToken cancellationToken)
+    {
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+        return new ActionDisposable(() => _semaphore.Release());
     }
 }
