@@ -74,7 +74,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
                 return await File.ReadAllBytesAsync(filePath);
             }
-            catch (Exception ex)
+            catch (Exception ex) when ( ex is not FileNotFoundException)            
             {
                 _logger.LogError(ex, $"Error downloading file: {key}");
                 throw;
@@ -105,7 +105,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
                 return buffer;
             }
-            catch (Exception ex)
+            catch (Exception ex) when ( ex is not FileNotFoundException)            
             {
                 _logger.LogError(ex, $"Error downloading file with offset and length: {key}");
                 throw;
@@ -126,8 +126,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 await using var fileStream = File.OpenRead(filePath);
                 callback(fileStream);
             }
-            catch (Exception ex)
-            {
+            catch (Exception ex) when ( ex is not FileNotFoundException)            {
                 _logger.LogError(ex, $"Error downloading file with callback: {key}");
                 throw;
             }
@@ -135,46 +134,87 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
         public async Task UploadBytes(string key, byte[] data)
         {
+            var filePath = GetFullPath(key);
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath), $".tmp_{Path.GetFileName(filePath)}");
+
             try
             {
-                var filePath = GetFullPath(key);
-                await File.WriteAllBytesAsync(filePath, data);
+                // Write to the temporary file with a `.tmp_` prefix
+                await File.WriteAllBytesAsync(tempFilePath, data);
+
+                // Atomically replace the original file if it exists, or move if it doesn’t
+                if (File.Exists(filePath))
+                {
+                    File.Replace(tempFilePath, filePath, null);
+                }
+                else
+                {
+                    File.Move(tempFilePath, filePath);
+                }
+
+                _logger.LogDebug($"Successfully uploaded bytes to file: {key}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error uploading bytes to file: {key}");
                 throw;
             }
+            finally
+            {
+                // Ensure temporary file is deleted if it still exists
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+            }
         }
 
         public async Task UploadFileStream(string key, Stream stream)
         {
+            var filePath = GetFullPath(key);
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath), $".tmp_{Path.GetFileName(filePath)}");
+
             try
             {
-                var filePath = GetFullPath(key);
-
-                // Log the stream length if it's seekable, helps debug issues with empty streams.
                 if (stream.CanSeek)
                 {
                     _logger.LogInformation($"Uploading file {key} with length: {stream.Length} bytes.");
                 }
 
-                await using var fileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+                // Write to a temporary file with a `.tmp_` prefix
+                await using (var tempFileStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await stream.CopyToAsync(tempFileStream);
+                    await tempFileStream.FlushAsync(); // Ensure all data is flushed
+                }
 
-                // Copy the stream asynchronously to ensure all data is flushed properly.
-                await stream.CopyToAsync(fileStream);
+                // Atomically replace the original file if it exists, or move if it doesn’t
+                if (File.Exists(filePath))
+                {
+                    File.Replace(tempFilePath, filePath, null);
+                }
+                else
+                {
+                    File.Move(tempFilePath, filePath);
+                }
 
-                // Ensure the stream is flushed to disk.
-                await fileStream.FlushAsync();
-
-                _logger.LogInformation($"Successfully uploaded file {key} to disk.");
+                _logger.LogDebug($"Successfully uploaded file {key} to disk.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error uploading stream to file: {key}");
                 throw;
             }
+            finally
+            {
+                // Ensure temporary file is deleted if it still exists
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+            }
         }
+
 
 
         public async Task DeleteFile(string key)
