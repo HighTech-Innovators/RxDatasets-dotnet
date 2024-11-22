@@ -16,7 +16,7 @@ using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.StorageTests.SpecTests.UsingInMemoryTests;
 
-public class UsingLowLevelInMemoryStorage : StorageTestSpec
+public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepInit
 {
     private readonly LowLevelInMemoryStorageProvider<object> _storageProvider;
 
@@ -25,12 +25,11 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         var storageLogger = new Mock<ILogger<LowLevelInMemoryStorageProvider<object>>>();
 
         _storageProvider = new LowLevelInMemoryStorageProvider<object>(storageLogger.Object);
-
     }
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+        [CallerMemberName] string memberName = "")
     {
-        var BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         
@@ -56,13 +55,13 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With__SnapShot()
     {
         // Arrange
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         
         // Act
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
         
         // Assert
-        var (newReader, _) = await SetupStorageAsync();
+        var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
         newReader.Dispose();
     }
@@ -71,7 +70,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With_SnapShot_That_Only_Contains_Deleted_Entities()
     {
         // Arrange
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Act
         await SnapshotCreationPluginTests.CreateNumberDeltas(10, datasetWriter);
@@ -82,7 +81,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         var actualSnapshotLength = await _storageProvider.GetObjectContentLength(snapshotObjectName);
         actualSnapshotLength.Should().Be(1);
 
-        var (newReader, _) = await SetupStorageAsync();
+        var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
         newReader.Dispose();
     }
@@ -91,7 +90,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With_SnapShot_That_Only_Contains_Deleted_Entities_Even_If_The_Snapshot_Data_Is_Absent()
     {
         // Arrange
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Act
         await SnapshotCreationPluginTests.CreateNumberDeltas(10, datasetWriter);
@@ -99,7 +98,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         await _storageProvider.DeleteFile(ObjectStorageProvider<object>.GetObjectName(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
 
         // Assert
-        var (newReader, _) = await SetupStorageAsync();
+        var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
         newReader.Dispose();
     }
@@ -108,7 +107,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With_Older_SnapShot_When_Last_SnapShot_Index_Does_Not_Exist()
     {
         // Arrange
-        var (datasetReader, datasetWriter) = await SetupStorageAsync();
+        var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
@@ -118,7 +117,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         await _storageProvider.DeleteFile(ObjectStorageProvider<object>.GetObjectName(11, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
 
         // Assert
-        var (toTestReader, _) = await SetupStorageAsync();
+        var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we removed the last snapshot version 11 data");
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
@@ -130,7 +129,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With_Older_SnapShot_When_Last_SnapShot_Data_Does_Not_Exist()
     {
         // Arrange
-        var (datasetReader, datasetWriter) = await SetupStorageAsync();
+        var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
@@ -140,7 +139,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         await _storageProvider.DeleteFile(ObjectStorageProvider<object>.GetObjectName(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
         
         // Assert
-        var (toTestReader, _) = await SetupStorageAsync();
+        var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we removed the last snapshot version 11 data");
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
@@ -152,7 +151,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
     public async Task Should_Initialize_Index_With_Older_SnapShot_When_Last_SnapShot_Does_Exist_But_Is_Corrupted()
     {
         // Arrange
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
         
         // Act
@@ -162,7 +161,7 @@ public class UsingLowLevelInMemoryStorage : StorageTestSpec
         await _storageProvider.UploadBytes(snapshotObjectName, wrongBytes);
         
         // Assert
-        var (toTestReader, _) = await SetupStorageAsync();
+        var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we corrupted the last snapshot version 11");
     }
     

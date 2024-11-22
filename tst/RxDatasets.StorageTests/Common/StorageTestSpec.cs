@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
@@ -9,14 +10,15 @@ namespace RxDatasets.StorageTests.Common;
 public abstract class StorageTestSpec
 {
     protected IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig());
-    protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig());
+    protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig(){SnapshotInterval = 10});
     protected const ulong UNIT_KB = 1024;
-    protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "");
+    protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+        [CallerMemberName] string memberName = "");
     
     [Fact]
     public async Task Should_Put_New_DTO()
     {
-        var (reader, writer) = await SetupStorageAsync();
+        var (reader, writer) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData();
         var initialVersion = reader.GetLatestVersion();
         var result = await writer.Put("Should_Put_New_DTO", randomBytes);
@@ -39,7 +41,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Update_Changed_DTO()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB, 0);
         var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
@@ -61,7 +63,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Update_Unchanged_DTO()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
@@ -82,7 +84,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Put_All_New_DTOs_FluentAssertions()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
         var changes = new List<(string name, byte[])>();
@@ -108,7 +110,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Put_All_Children_New_DTOs_FluentAssertions()
     {
-        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
         var changes = new List<(string name, byte[])>();
@@ -158,7 +160,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Put_Many_New_DTOs_FluentAssertions()
     {
-        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
         var changes = new List<(string name, byte[])>();
@@ -210,7 +212,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Delete_DTO()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
         var key = "Should_Delete_DTO";
 
@@ -229,7 +231,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Delete_Deleted_DTO()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
         var key = "Should_Not_Delete_Deleted_DTO";
 
@@ -256,7 +258,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Delete_Non_Existent_DTO()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var key = "Should_Not_Delete_Non_Existent_DTO";
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
@@ -272,7 +274,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Read_After_Snapshot_Create()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var datasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
         var snapshotInterval = SnapshotsOptions.Value.SnapshotInterval;
 
@@ -298,83 +300,12 @@ public abstract class StorageTestSpec
             bytes.Value.entityBytes.ToArray().Should().BeEquivalentTo(GenerateRandomData(UNIT_KB, i));
         }
     }
-
-
-    [Fact]
-    public async Task Should_Initialize_Index_With_SnapShot()
-    {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var datasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
-        var snapshotInterval = SnapshotsOptions.Value.SnapshotInterval;
-
-        var data = GenerateRandomData(UNIT_KB);
-        await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
-        datasetVersion++;
-
-        //Add new entries until the next snapshot creation
-        while (datasetVersion % snapshotInterval > 0)
-        {
-            await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
-            datasetVersion++;
-        }
-
-        //Create a new Dataset instance, they should return identical results
-        var (newReader, newWriter) = await SetupStorageAsync();
-        var datasetVersionOldDataset = azBlobStorageDatasetReader.GetLatestVersion();
-        var datasetVersionNewDataset = newReader.GetLatestVersion();
-
-        datasetVersionOldDataset.Should().Be(datasetVersionNewDataset);
-
-        for (ulong i = 0; i < datasetVersion; i++)
-        {
-            var bytesOldDataset = await azBlobStorageDatasetReader.Get($"Should_Initialize_Index_With_SnapShot_{i}");
-            var bytesNewDataset = await newReader.Get($"Should_Initialize_Index_With_SnapShot_{i}");
-
-            bytesOldDataset.Should().NotBeNull();
-            bytesNewDataset.Should().NotBeNull();
-
-            bytesOldDataset.Value.name.Should().BeEquivalentTo(bytesNewDataset.Value.name);
-            bytesNewDataset.Value.entityBytes.ToArray().Should().BeEquivalentTo(bytesOldDataset.Value.entityBytes.ToArray());
-        }
-    }
     
-    [Fact]
-    public async Task Should_Initialize_Index_Delta()
-    {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
-        var datasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
-        var snapshotInterval = SnapshotsOptions.Value.SnapshotInterval;
-
-        var data = GenerateRandomData(UNIT_KB);
-
-        //Add new entries until the next snapshot creation
-        while (datasetVersion % snapshotInterval > 0)
-        {
-            datasetVersion++;
-            await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
-        }
-
-        //Now do 1 more, so we for sure have 1 put taking place after the snapshot
-        datasetVersion++;
-        await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
-
-        //Create a new Dataset instance, they should return identical results
-        var (newReader, newWriter) = await SetupStorageAsync();
-        var datasetVersionNewDataset = newReader.GetLatestVersion();
-
-        datasetVersionNewDataset.Should().Be(datasetVersion);
-
-        var bytesOldDataset = await azBlobStorageDatasetReader.Get($"Should_Initialize_Index_With_SnapShot_{datasetVersion}");
-        var bytesNewDataset = await newReader.Get($"Should_Initialize_Index_With_SnapShot_{datasetVersion}");
-
-        bytesNewDataset.Should().NotBeNull();
-        bytesNewDataset.Value.entityBytes.ToArray().Should().BeEquivalentTo(bytesOldDataset.Value.entityBytes.ToArray());
-    }
-
+ 
     [Fact]
     public async Task Should_Get_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var key = "Should_Get_Entity";
         var randomBytes = GenerateRandomData(UNIT_KB);
 
@@ -390,7 +321,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Get_Deleted_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var key = "Should_Not_Get_Deleted_Entity";
         var randomBytes = GenerateRandomData(UNIT_KB);
 
@@ -405,7 +336,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Get_Undeleted_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var key = "Should_Get_Undeleted_Entity";
         var randomBytes = GenerateRandomData(UNIT_KB);
         var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
@@ -425,7 +356,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Get_Non_Existing_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var key = "Should_Not_Get_Non_Existing_Entity";
 
         var entity = await azBlobStorageDatasetReader.Get(key);
@@ -437,7 +368,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Batch_Get()
     {
-        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         List<(string key, byte[] bytes)> entities = [];
 
         string parent = "testparent";
@@ -465,7 +396,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Batch_Get_Deleted_Entity()
     {
-        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         List<(string key, byte[] bytes)> entities = [];
 
         for (int i = 0; i < 10; i++)
@@ -508,7 +439,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Batch_Get_Non_Existent_Entity()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         List<(string key, byte[] bytes)> entities = [];
 
         for (int i = 0; i < 10; i++)
@@ -546,7 +477,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_List_With_Parent_FluentAssertions()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Put entities with the same parent
         var bytes1 = GenerateRandomData(UNIT_KB, 1);
@@ -574,7 +505,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_List_Without_Parent()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         await azBlobStorageDatasetWriter.Put("Parent1/Should_Not_List_Without_Parent_1", GenerateRandomData(UNIT_KB));
         await azBlobStorageDatasetWriter.Put("Parent2/Should_Not_List_Without_Parent_2", GenerateRandomData(UNIT_KB));
@@ -589,7 +520,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_List_Deleted_Entities()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         string parent = "Parent";
         string key = $"{parent}/Should_Not_List_Deleted_Entities";
@@ -606,7 +537,7 @@ public abstract class StorageTestSpec
     public async Task Should_Get_Changed_Names_Updates()
     {
         //Should list updates after insert, then update.
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var initialVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
         var key1 = "Should_Get_Changed_Names_Updates_1";
@@ -646,7 +577,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Get_Changed_Names_Inserts()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var initialVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
         var key1 = "Should_Get_Changed_Names_Updates_1";
@@ -680,7 +611,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Update_Latest_Version_Number_On_Put()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var initialVersion = azBlobStorageDatasetReader.GetLatestVersion();
         await azBlobStorageDatasetWriter.Put("Should_Update_Latest_Version_Number_On_Put", GenerateRandomData(UNIT_KB));
@@ -693,7 +624,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Update_Latest_Version_Number_On_Ignored_Put()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var bytes = GenerateRandomData(UNIT_KB);
 
         await azBlobStorageDatasetWriter.Put("Should_Not_Update_Latest_Version_Number_On_Ignored_Put", bytes);
@@ -708,7 +639,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Update_Latest_Version_Number_On_Put_All()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var initialVersion = azBlobStorageDatasetReader.GetLatestVersion();
         var changes = new List<(string, byte[])>
@@ -726,7 +657,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Update_Latest_Version_Number_On_Ignored_Put_All()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var changes = new List<(string, byte[])>
         {
@@ -746,7 +677,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Not_Update_Latest_Version_Number_On_Read()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         List<(string key, byte[] bytes)> entities = [];
         for (int i = 0; i < 10; i++)
         {
@@ -776,7 +707,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_One_New_Entity_After_Put()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         var bytes = GenerateRandomData(UNIT_KB);
@@ -798,7 +729,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_One_New_Entity_After_Put_And_After_Waiting()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         CancellationToken cancellationToken = new();
 
         // Given
@@ -832,7 +763,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_No_New_Entity_After_Canceling()
     {
-        var (datasetReader, _) = await SetupStorageAsync();
+        var (datasetReader, _) = await SetupStorageAsync(CancellationToken.None);
         CancellationTokenSource cancellationTokenSource = new();
 
         // Given
@@ -854,7 +785,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Empty_Changelist_On_Delete_After_Insert()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToEmptyResultOverBothChanges";
@@ -871,7 +802,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_New_In_Changelist_On_Update_After_Insert()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToEmptyResultOverBothChanges";
@@ -889,7 +820,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_Changed_In_Changelist_On_Update_After_Insert_From_Insert()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "AddingOneThenChangingOneShouldLeadToListWithChangeOverTheLastDeltaOnly";
@@ -907,7 +838,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_Deleted_In_Changelist_On_Delete_After_Update()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "AddingOneThenDeletingOneShouldLeadToListWithDeleteOverTheLastDeltaOnly";
@@ -925,7 +856,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Nothing_In_Changelist_On_FID()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Nothing_In_Changelist_On_FID";
@@ -951,7 +882,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_IFDID()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_IFDID";
@@ -984,7 +915,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_IFDI()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_IFDI";
@@ -1014,7 +945,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_FIDI()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_FIDI";
@@ -1044,7 +975,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_IFC()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_IFC";
@@ -1071,7 +1002,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_FIC()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_FIC";
@@ -1098,7 +1029,7 @@ public abstract class StorageTestSpec
     [Fact]
     public async Task Should_Return_Single_In_Changelist_On_IFDIC()
     {
-        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Given
         string name = "Should_Return_Single_In_Changelist_On_IFDIC";

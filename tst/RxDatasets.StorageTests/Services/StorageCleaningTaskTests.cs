@@ -1,4 +1,5 @@
 ﻿using System.Reactive.Concurrency;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,27 +9,28 @@ using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
+using RxDatasets.StorageProvider.LocalDisk;
 using RxDatasets.StorageProviders;
+using Xunit.Sdk;
 
 namespace RxDatasets.StorageTests.Services;
 
 public class StorageCleanTaskTests 
 {
-    private readonly IOptions<StorageConfig> _dtoConfigOptions = Options.Create(new StorageConfig());
     private readonly IOptions<SnapshotCreationConfig> _snapshotsOptions = Options.Create(new SnapshotCreationConfig
     {
         SnapshotInterval = 5,
     });
 
-    private IOptions<CleanupConfig> _storageCleanupConfig = Options.Create(new CleanupConfig()); 
-    private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
+    private IOptions<CleanupConfig> _storageCleanupConfig = Options.Create(new CleanupConfig(){KeepAllDeltas = false}); 
 
 
     private const ulong UNIT_KB = 1024;
 
     private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
-        IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _notificationsHub);
+        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
+        IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, notificationsHub);
         
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
@@ -36,17 +38,121 @@ public class StorageCleanTaskTests
         var snapshotCreationPlugInLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
-        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, inMemoryStorage, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
+        var datasetReader = new DatasetReader<object>(notificationsHub, readerLogger.Object, inMemoryStorage, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
         
-        var storageCleaningTask = new StorageCleaningService<object>(_notificationsHub, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
+        var storageCleaningTask = new StorageCleaningService<object>(notificationsHub, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
         await storageCleaningTask.StartAsync(CancellationToken.None);
 
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationPlugInLogger.Object, inMemoryStorage, _snapshotsOptions, ts);
-        var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
+        var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
 
         return (inMemoryStorage, datasetReader, datasetWriter);
+    }
+    
+    
+    private async Task<(IObjectStorageProvider<object>, IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>, IOptions<LocalDiskStorageConfig>)> SetupLocalDiskDataset(TestScheduler ts, [CallerMemberName] string memberName = "")
+    {
+        var config = Options.Create(new LocalDiskStorageConfig());
+        config.Value.RootFolder = Path.Combine(DatasetHelper.GetTempFileDirectory(), $"UnitTestsData_CleaningService/{memberName}");
+
+        if (Directory.Exists(config.Value.RootFolder))
+        {
+            Directory.Delete(config.Value.RootFolder, recursive: true);
+        }
+
+        IObjectStorageProvider<object> localDiskStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, config);
+        INotificationsHub<object> notificationsHub = new NotificationsHub<object>();
+        var storageConfig = Options.Create(new StorageConfig());
+
+        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, localDiskStorageProvider, notificationsHub, false);
+        await ((ObjectStorageProvider<object>)storageProvider).StartAsync(CancellationToken.None);
+        var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
+        var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
+        
+        var datasetReader = new DatasetReader<object>(notificationsHub, readerLogger.Object, storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, storageProvider, Options.Create(new WriterConfig { }), false);
+        
+        var storageCleanerLogger = new Mock<ILogger<StorageCleaningService<object>>>();
+        var storageCleaningTask = new StorageCleaningService<object>(notificationsHub, storageProvider, ts, _storageCleanupConfig, storageCleanerLogger.Object);
+        await storageCleaningTask.StartAsync(CancellationToken.None);
+        
+        var snapshotCreationPlugInLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationPlugInLogger.Object, storageProvider, _snapshotsOptions, ts);
+        var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        await snapshotCreationTask.StartAsync(CancellationToken.None);
+
+        return (localDiskStorageProvider, storageProvider, datasetReader, datasetWriter, config);
+    }
+    
+    [Fact]
+    public async Task Should_Delete_Old_Snapshots_OnLocalStorage()
+    {
+        var cleanupConfigMock = new Mock<CleanupConfig>();
+        cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(0));
+        cleanupConfigMock.Object.KeepAllDeltas=false;
+
+        _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
+        var scheduler = new TestScheduler();
+        var (localStorage, storageProvider, _, datasetWriter, config) = await SetupLocalDiskDataset(scheduler);
+        
+        scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
+
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
+        var randomBytes = GenerateRandomData(UNIT_KB, 1);
+        await datasetWriter?.Put("Same_DTO", randomBytes)!; //creates 1st snapshot
+        
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 1);
+
+        await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
+
+        var snapshots = await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 2);
+        
+        ulong firstSnapshot = snapshots[0].version;
+        ulong secondSnapshot = snapshots[1].version;
+
+        await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
+        await storageProvider.StoreProcessedVersion("unittest", 10);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        //act
+        await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
+        await storageProvider.StoreProcessedVersion("unittest", 15);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+
+        //assert
+        (var oldestDelta, _, snapshots) = await storageProvider.ListVersions();
+        const int expectedRemainingSnapshots = 2;
+        var listObjects = (await localStorage.ListObjects("Object/snapshots/")).GroupBy(s=>SharedMethods.ExtractNumber(s.ObjectKey)).Select(g=>g.Key);
+
+        snapshots.Count.Should().Be(expectedRemainingSnapshots);
+        listObjects.Count().Should().Be(expectedRemainingSnapshots);
+        snapshots[0].version.Should().NotBe(firstSnapshot);
+        snapshots[1].version.Should().NotBe(secondSnapshot);
+        oldestDelta.Should().Be(snapshots[0].version+1, $"Because if earliest snapshot is 11, then the first delta after it is 12");
+        
+        if (Directory.Exists(config.Value.RootFolder))
+        {
+            Directory.Delete(config.Value.RootFolder, recursive: true);
+        }
+    }
+
+    private static async Task<List<(ulong version, DateTimeOffset DateTime)>> WaitForANumberOfSnapshotsToBeCreated(IStorageProvider<object> storageProvider, int howManyShouldBeThere)
+    {
+        int counter = 0;
+        while(true){
+            var (_, _, snapshots) = await storageProvider.ListVersions();
+            if (snapshots.Count >= howManyShouldBeThere) return snapshots;
+            await Task.Delay(TimeSpan.FromSeconds(0.8));
+            counter++;
+            if (counter == 50)
+            {
+                Assert.Fail($"Could not get the needed number of snapshots {howManyShouldBeThere} but we got {snapshots.Count}");
+            }
+        }
     }
 
     private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
@@ -63,6 +169,7 @@ public class StorageCleanTaskTests
     {
         var cleanupConfigMock = new Mock<CleanupConfig>();
         cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(0));
+        cleanupConfigMock.Object.KeepAllDeltas=false;
         _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
         var scheduler = new TestScheduler();
         var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
@@ -105,7 +212,14 @@ public class StorageCleanTaskTests
     [Fact]
     public async Task Should_Delete_Old_Snapshots_After_Some_Time()
     {
-        var cleanupConfigMock = new Mock<CleanupConfig>();
+        var cleanupConfigMock = new Mock<CleanupConfig>
+        {
+            Object =
+            {
+                KeepAllDeltas = false
+            }
+        };
+
         const int minimumTimeToLiveInMinutes = 5;
         var scheduler = new TestScheduler();
         cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(minimumTimeToLiveInMinutes));
@@ -234,22 +348,26 @@ public class StorageCleanTaskTests
         oldestDelta.Should().Be(1);
         newestDelta.Should().Be(30);
     }
-
-    private async Task Create6Deltas(DatasetWriter<object>? s3DatasetWriter)
+    private static async Task Create6Deltas(DatasetWriter<object>? datasetWriter)
     {
-        for (var i = 0; i < 6; i++)
+        await CreateNumberOf1Deltas(datasetWriter, 6);
+    }
+    
+    private static async Task CreateNumberOf1Deltas(DatasetWriter<object>? datasetWriter, int numberOfDeltasNeeded)
+    {
+        for (var i = 0; i < numberOfDeltasNeeded; i++)
         {
             if (i % 2 == 0)
             {
                 var randomBytes = GenerateRandomData(UNIT_KB, i);
 
-                await s3DatasetWriter?.Put("Same_DTO", randomBytes)!;
+                await datasetWriter?.Put("Same_DTO", randomBytes)!;
             }
             else
             {
 
                 var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
-                await s3DatasetWriter?.Put("Same_DTO", randomBytes2)!;
+                await datasetWriter?.Put("Same_DTO", randomBytes2)!;
             }
         }
     }

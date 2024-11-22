@@ -97,6 +97,25 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
             await Task.CompletedTask;
         }
 
+        public async Task DeleteFolder(string prefix)
+        {
+            var keysToDelete = _storage.Keys.Where(key => key.StartsWith(prefix)).ToList();
+
+            foreach (var key in keysToDelete)
+            {
+                _storage.TryRemove(key, out _);
+                _logger.LogInformation($"Deleted file {key} from in-memory storage.");
+            }
+
+            if (keysToDelete.Count == 0)
+            {
+                _logger.LogWarning($"No files found with prefix {prefix} to delete.");
+            }
+
+            await Task.CompletedTask;
+        }
+
+
         public async Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix)
         {
             var results = _storage

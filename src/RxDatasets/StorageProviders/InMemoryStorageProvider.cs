@@ -35,10 +35,14 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
 
     public Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
-        foreach (var key in _deltas.Keys.Where(k => k <= version))
+        if (!keepAllDeltas)
         {
-            _deltas.Remove(key, out _);
+            foreach (var key in _deltas.Keys.Where(k => k <= version))
+            {
+                _deltas.Remove(key, out _);
+            }
         }
+    
 
         foreach (var key in _snapshots.Keys.Where(k => k < version))
         {

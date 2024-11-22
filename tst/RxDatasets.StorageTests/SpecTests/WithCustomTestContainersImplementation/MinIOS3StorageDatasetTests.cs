@@ -2,8 +2,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Reactive.Testing;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.Minio;
@@ -12,7 +14,7 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
+public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {
     private readonly MinioTestContainerFixture _minioContainer;
     private IOptions<MinioS3Config>? _s3Config;
@@ -42,7 +44,8 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
     }
 
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+        [CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
         var storageLogger = new Mock<ILogger<MinioS3StorageProvider<object>>>();
@@ -60,7 +63,11 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, _writerConfig!, false);
 
-
+        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, persistentStorageProvider, SnapshotsOptions, new TestScheduler());
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        _ = datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }
 
@@ -71,7 +78,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
         _s3Config!.Value.BucketName = new string(
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_minioS3_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await _minioContainer.Container.StopAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
@@ -83,7 +90,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
     [Fact]
     public async Task Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_minioS3()
     {
-        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
 
@@ -100,7 +107,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpec, IClassFixture<MinioTe
         _writerConfig!.Value.AllowedNamesPattern = validationRegex;
 
         // Assuming SetupStorageAsync sets up the necessary objects
-        var (_, datasetWriter) = await SetupStorageAsync();
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var bytes = GenerateRandomData();
 
         // Act

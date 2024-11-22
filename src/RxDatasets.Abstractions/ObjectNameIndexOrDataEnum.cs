@@ -3,5 +3,5 @@
 public enum ObjectNameIndexOrDataEnum
 {
     DATA,
-    INDEX
+    INDEX,
 }

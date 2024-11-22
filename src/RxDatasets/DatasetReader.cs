@@ -308,6 +308,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
        ThrowIfNotInitialized();
        return _indexBasedOnMostRecentSnapshot?.SnapshotVersion ?? (ulong)0;
     }
+    
+    public ulong GetMainIndexSnapshotVersion()
+    {
+        var indexRef = ThrowIfNotInitialized();
+        return indexRef?.SnapshotVersion ?? (ulong)0;
+    }
+    
     public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
     {
         var indexRef = ThrowIfNotInitialized();
