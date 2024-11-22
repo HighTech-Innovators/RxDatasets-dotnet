@@ -221,7 +221,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
         {
             try
             {
-                var filePath = GetFullPath(key);
+                var filePath = Path.Combine(_rootFolder, key);
 
                 if (File.Exists(filePath))
                 {
@@ -229,14 +229,39 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 }
                 else
                 {
-                    _logger.LogWarning($"File not found when trying to delete: {key}");
+                    _logger.LogWarning("File not found when trying to delete: {Key}", key);
                 }
 
                 await Task.CompletedTask;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error deleting file: {key}");
+                _logger.LogError(ex, "Error deleting file: {Key}", key);
+                throw;
+            }
+        }
+
+        public async Task DeleteFolder(string prefix)
+        {
+            var filePath = Path.Combine(_rootFolder, prefix);
+
+            try
+            {
+
+                if (Directory.Exists(filePath))
+                {
+                    Directory.Delete(filePath, true);
+                }
+                else
+                {
+                    _logger.LogWarning("Folder was not found when trying to delete: {FilePath}", filePath);
+                }
+
+                await Task.CompletedTask;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting folder: {FilePath}", filePath);
                 throw;
             }
         }

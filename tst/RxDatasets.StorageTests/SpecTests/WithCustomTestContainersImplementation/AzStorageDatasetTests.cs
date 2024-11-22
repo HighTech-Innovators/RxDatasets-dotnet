@@ -2,8 +2,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Reactive.Testing;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.AzBlob;
@@ -12,7 +14,7 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteContainerInstanceFixture>, IAsyncLifetime
+public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixture<AzuriteContainerInstanceFixture>, IAsyncLifetime
 {
     private readonly AzuriteContainerInstanceFixture _azuriteContainer;
     private IOptions<AzStorageConfig>? _azConfig;
@@ -39,7 +41,8 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
         await _azuriteContainer.DisposeAsync();
     }
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync([CallerMemberName] string memberName = "")
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+        [CallerMemberName] string memberName = "")
     {
         _azConfig!.Value.ContainerName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
         _azConfig.Value.ConnectionString = _azuriteContainer.Container.GetConnectionString();
@@ -58,7 +61,13 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
         IOptions<WriterConfig> writerConfig = Options.Create(new WriterConfig { });
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, writerConfig, false);
-
+        
+        
+        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, persistentStorageProvider, SnapshotsOptions, new TestScheduler());
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        _ = datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }
 
@@ -69,7 +78,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
         _azConfig!.Value.ContainerName = new string(
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
-        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await _azuriteContainer.Container.StopAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
@@ -81,7 +90,7 @@ public class AzStorageDatasetTests : StorageTestSpec, IClassFixture<AzuriteConta
     [Fact]
     public async Task Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_AZ_Storage()
     {
-        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync();
+        var (_, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
 

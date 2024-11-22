@@ -131,16 +131,14 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception s3e) when (s3e is { ErrorCode: "NotFound" })
             {
                 SetHealthy();
-                return;
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 SetHealthy();
-                return;
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to delete {Key} in S3, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
+                _logger.LogError(s3e, "Failed to delete {Key} in S3, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
                 SetUnhealthy(s3e);
                 throw new InvalidOperationException($"Failed to delete object; Amazon error {s3e.ErrorCode}");
             }
@@ -151,6 +149,54 @@ namespace RxDatasets.StorageProvider.S3
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
+
+        public async Task DeleteFolder(string prefix)
+        {
+            await EnsureInitialized();
+            try
+            {
+                var listObjectsRequest = new ListObjectsV2Request
+                {
+                    BucketName = _bucketName,
+                    Prefix = prefix
+                };
+
+                var objects = new List<S3Object>();
+                ListObjectsV2Response listResponse;
+                do
+                {
+                    listResponse = await _s3Client.ListObjectsV2Async(listObjectsRequest);
+                    objects.AddRange(listResponse.S3Objects);
+                    listObjectsRequest.ContinuationToken = listResponse.NextContinuationToken;
+                } while (listResponse.IsTruncated);
+
+                var deleteTasks = objects.Select(o =>
+                    _s3Client.DeleteObjectAsync(new DeleteObjectRequest
+                    {
+                        BucketName = _bucketName,
+                        Key = o.Key
+                    })
+                );
+
+                await Task.WhenAll(deleteTasks);
+
+                SetHealthy();
+            }
+            catch (AmazonS3Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete folder with prefix {Prefix} in S3, amazon error {ErrorCode}", prefix, ex.ErrorCode);
+                SetUnhealthy(ex);
+                throw new InvalidOperationException($"Failed to delete folder; Amazon error {ex.ErrorCode}", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete folder from S3");
+                SetUnhealthy(ex);
+                throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+
 
         public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey)
         {

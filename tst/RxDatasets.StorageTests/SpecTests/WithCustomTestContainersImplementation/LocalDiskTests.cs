@@ -1,7 +1,10 @@
+using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Reactive.Testing;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.LocalDisk;
@@ -10,41 +13,49 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class LocalDiskDatasetTests : StorageTestSpec, IDisposable
+public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
 {
-    private readonly INotificationsHub<object> _notificationsHub = new NotificationsHubSync<object>();
-
-
-    private readonly IStorageProvider<object> _storageProvider;
     private readonly IOptions<LocalDiskStorageConfig> _config;
+    private readonly LocalDiskStorageProvider<object> _localStorageProvider;
 
     public LocalDiskDatasetTests()
     {
         _config = Options.Create(new LocalDiskStorageConfig());
-        _config.Value.RootFolder = Path.Combine(DatasetHelper.GetTempFileDirectory(), "UnitTestsData/");
+        _config.Value.RootFolder = Path.Combine(DatasetHelper.GetTempFileDirectory(), "UnitTestsData_localdisk_Tests/");
 
         if (Directory.Exists(_config.Value.RootFolder))
         {
             Directory.Delete(_config.Value.RootFolder, recursive: true);
         }
 
-        LocalDiskStorageProvider<object> localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, _config);
-        _storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig()), localStorageProvider, _notificationsHub, false);
-        ((ObjectStorageProvider<object>)_storageProvider).StartAsync(CancellationToken.None).Wait();
+        _localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, _config);
 
     }
 
-    protected override Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(string memberName = "")
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+        string memberName = "")
     {
+        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
+        var rootFolderName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
+
+        var storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig {CustomRootFolder = rootFolderName+"/"}), _localStorageProvider, notificationsHub, false);
+        storageProvider.StartAsync(CancellationToken.None).Wait();
+
+        
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
-        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
-        var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
-
-        return Task.FromResult((datasetReader, datasetWriter));
+        var datasetReader = new DatasetReader<object>(notificationsHub, readerLogger.Object, storageProvider, false);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, storageProvider, Options.Create(new WriterConfig { }), false);
+        
+        var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
+        var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, storageProvider, SnapshotsOptions, new TestScheduler());
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
+        return (datasetReader, datasetWriter);
     }
-
+    
     public void Dispose()
     {
         if(Directory.Exists(_config.Value.RootFolder))

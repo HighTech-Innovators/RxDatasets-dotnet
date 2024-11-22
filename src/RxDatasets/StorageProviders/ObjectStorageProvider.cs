@@ -83,14 +83,10 @@ public class ObjectStorageProvider<T>(
 
         foreach (var snapshot in _snapshotInfo.SnapshotVersions.Where(k => k.Version < version).ToList())
         {
-            var indexKey = GetObjectName(snapshot.Version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT,
+            var folderKey = GetObjectFolder(snapshot.Version, ObjectNameTypeEnum.SNAPSHOT,
                 storageConfig.Value);
-            var dataKey = GetObjectName(snapshot.Version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
-                storageConfig.Value);
-            await storageProvider.DeleteFile(indexKey);
-            await storageProvider.DeleteFile(dataKey);
+            await storageProvider.DeleteFolder(folderKey);
             _snapshotInfo.SnapshotVersions.Remove(snapshot);
-
             await SaveSnapshotInfo();
         }
 
@@ -102,12 +98,8 @@ public class ObjectStorageProvider<T>(
                  deltaToDelete <= version;
                  deltaToDelete++)
             {
-                var indexKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.INDEX,
-                    ObjectNameTypeEnum.DELTA, storageConfig.Value);
-                var dataKey = GetObjectName(deltaToDelete, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
-                    storageConfig.Value);
-                await storageProvider.DeleteFile(indexKey);
-                await storageProvider.DeleteFile(dataKey);
+                var folderKey = GetObjectFolder(deltaToDelete, ObjectNameTypeEnum.DELTA, storageConfig.Value);
+                await storageProvider.DeleteFolder(folderKey);
             }
 
             _deltaInfo.EarliestDeltaVersion = version + 1;
@@ -144,11 +136,44 @@ public class ObjectStorageProvider<T>(
         else
             await storageProvider.UploadBytes(indexObjectName, index);
 
+        if (_deltaInfo.EarliestDeltaVersion == 0)
+        {
+            _deltaInfo.EarliestDeltaVersion = deltaVersion;
+        }
         _deltaInfo.LatestDeltaVersion++;
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
+    public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
+    {
+        ThrowIfNoLockIsAcquired();
+        
+        using var slot = await DeltaLock();
+        var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
+            storageConfig.Value);
+        var dataObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
+            storageConfig.Value);
 
+        if (data.Length > 0)
+        {
+            await Task.WhenAll(
+                storageProvider.UploadBytes(indexObjectName, index),
+                storageProvider.UploadFileStream(dataObjectName, data)
+            );
+            await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
+        }
+        else // Deleted Delta data
+            await storageProvider.UploadBytes(indexObjectName, index);
+        
+        if (_deltaInfo.EarliestDeltaVersion == 0)
+        {
+            _deltaInfo.EarliestDeltaVersion = deltaVersion;
+        }
+        
+        _deltaInfo.LatestDeltaVersion++;
+        await SaveDeltaInfo();
+        await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+    }
     private async Task VerifyArrayUploadIfConfigured(string dataObjectName, int expectedDataLength)
     {
         if (storageConfig.Value.UploadVerificationMode == UploadVerificationMode.VerifyAll)
@@ -291,30 +316,7 @@ public class ObjectStorageProvider<T>(
             _deltaInfo.LatestDeltaVersion, snapshots);
     }
 
-    public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
-    {
-        ThrowIfNoLockIsAcquired();
-        
-        using var slot = await DeltaLock();
-        var indexObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
-        var dataObjectName = GetObjectName(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
-
-        if (data.Length > 0)
-        {
-            await Task.WhenAll(
-                storageProvider.UploadBytes(indexObjectName, index),
-                storageProvider.UploadFileStream(dataObjectName, data)
-            );
-            await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
-        }
-        else // Deleted Delta data
-            await storageProvider.UploadBytes(indexObjectName, index);
-        _deltaInfo.LatestDeltaVersion++;
-        await SaveDeltaInfo();
-        await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
-    }
+   
 
     public async Task StoreProcessedVersion(string who, ulong version)
     {
@@ -405,6 +407,18 @@ public class ObjectStorageProvider<T>(
             GetObjectNamePrefix(storageConfig) + $"{deltaOrSnapshotString}/{version}/{indexOrDataString}.{extension}";
     }
 
+    public static string GetObjectFolder(ulong version, ObjectNameTypeEnum deltaOrSnapshot, StorageConfig storageConfig)
+    {
+        var deltaOrSnapshotString = deltaOrSnapshot switch
+        {
+            ObjectNameTypeEnum.DELTA => "deltas",
+            ObjectNameTypeEnum.SNAPSHOT => "snapshots",
+            _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
+        };
+
+        return GetObjectNamePrefix(storageConfig) + $"{deltaOrSnapshotString}/{version}";
+    }
+    
     private string GetProcessedVersionsFilename()
     {
         return GetObjectNamePrefix(storageConfig.Value) + "ProcessedVersions.pb";

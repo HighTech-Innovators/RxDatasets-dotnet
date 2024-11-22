@@ -98,6 +98,32 @@ public class AzStorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
+    public async Task DeleteFolder(string prefix)
+    {
+        try
+        {
+            await EnsureInitialized();
+            var blobClients = _containerClient.GetBlobsAsync(prefix: prefix);
+            await foreach (var blobItem in blobClients)
+            {
+                // Delete each blob
+                var blobClient = _containerClient.GetBlobClient(blobItem.Name);
+                await blobClient.DeleteIfExistsAsync(snapshotsOption: DeleteSnapshotsOption.IncludeSnapshots);
+            }
+            SetHealthy();
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            SetHealthy();
+            throw new FileNotFoundException(File404Message, prefix);
+        }
+        catch (Exception ex)
+        {
+            SetUnhealthy(ex);
+            _logger.LogError(ex, UnavailableMessage);
+            throw new InvalidOperationException(UnavailableMessage, ex);
+        }    }
+
 
     /// <summary>
     /// Download bytes from Azure Blob Storage (Max file size is 2gb)

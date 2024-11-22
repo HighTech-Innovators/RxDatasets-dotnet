@@ -34,6 +34,7 @@ public interface IObjectStorageProvider<T>
     public Task UploadBytes(string objectKey, byte[] bytes);
     public Task UploadFileStream(string objectKey, Stream stream);
     public Task DeleteFile(string objectKey);
+    public Task DeleteFolder(string prefix);
     public Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix);
     Task<long> GetObjectContentLength(string objectKey);
 }

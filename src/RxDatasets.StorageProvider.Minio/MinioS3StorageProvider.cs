@@ -268,6 +268,34 @@ public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
         }
     }
 
+    public async Task DeleteFolder(string prefix)
+    {
+        try
+        {
+            await EnsureInitialized();
+        
+            var listArgs = new ListObjectsArgs()
+                .WithBucket(_s3Config.Value.BucketName)
+                .WithPrefix(prefix);
+        
+            await _s3Client.ListObjectsAsync(listArgs).ForEachAsync((async item =>
+            {
+                await _s3Client.RemoveObjectAsync(new RemoveObjectArgs()
+                    .WithBucket(_s3Config.Value.BucketName)
+                    .WithObject(item.Key));
+            }));
+        
+            SetHealthy();
+        }
+        catch (ConnectionException ex)
+        {
+            _logger.LogError(ex, "Failed to delete folder from S3");
+            SetUnhealthy(ex);
+            throw new InvalidOperationException("S3 is unavailable", ex);
+        }
+    }
+
+
 
     public async Task UploadFileStream(string objectKey, Stream stream)
     {

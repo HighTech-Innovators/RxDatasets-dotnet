@@ -50,7 +50,6 @@ namespace RxDatasets.BackgroundServices
 
                 var versionOfOldestToKeepSnapshot = orderedAllSnapshots.Except(toDeleteSnapshots).Last().version;
                 var lowestProcessedVersion = await storageProvider.GetLowestProcessedVersion();
-                var versionOfProcessedToKeepSnapshot = lowestProcessedVersion < versionOfOldestToKeepSnapshot ? lowestProcessedVersion : versionOfOldestToKeepSnapshot;
 
                 if (snapshotsThatHasToWait.Count != 0)
                 {

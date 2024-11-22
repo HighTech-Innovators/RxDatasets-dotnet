@@ -62,7 +62,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
         if (_indexBasedOnMostRecentSnapshot == null 
-            || (_indexBasedOnMostRecentSnapshot != null && snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
+            || (snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
         {
             _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
         }
