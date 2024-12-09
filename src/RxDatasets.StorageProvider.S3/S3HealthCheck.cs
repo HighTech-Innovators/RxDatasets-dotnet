@@ -9,8 +9,8 @@ public class S3HealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        var storageProvider = serviceProvider.GetRequiredService<IObjectStorageProvider<T>>();
-        if (storageProvider is not S3StorageProvider<T> provider)
+        var storageProvider = serviceProvider.GetRequiredService<IDiskStorage<T>>();
+        if (storageProvider is not S3Storage<T> provider)
             return HealthCheckResult.Degraded();
 
         var isLastResultFilled = provider?.LastResult != null;

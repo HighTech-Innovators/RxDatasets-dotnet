@@ -34,26 +34,26 @@ namespace RxDatasets.BackgroundServices
 
                 var cutoffTime = scheduler.Now.UtcDateTime - minimumAgeToLiveInMinutes;
 
-                var orderedAllSnapshots = allSnapshots.OrderByDescending(s => s.version).ToList();
+                var orderedAllSnapshots = allSnapshots.OrderByDescending(s => s.Version).ToList();
 
                 // Skip the newest groups we want to keep and select the rest
                 var toDeleteSnapshots = orderedAllSnapshots
                     .Skip(minimumSnapshotsToKeep) // Skip the newest groups that we want to keep
-                    .Where(s => s.DateTime.UtcDateTime <= cutoffTime)
+                    .Where(s => s.DateTime?.UtcDateTime <= cutoffTime)
                     .ToList();
 
                 var snapshotsThatHasToWait = orderedAllSnapshots
                     .Skip(minimumSnapshotsToKeep)
-                    .Where(s => s.DateTime.UtcDateTime > cutoffTime &&
+                    .Where(s => s.DateTime?.UtcDateTime > cutoffTime &&
                                 !_listOfSnapshotsDatesScheduledForDeleting.Any(tbd => tbd == s.DateTime))
                     .ToList();
 
-                var versionOfOldestToKeepSnapshot = orderedAllSnapshots.Except(toDeleteSnapshots).Last().version;
+                var versionOfOldestToKeepSnapshot = orderedAllSnapshots.Except(toDeleteSnapshots).Last().Version;
                 var lowestProcessedVersion = await storageProvider.GetLowestProcessedVersion();
 
                 if (snapshotsThatHasToWait.Count != 0)
                 {
-                    ScheduleItemsToBeDeletedAt(snapshotsThatHasToWait.Last().DateTime.UtcDateTime);
+                    ScheduleItemsToBeDeletedAt(snapshotsThatHasToWait.Last().DateTime?.UtcDateTime);
                 }
 
                 if (toDeleteSnapshots.Count == 0) return;
@@ -67,7 +67,7 @@ namespace RxDatasets.BackgroundServices
             }
         }
 
-        private void ScheduleItemsToBeDeletedAt(DateTime earliestSnapshotTime)
+        private void ScheduleItemsToBeDeletedAt(DateTime? earliestSnapshotTime)
         {
             if(_listOfSnapshotsDatesScheduledForDeleting.Any(s=>s <= earliestSnapshotTime)) return;
             
@@ -80,9 +80,9 @@ namespace RxDatasets.BackgroundServices
             var delay = scheduleTime - currentTime;
             if (delay > TimeSpan.Zero)
             {
-                scheduler.ScheduleAsync(delay, (_, _) => SearchForOutdatedData());
+                scheduler.ScheduleAsync((TimeSpan)delay, (_, _) => SearchForOutdatedData());
             }
-            _listOfSnapshotsDatesScheduledForDeleting.Add(earliestSnapshotTime);
+            _listOfSnapshotsDatesScheduledForDeleting.Add(earliestSnapshotTime.Value);
         }
 
 

@@ -16,7 +16,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
 {
     private readonly IOptions<LocalDiskStorageConfig> _config;
-    private readonly LocalDiskStorageProvider<object> _localStorageProvider;
+    private readonly LocalDiskStorage<object> _localStorage;
 
     public LocalDiskDatasetTests()
     {
@@ -28,7 +28,7 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
             Directory.Delete(_config.Value.RootFolder, recursive: true);
         }
 
-        _localStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, _config);
+        _localStorage = new LocalDiskStorage<object>(new Mock<ILogger<LocalDiskStorage<object>>>().Object, _config);
 
     }
 
@@ -38,7 +38,10 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
         var rootFolderName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
 
-        var storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, Options.Create(new StorageConfig {CustomRootFolder = rootFolderName+"/"}), _localStorageProvider, notificationsHub, false);
+        var storageConfig = Options.Create(new StorageConfig {CustomRootFolder = rootFolderName+"/"});
+        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, _localStorage);
+
+        var storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, _localStorage, notificationsHub,  storageReader,false);
         storageProvider.StartAsync(CancellationToken.None).Wait();
 
         

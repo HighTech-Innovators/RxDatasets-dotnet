@@ -48,15 +48,17 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
         [CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-        var storageLogger = new Mock<ILogger<MinioS3StorageProvider<object>>>();
+        var storageLogger = new Mock<ILogger<MinioS3Storage<object>>>();
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
 
-        IObjectStorageProvider<object> s3StorageProvider = new MinioS3StorageProvider<object>(storageLogger.Object, _s3Config!, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3StorageProvider, notificationsHub);
+        IDiskStorage<object> s3Storage = new MinioS3Storage<object>(storageLogger.Object, _s3Config!, false);
+        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
+
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub, storageReader);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 

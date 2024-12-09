@@ -9,7 +9,7 @@ namespace RxDatasets.StorageProvider.AzBlob
         public static DtoServerBuilder<TEntity> WithAzureStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
         {
             builder.Services.AddValidatedConfigSection<AzStorageConfig>();
-            builder.Services.AddSingleton<IObjectStorageProvider<TEntity>, AzStorageProvider<TEntity>>();
+            builder.Services.AddSingleton<IDiskStorage<TEntity>, AzStorage<TEntity>>();
             builder.Services.AddHealthChecks().AddCheck<AzHealthCheck<TEntity>>($"storage.azblob.{typeof(TEntity).Name}");
 
             return builder;

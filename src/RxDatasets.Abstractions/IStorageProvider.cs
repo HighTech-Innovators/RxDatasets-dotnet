@@ -12,7 +12,7 @@ public interface IStorageProvider
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion);
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion);
     public Task DeleteOlderThan(ulong snapshotVersion, bool keepAllDeltas);
-    public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions();
+    public Task<(ulong oldestDelta, ulong newestDelta, List<SnapshotType> snapshots)> ListVersions();
     public Task StoreProcessedVersion(string who, ulong version);
 
     public Task<ReadOnlyMemory<byte>> ReadDataFromSources(
@@ -20,4 +20,4 @@ public interface IStorageProvider
     public Task<ulong> GetProcessedVersion(string who);
     public Task<ulong> GetLowestProcessedVersion();
 }
-public interface IStorageProvider<T> : IStorageProvider {}
+public interface IStorageProvider<T> :  IStorageProvider {}

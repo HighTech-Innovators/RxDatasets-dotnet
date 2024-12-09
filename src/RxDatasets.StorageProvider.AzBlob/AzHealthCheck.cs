@@ -8,9 +8,9 @@ public class AzHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        var storageProvider = serviceProvider.GetRequiredService<IObjectStorageProvider<T>>();
+        var storageProvider = serviceProvider.GetRequiredService<IDiskStorage<T>>();
 
-        if (storageProvider is not AzStorageProvider<T> provider)
+        if (storageProvider is not AzStorage<T> provider)
             return HealthCheckResult.Unhealthy();
 
         var isLastResultFilled = provider?.LastResult != null;

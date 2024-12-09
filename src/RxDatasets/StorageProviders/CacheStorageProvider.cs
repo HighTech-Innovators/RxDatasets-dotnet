@@ -40,7 +40,7 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
     private async Task InitCache()
     {
         var (_, _, snapshots) = await ListVersions();
-        foreach (var version in snapshots.Select(s => s.version).OrderDescending())
+        foreach (var version in snapshots.Select(s => s.Version).OrderDescending())
         {
             try
             {
@@ -241,7 +241,7 @@ public class CacheStorageProvider<T>(IStorageProvider<T> storageProvider, IOptio
         }
     }
 
-    public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions()
+    public Task<(ulong oldestDelta, ulong newestDelta, List<SnapshotType> snapshots)> ListVersions()
     {
         return storageProvider.ListVersions();
     }

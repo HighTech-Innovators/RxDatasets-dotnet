@@ -5,19 +5,19 @@ namespace RxDatasets;
 
 public static class DatasetExtensions
 {
-    public static ulong GetLatestEntityVersion(this ImmutableEntity entity)
+    public static ulong GetLatestEntityVersion(this ImmutableSnapshotEntity snapshotEntity)
     {
-        return Math.Max(entity.LastUpdatedVersion, Math.Max(entity.LastDeletedVersion.LastOrDefault(), entity.LastInsertedVersion.LastOrDefault()));
+        return Math.Max(snapshotEntity.LastUpdatedVersion, Math.Max(snapshotEntity.LastDeletedVersion.LastOrDefault(), snapshotEntity.LastInsertedVersion.LastOrDefault()));
     }
 
-    public static ChangeType GetLatestChangeType(this ImmutableEntity entity)
+    public static ChangeType GetLatestChangeType(this ImmutableSnapshotEntity snapshotEntity)
     {
-        ulong latestVersion = entity.GetLatestEntityVersion();
+        ulong latestVersion = snapshotEntity.GetLatestEntityVersion();
 
-        if (latestVersion == entity.LastInsertedVersion.LastOrDefault())
+        if (latestVersion == snapshotEntity.LastInsertedVersion.LastOrDefault())
             return ChangeType.New;
 
-        if (latestVersion == entity.LastUpdatedVersion)
+        if (latestVersion == snapshotEntity.LastUpdatedVersion)
             return ChangeType.Changed;
 
         return ChangeType.Deleted;
@@ -54,10 +54,10 @@ public static class DatasetExtensions
         {
             if (!index.Entities.TryGetValue(newEntity.Name, out var existingEntity))
             {
-                existingEntity = ImmutableEntity.FromProto(new SnapshotEntity());
+                existingEntity = ImmutableSnapshotEntity.FromProto(new SnapshotEntity());
             }
 
-            var updatedEntity = new ImmutableEntity(
+            var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
                 existingEntity.LastInsertedVersion.Add(delta.DeltaVersion),
                 existingEntity.LastUpdatedVersion,
@@ -72,7 +72,7 @@ public static class DatasetExtensions
         {
             var existingEntity = index.Entities[changedEntity.Name];
 
-            var updatedEntity = new ImmutableEntity(
+            var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
                 existingEntity.LastInsertedVersion,
                 delta.DeltaVersion,
@@ -87,7 +87,7 @@ public static class DatasetExtensions
         {
             var existingEntity = index.Entities[deletedName];
 
-            var updatedEntity = new ImmutableEntity(
+            var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion.Add(delta.DeltaVersion),
                 existingEntity.LastInsertedVersion,
                 existingEntity.LastUpdatedVersion,

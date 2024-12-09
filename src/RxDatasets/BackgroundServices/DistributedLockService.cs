@@ -10,7 +10,7 @@ using RxDatasets.StorageProviders;
 namespace RxDatasets.BackgroundServices
 {
     public class DistributedLockService<TEntity>(
-        IObjectStorageProvider<TEntity> storageProvider,
+        IDiskStorage<TEntity> storage,
         IOptions<StorageConfig> storageConfig,
         ILogger<DistributedLockService<TEntity>> logger,
         INotificationsHub<TEntity> notificationsHub)
@@ -20,7 +20,7 @@ namespace RxDatasets.BackgroundServices
         private Timer? _renewalTimer;
         private string? _lockToken;
         private bool _isDisposed;
-        private readonly string _lockName = ObjectStorageProvider<TEntity>.GetObjectNamePrefix(storageConfig.Value) + "lock-file";
+        private readonly string _lockName = DatasetHelper.GetObjectNamePrefix<TEntity>(storageConfig.Value) + "lock-file";
 
         public bool HasLock => !string.IsNullOrEmpty(_lockToken);
 
@@ -186,7 +186,7 @@ namespace RxDatasets.BackgroundServices
 
                 if (existingLock != null && existingLock.Value.Token == _lockToken)
                 {
-                    await storageProvider.DeleteFile(lockKey);
+                    await storage.DeleteFile(lockKey);
                     logger.LogInformation("Lock released.");
                     _lockToken = null;
                 }
@@ -205,14 +205,14 @@ namespace RxDatasets.BackgroundServices
         {
             string lockContent = $"{lockToken}\n{expiryTime:o}";
             byte[] lockBytes = System.Text.Encoding.UTF8.GetBytes(lockContent);
-            await storageProvider.UploadBytes(lockKey, lockBytes);
+            await storage.UploadBytes(lockKey, lockBytes);
         }
 
         private async Task<(string Token, DateTimeOffset Expiry)?> TryReadLockFile(string lockKey)
         {
             try
             {
-                var lockBytes = await storageProvider.DownloadBytes(lockKey);
+                var lockBytes = await storage.DownloadBytes(lockKey);
                 string lockContent = System.Text.Encoding.UTF8.GetString(lockBytes.Span);
                 var lines = lockContent.Split('\n');
                 if (lines.Length >= 2 && DateTimeOffset.TryParse(lines[1], out var expiryTime))

@@ -37,7 +37,7 @@ namespace RxDatasets.StorageTests
             return Task.CompletedTask;
         }
 
-        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IObjectStorageProvider<Demodto> storageProvider, bool waitForHealthy = true,  GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
+        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IDiskStorage<Demodto> storage, bool waitForHealthy = true,  GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
         {
             factoryInput ??= new GrpcWebApplicationFactory();
             _customPrefix = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -55,7 +55,7 @@ namespace RxDatasets.StorageTests
 
                 builder.ConfigureTestServices(services =>
                 {
-                   services.AddSingleton(storageProvider);
+                   services.AddSingleton(storage);
                 });
             });
 
@@ -91,11 +91,11 @@ namespace RxDatasets.StorageTests
         [Fact]
         public async Task Test_Second_Service_Not_Healthy_While_First_Running()
         {
-            var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
-            var (factory1, _, _) = await CreateWebhostFactoryAsync(storageProvider: storageProvider); //and wait until healthy
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, _) = await CreateWebhostFactoryAsync(storage: storageProvider); //and wait until healthy
 
             // Start the second host
-            (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(storageProvider: storageProvider, false);
+            (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(storage: storageProvider, false);
             await Task.Delay(TimeSpan.FromSeconds(3));
 
 
@@ -130,16 +130,16 @@ namespace RxDatasets.StorageTests
         [Fact]
         public async Task Test_Service_Started_And_Healthy()
         {
-            var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
-            var createHostAction = async () => await CreateWebhostFactoryAsync(storageProvider: storageProvider);
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var createHostAction = async () => await CreateWebhostFactoryAsync(storage: storageProvider);
             await createHostAction.Should().NotThrowAsync();
         }
 
         [Fact]
         public async Task Read_Raw_Snapshot_Data_Tests()
         {
-            var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
-            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
 
             var writerClient = new WriterService.WriterServiceClient(channel);
 
@@ -159,7 +159,7 @@ namespace RxDatasets.StorageTests
             ulong latestSnapshotVersion;
             while (true)
             {
-                var listOfSnapshots = await storageProvider.ListObjects(ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/");
+                var listOfSnapshots = await storageProvider.ListObjects(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/");
 
                 if (listOfSnapshots.Any())
                 {
@@ -177,7 +177,7 @@ namespace RxDatasets.StorageTests
 
             MessageParser<Demodto> protoParser = new(() => (Demodto)Activator.CreateInstance(typeof(Demodto))!);
             using var resultStream = new MemoryStream();
-            await storageProvider.DownloadWithCallBack(ObjectStorageProvider<Demodto>.GetObjectName(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig), x => x.CopyTo(resultStream));
+            await storageProvider.DownloadWithCallBack(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig), x => x.CopyTo(resultStream));
 
             resultStream.Position = 0;
 
@@ -212,9 +212,9 @@ namespace RxDatasets.StorageTests
         [Fact]
         public async Task Do_Generic_Write_And_Read_Tests()
         {
-            var storageProvider = new LowLevelInMemoryStorageProvider<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorageProvider<Demodto>>>());
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
 
-            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storageProvider: storageProvider);
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
 
             var writerClient = new WriterService.WriterServiceClient(channel);
             var readerClient = new ReaderService.ReaderServiceClient(channel);
@@ -251,7 +251,7 @@ namespace RxDatasets.StorageTests
                 {
                     List<(string ObjectKey, DateTimeOffset DateTime)> snapshots =
                         await storageProvider.ListObjects(
-                            ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/");
+                            DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/");
 
                     if (snapshots.Any())
                     {

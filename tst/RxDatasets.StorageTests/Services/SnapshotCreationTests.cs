@@ -74,8 +74,8 @@ public class SnapshotCreationPluginTests
 
         (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(2);
-        snapshots.First().version.Should().Be(oldestDelta);
-        snapshots.Last().version.Should().Be(newestDelta);
+        snapshots.First().Version.Should().Be(oldestDelta);
+        snapshots.Last().Version.Should().Be(newestDelta);
         await storageProvider.StoreProcessedVersion("unittest", howManyDeltasToCreate);
     }
 

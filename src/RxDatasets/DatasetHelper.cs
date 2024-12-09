@@ -74,7 +74,7 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
         catch (FileNotFoundException)
         {
             // There are no snapshots available
-            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableEntity>().ToImmutableDictionary(),
+            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableSnapshotEntity>().ToImmutableDictionary(),
                 0, version);
         }
 
@@ -99,12 +99,12 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
         if (specificSnapshot != null)
         {
             specificSnapshot = availableVersions.snapshots.Count > 0
-                ? availableVersions.snapshots.MaxBy((s) => s.version).version
+                ? availableVersions.snapshots.MaxBy((s) => s.Version).Version
                 : 0ul;
             return await TryGetSnapshot(specificSnapshot.Value);
         }
 
-        foreach (var version in availableVersions.snapshots.Select(s => s.version).OrderDescending())
+        foreach (var version in availableVersions.snapshots.Select(s => s.Version).OrderDescending())
         {
             try
             {
@@ -150,7 +150,42 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
         var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
         return snapshotIndex;
     }
+    public static string GetObjectNamePrefix<T>(StorageConfig storageConfig) =>
+        $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
+    public static string GetObjectName<T>(ulong version, ObjectNameIndexOrDataEnum indexOrData,
+        ObjectNameTypeEnum deltaOrSnapshot, StorageConfig storageConfig)
+    {
+        var extension = indexOrData == ObjectNameIndexOrDataEnum.INDEX ? "pb" : "pbs";
 
+        var deltaOrSnapshotString = deltaOrSnapshot switch
+        {
+            ObjectNameTypeEnum.DELTA => "deltas",
+            ObjectNameTypeEnum.SNAPSHOT => "snapshots",
+            _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
+        };
+
+        var indexOrDataString = indexOrData switch
+        {
+            ObjectNameIndexOrDataEnum.INDEX => "index",
+            ObjectNameIndexOrDataEnum.DATA => "data",
+            _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameIndexOrDataEnum))
+        };
+
+        return
+           GetObjectNamePrefix<T>(storageConfig) + $"{deltaOrSnapshotString}/{version}/{indexOrDataString}.{extension}";
+    }
+
+    public static string GetObjectFolder<T>(ulong version, ObjectNameTypeEnum deltaOrSnapshot, StorageConfig storageConfig)
+    {
+        var deltaOrSnapshotString = deltaOrSnapshot switch
+        {
+            ObjectNameTypeEnum.DELTA => "deltas",
+            ObjectNameTypeEnum.SNAPSHOT => "snapshots",
+            _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
+        };
+
+        return GetObjectNamePrefix<T>(storageConfig) + $"{deltaOrSnapshotString}/{version}";
+    }
     public async Task<List<DeltaIndex>> GetChangedDeltas(ulong fromVersion, ulong toVersion)
     {
         if (fromVersion > toVersion)
@@ -204,7 +239,7 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
     }
 }
 
-internal class ActionDisposable : IDisposable
+public class ActionDisposable : IDisposable
 {
     private readonly Action _action;
 

@@ -1,6 +1,6 @@
 ﻿namespace RxDatasets.Abstractions;
 
-public interface IObjectStorageProvider<T>
+public interface IDiskStorage<T>
 {
     /// <summary>
     /// Download a file from storage provider.

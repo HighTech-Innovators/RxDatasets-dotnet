@@ -18,7 +18,7 @@ namespace RxDatasets.GenericNotifierLogic
         public Task Notify<TNotification>(TNotification notification) where TNotification : INotification
         {
             var subject = GetOrCreateSubject<TNotification>();
-
+            
             subject.OnNext(notification);
 
             return Task.CompletedTask;
