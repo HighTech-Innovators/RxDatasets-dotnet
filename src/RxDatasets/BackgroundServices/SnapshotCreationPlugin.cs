@@ -49,13 +49,15 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
 
     private bool AreSnapshotCreationConditionsMet(ulong newestDelta,
-        List<(ulong version, DateTimeOffset Datetime)> snapshots)
+        List<SnapshotType> snapshots)
     {
-        var (lastSnapshotVersion, lastSnapshotTime)  =
+       var snapshot  =
             snapshots.Count > 0 
-                ? snapshots.MaxBy(s => s.version)
-                : (0UL,(DateTimeOffset?)null);
-
+                ? snapshots.MaxBy(s => s.Version)
+                : new SnapshotType(0, null);
+       
+       ulong lastSnapshotVersion = snapshot.Version;
+       DateTimeOffset? lastSnapshotTime = snapshot.DateTime;
         // Don't do or schedule anything if there is no delta since the last snapshot (or no data at all)
         if (newestDelta <= lastSnapshotVersion)
             return false;
@@ -111,7 +113,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        Dictionary<string, ImmutableEntity> newSnapshotEntities = [];
+        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities = [];
 
         var tempPath = DatasetHelper.GetTempFilePath();
 
@@ -156,7 +158,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableEntity> newSnapshotEntities,
+        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         foreach (var entity in currentIndex.Entities.Where(x =>
@@ -191,7 +193,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableEntity> newSnapshotEntities,
+        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
@@ -207,8 +209,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
                 if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
                 {
-                    ImmutableEntity newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
+                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
                 }
                 else
                 {
@@ -225,11 +227,11 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                     sourceStreamPosition += entityLength;
                     targetSnapshotStreamPosition += entityLength;
 
-                    ImmutableEntity newSnapshotEntity = entity.Value with
+                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
                     {
                         Position = targetEntityPosition, Length = entityLength
                     };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
                 }
             }
         });

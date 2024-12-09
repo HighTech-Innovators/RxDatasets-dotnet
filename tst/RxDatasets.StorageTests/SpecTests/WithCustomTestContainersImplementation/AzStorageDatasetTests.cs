@@ -47,15 +47,17 @@ public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixtu
         _azConfig!.Value.ContainerName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
         _azConfig.Value.ConnectionString = _azuriteContainer.Container.GetConnectionString();
 
-        var storageLogger = new Mock<ILogger<AzStorageProvider<object>>>();
+        var storageLogger = new Mock<ILogger<AzStorage<object>>>();
 
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
 
-        IObjectStorageProvider<object> azStorageProvider = new AzStorageProvider<object>(storageLogger.Object, _azConfig, false);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, azStorageProvider, notificationsHub, false);
+        IDiskStorage<object> azStorage = new AzStorage<object>(storageLogger.Object, _azConfig, false);
+        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, azStorage);
+
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, azStorage, notificationsHub, storageReader, false);
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
         var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);

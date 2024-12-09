@@ -8,17 +8,17 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.AzBlob;
 
-public class AzStorageProvider<T> : IObjectStorageProvider<T>
+public class AzStorage<T> : IDiskStorage<T>
 {
     private const string UnavailableMessage = "Azure Blob Storage is unavailable";
     private const string DownloadFailedMessage = "Failed to download from Azure Blob Storage";
     private const string File404Message = $"File is not found.";
     private readonly BlobContainerClient _containerClient;
-    private readonly ILogger<AzStorageProvider<T>> _logger;
+    private readonly ILogger<AzStorage<T>> _logger;
     private bool _initialized;
     private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-    public AzStorageProvider(ILogger<AzStorageProvider<T>> logger, IOptions<AzStorageConfig> azStorageConfig, bool retryInitialization = true)
+    public AzStorage(ILogger<AzStorage<T>> logger, IOptions<AzStorageConfig> azStorageConfig, bool retryInitialization = true)
     {
         _logger = logger;
         _containerClient = new BlobServiceClient(

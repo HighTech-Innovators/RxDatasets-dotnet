@@ -33,6 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\RxDatasets.DatasetWatcher\RxDatasets.DatasetWatcher.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />

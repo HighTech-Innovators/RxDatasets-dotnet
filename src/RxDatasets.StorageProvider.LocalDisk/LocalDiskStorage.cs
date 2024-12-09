@@ -3,14 +3,14 @@ using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 namespace RxDatasets.StorageProvider.LocalDisk
 {
-    public class LocalDiskStorageProvider<T> : IObjectStorageProvider<T>
+    public class LocalDiskStorage<T> : IDiskStorage<T>
     {
         private readonly string _rootFolder;
-        private readonly ILogger<LocalDiskStorageProvider<T>> _logger;
+        private readonly ILogger<LocalDiskStorage<T>> _logger;
         private bool _initialized;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public LocalDiskStorageProvider(ILogger<LocalDiskStorageProvider<T>> logger, IOptions<LocalDiskStorageConfig> config)
+        public LocalDiskStorage(ILogger<LocalDiskStorage<T>> logger, IOptions<LocalDiskStorageConfig> config)
         {
             _logger = logger;
             _rootFolder = config.Value.RootFolder;

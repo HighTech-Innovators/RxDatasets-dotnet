@@ -66,14 +66,14 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
-    public Task<(ulong oldestDelta, ulong newestDelta, List<(ulong version, DateTimeOffset DateTime)> snapshots)> ListVersions()
+    public Task<(ulong oldestDelta, ulong newestDelta, List<SnapshotType> snapshots)> ListVersions()
     {
         if (_deltas.IsEmpty)
-            return Task.FromResult((0ul, 0ul, new List<(ulong, DateTimeOffset)>()));
+            return Task.FromResult((0ul, 0ul, new List<SnapshotType>()));
 
         var oldestDelta = _deltas.Keys.Min();
         var newestDelta = _deltas.Keys.Max();
-        var snapshots = _snapshots.Select(x => (x.Key, x.Value.creationTime)).GroupBy((g) => g.Key).Select((s) => s.First()).ToList();
+        var snapshots = _snapshots.Select(x => new SnapshotType(x.Key, x.Value.creationTime)).GroupBy((g) => g.Version).Select((s) => s.First()).ToList();
 
         return Task.FromResult((oldestDelta, newestDelta, snapshots));
     }

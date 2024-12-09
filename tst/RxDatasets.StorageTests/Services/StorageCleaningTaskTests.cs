@@ -52,7 +52,7 @@ public class StorageCleanTaskTests
     }
     
     
-    private async Task<(IObjectStorageProvider<object>, IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>, IOptions<LocalDiskStorageConfig>)> SetupLocalDiskDataset(TestScheduler ts, [CallerMemberName] string memberName = "")
+    private async Task<(IDiskStorage<object>, IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>, IOptions<LocalDiskStorageConfig>)> SetupLocalDiskDataset(TestScheduler ts, [CallerMemberName] string memberName = "")
     {
         var config = Options.Create(new LocalDiskStorageConfig());
         config.Value.RootFolder = Path.Combine(DatasetHelper.GetTempFileDirectory(), $"UnitTestsData_CleaningService/{memberName}");
@@ -62,11 +62,12 @@ public class StorageCleanTaskTests
             Directory.Delete(config.Value.RootFolder, recursive: true);
         }
 
-        IObjectStorageProvider<object> localDiskStorageProvider = new LocalDiskStorageProvider<object>(new Mock<ILogger<LocalDiskStorageProvider<object>>>().Object, config);
+        IDiskStorage<object> localDiskStorage = new LocalDiskStorage<object>(new Mock<ILogger<LocalDiskStorage<object>>>().Object, config);
         INotificationsHub<object> notificationsHub = new NotificationsHub<object>();
         var storageConfig = Options.Create(new StorageConfig());
+        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, localDiskStorage);
 
-        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, localDiskStorageProvider, notificationsHub, false);
+        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, localDiskStorage, notificationsHub, storageReader, false);
         await ((ObjectStorageProvider<object>)storageProvider).StartAsync(CancellationToken.None);
         var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
@@ -83,8 +84,9 @@ public class StorageCleanTaskTests
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationPlugInLogger.Object, storageProvider, _snapshotsOptions, ts);
         var snapshotCreationTask = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (snapshotCreationServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         await snapshotCreationTask.StartAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(2));
 
-        return (localDiskStorageProvider, storageProvider, datasetReader, datasetWriter, config);
+        return (localDiskStorage, storageProvider, datasetReader, datasetWriter, config);
     }
     
     [Fact]
@@ -97,7 +99,7 @@ public class StorageCleanTaskTests
         _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
         var scheduler = new TestScheduler();
         var (localStorage, storageProvider, _, datasetWriter, config) = await SetupLocalDiskDataset(scheduler);
-        
+
         scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
@@ -110,8 +112,8 @@ public class StorageCleanTaskTests
 
         var snapshots = await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 2);
         
-        ulong firstSnapshot = snapshots[0].version;
-        ulong secondSnapshot = snapshots[1].version;
+        ulong firstSnapshot = snapshots[0].Version;
+        ulong secondSnapshot = snapshots[1].Version;
 
         await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
         await storageProvider.StoreProcessedVersion("unittest", 10);
@@ -130,9 +132,9 @@ public class StorageCleanTaskTests
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
         listObjects.Count().Should().Be(expectedRemainingSnapshots);
-        snapshots[0].version.Should().NotBe(firstSnapshot);
-        snapshots[1].version.Should().NotBe(secondSnapshot);
-        oldestDelta.Should().Be(snapshots[0].version+1, $"Because if earliest snapshot is 11, then the first delta after it is 12");
+        snapshots[0].Version.Should().NotBe(firstSnapshot);
+        snapshots[1].Version.Should().NotBe(secondSnapshot);
+        oldestDelta.Should().Be(snapshots[0].Version+1, $"Because if earliest snapshot is 11, then the first delta after it is 12");
         
         if (Directory.Exists(config.Value.RootFolder))
         {
@@ -140,7 +142,7 @@ public class StorageCleanTaskTests
         }
     }
 
-    private static async Task<List<(ulong version, DateTimeOffset DateTime)>> WaitForANumberOfSnapshotsToBeCreated(IStorageProvider<object> storageProvider, int howManyShouldBeThere)
+    private static async Task<List<SnapshotType>> WaitForANumberOfSnapshotsToBeCreated(IStorageProvider<object> storageProvider, int howManyShouldBeThere)
     {
         int counter = 0;
         while(true){
@@ -182,12 +184,12 @@ public class StorageCleanTaskTests
         await Task.Delay(TimeSpan.FromSeconds(.1));
 
         var (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
-        var firstSnapshot = snapshots[0].version;
+        var firstSnapshot = snapshots[0].Version;
 
         await Create6Deltas(datasetWriter);
         await Task.Delay(TimeSpan.FromSeconds(.1));
 
-        var secondSnapshot = snapshots[1].version;
+        var secondSnapshot = snapshots[1].Version;
 
         await storageProvider.StoreProcessedVersion("unittest", 10);
         await Task.Delay(TimeSpan.FromSeconds(.1));
@@ -203,9 +205,9 @@ public class StorageCleanTaskTests
         const int expectedRemainingSnapshots = 2;
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        snapshots[0].version.Should().NotBe(firstSnapshot);
-        snapshots[1].version.Should().NotBe(secondSnapshot);
-        oldestDelta.Should().BeCloseTo(snapshots[0].version, 5, "we are not sure because of async when the snapshot will be exactly created");
+        snapshots[0].Version.Should().NotBe(firstSnapshot);
+        snapshots[1].Version.Should().NotBe(secondSnapshot);
+        oldestDelta.Should().BeCloseTo(snapshots[0].Version, 5, "we are not sure because of async when the snapshot will be exactly created");
     }
 
 
@@ -252,7 +254,7 @@ public class StorageCleanTaskTests
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
 
         snapshots.Count.Should().Be(fourSnapshots);
-        oldestDelta.Should().Be(snapshots[0].version);
+        oldestDelta.Should().Be(snapshots[0].Version);
 
 
         // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
@@ -262,7 +264,7 @@ public class StorageCleanTaskTests
         (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         int fiveSnapshots = 5;
         snapshots.Count.Should().Be(fiveSnapshots);
-        oldestDelta.Should().Be(snapshots[0].version);
+        oldestDelta.Should().Be(snapshots[0].Version);
 
         //act
         scheduler.AdvanceBy(TimeSpan.FromMinutes(6).Ticks);
@@ -273,7 +275,7 @@ public class StorageCleanTaskTests
         const int expectedRemainingSnapshots = 2;
         (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        oldestDelta.Should().BeCloseTo(snapshots[0].version, 5, "we are not sure because of async when the snapshot will be exactly created");
+        oldestDelta.Should().BeCloseTo(snapshots[0].Version, 5, "we are not sure because of async when the snapshot will be exactly created");
     }
 
 

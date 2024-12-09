@@ -11,16 +11,16 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.Minio;
 
-public class MinioS3StorageProvider<T> : IObjectStorageProvider<T>
+public class MinioS3Storage<T> : IDiskStorage<T>
 {
     private readonly IMinioClient _s3Client;
 
-    private readonly ILogger<MinioS3StorageProvider<T>> _logger;
+    private readonly ILogger<MinioS3Storage<T>> _logger;
     private readonly IOptions<MinioS3Config> _s3Config;
     private bool _initialized;
     private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-    public MinioS3StorageProvider(ILogger<MinioS3StorageProvider<T>> logger, IOptions<MinioS3Config> s3Config, bool retryInitialization = true)
+    public MinioS3Storage(ILogger<MinioS3Storage<T>> logger, IOptions<MinioS3Config> s3Config, bool retryInitialization = true)
     {
         _logger = logger;
         _s3Config = s3Config;

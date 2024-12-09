@@ -9,7 +9,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
         public static DtoServerBuilder<TEntity> WithLocalDiskStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
         {
             builder.Services.AddValidatedConfigSection<LocalDiskStorageConfig>();
-            builder.Services.AddSingleton<IObjectStorageProvider<TEntity>, LocalDiskStorageProvider<TEntity>>();
+            builder.Services.AddSingleton<IDiskStorage<TEntity>, LocalDiskStorage<TEntity>>();
             return builder;
         }
     }

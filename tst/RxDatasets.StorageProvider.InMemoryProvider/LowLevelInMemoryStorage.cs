@@ -4,14 +4,14 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.TestImplementations.InMemoryProvider
 {
-    public class LowLevelInMemoryStorageProvider<T> : IObjectStorageProvider<T>
+    public class LowLevelInMemoryStorage<T> : IDiskStorage<T>
     {
-        private readonly ILogger<LowLevelInMemoryStorageProvider<T>> _logger;
+        private readonly ILogger<LowLevelInMemoryStorage<T>> _logger;
         private readonly ConcurrentDictionary<string, (byte[] Data, DateTimeOffset CreatedAt)> _storage;
 
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public LowLevelInMemoryStorageProvider(ILogger<LowLevelInMemoryStorageProvider<T>> logger)
+        public LowLevelInMemoryStorage(ILogger<LowLevelInMemoryStorage<T>> logger)
         {
             _logger = logger;
             _storage = new ConcurrentDictionary<string, (byte[] Data, DateTimeOffset CreatedAt)>();

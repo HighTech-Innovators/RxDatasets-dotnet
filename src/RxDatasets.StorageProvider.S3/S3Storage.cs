@@ -8,19 +8,19 @@ using Amazon;
 
 namespace RxDatasets.StorageProvider.S3
 {
-    public class S3StorageProvider<T> : IObjectStorageProvider<T>, IDisposable
+    public class S3Storage<T> : IDiskStorage<T>, IDisposable
     {
         private const string DownloadFailedMessage = "Failed to download metadata from S3";
         private const string UnavailableMessage = $"S3 is unavailable.";
         private const string File404Message = $"File is not found.";
         private readonly AmazonS3Client _s3Client;
         private readonly TransferUtility _transferUtility;
-        private readonly ILogger<S3StorageProvider<T>> _logger;
+        private readonly ILogger<S3Storage<T>> _logger;
         private readonly string _bucketName;
         private bool _initialized;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public S3StorageProvider(ILogger<S3StorageProvider<T>> logger, IOptions<S3Config> s3Config,
+        public S3Storage(ILogger<S3Storage<T>> logger, IOptions<S3Config> s3Config,
             bool retryInitialization = true)
         {
             _logger = logger;

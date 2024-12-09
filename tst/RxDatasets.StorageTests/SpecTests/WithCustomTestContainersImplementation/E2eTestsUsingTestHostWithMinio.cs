@@ -90,7 +90,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddValidatedConfigSection<S3Config>();
-                    services.AddSingleton<IObjectStorageProvider<Demodto>, S3StorageProvider<Demodto>>();
+                    services.AddSingleton<IDiskStorage<Demodto>, S3Storage<Demodto>>();
                     services.AddHealthChecks().AddCheck<S3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
                 });
             });
@@ -196,7 +196,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             {
                 var listOfSnapshots = await _minioClient!.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix(ObjectStorageProvider<Demodto>.GetObjectNamePrefix(storageConfig) + "snapshots/"))
+                        .WithPrefix(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/"))
                     .ToList()
                     .ToTask();
 
@@ -218,7 +218,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             using var resultStream = new MemoryStream();
             await _minioClient?.GetObjectAsync(new GetObjectArgs()
                 .WithBucket(_bucketName)
-                .WithObject(ObjectStorageProvider<Demodto>.GetObjectName(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig))
+                .WithObject(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig))
                 .WithCallbackStream(x => x.CopyTo(resultStream))
             )!;
 

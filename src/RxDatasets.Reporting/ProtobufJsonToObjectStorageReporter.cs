@@ -5,7 +5,7 @@ using RxDatasets.Abstractions;
 namespace RxDatasets.Reporting;
 
 public class ProtobufJsonToObjectStorageReporter<T>(
-    IObjectStorageProvider<T> storageProvider,
+    IDiskStorage<T> storage,
     IOptions<JsonOutputConfig> reportingConfig)
     : IDatasetUpdateReporting<T>
     where T : IMessage<T>
@@ -21,20 +21,20 @@ public class ProtobufJsonToObjectStorageReporter<T>(
     {
         var customObjectKey = GetObjectKey(name, version, "created/");
         var jsonBytes = ProtoBytesToJsonBytes(newProtoBytes);
-        await storageProvider.UploadBytes(customObjectKey, jsonBytes);
+        await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
     public async Task OnChangedDto(string name, byte[] changedProtoBytes, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "changed/");
         var jsonBytes = ProtoBytesToJsonBytes(changedProtoBytes);
-        await storageProvider.UploadBytes(customObjectKey, jsonBytes);
+        await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
     public async Task OnDeletedDto(string name, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "deleted/");
-        await storageProvider.UploadBytes(customObjectKey, "{}"u8.ToArray());
+        await storage.UploadBytes(customObjectKey, "{}"u8.ToArray());
     }
 
     public string ReportingIdentifier => "json-entity-writer";

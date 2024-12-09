@@ -36,7 +36,8 @@ namespace RxDatasets
                return this;
             }
 
-            services.AddValidatedConfigSection<DtoStorageCacheConfig>();
+            services.AddValidatedConfigSection<DtoStorageCacheConfig>();          
+            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
             services.AddSingleton<ObjectStorageProvider<TEntity>>();
             services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
             services.AddSingleton<IStorageProvider<TEntity>>(sp =>
@@ -77,7 +78,7 @@ namespace RxDatasets
 
             return this;
         }
-
+        
         public DtoServerBuilder<TEntity> WithDistributedLock(params string[] healthTags)
         {
             services.AddSingleton<DistributedLockService<TEntity>>();
@@ -104,6 +105,8 @@ namespace RxDatasets
         {
             if(_isCacheConfigured || _isInMemoryDataset)
                 return;
+            
+            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
 
             services.AddSingleton<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
             services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
