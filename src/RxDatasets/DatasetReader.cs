@@ -237,6 +237,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         {
             throw new ArgumentOutOfRangeException($"fromVersion {fromVersion} can't be bigger than the latest version {toVersion}");
         }
+        if (fromVersion == toVersion)
+        {
+            return Task.FromResult(new ChangeSet(toVersion, [])); 
+        }
 
         var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
         return Task.FromResult(new ChangeSet(toVersion, changedNames));
