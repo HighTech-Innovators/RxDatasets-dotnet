@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
@@ -155,7 +156,48 @@ public abstract class StorageTestSpec
         newRes.NewDatasetVersion.Should().Be(initialDatasetVersion + 2);
 
     }
+    
+    [Fact(Skip="Performance test that take around 2 min to load data into storage")]
+    public async Task Should_Put_All_Children_DTOs_ShouldBeFast()
+    {
+        var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
+        var changes = new List<(string name, byte[])>();
+        for (var channel = 100000; channel <= 100250; channel++)
+        {
+            for (var day = 20240101; day <= 20240124; day++)
+            {
+                for (var eventId = 1000000000; eventId <= 1000000024; eventId++)
+                {
+                    changes.Add(($"ParentEntity/{channel}/Should_Put_All_Children_DTOs/{day}/event/{eventId}",
+                        GenerateRandomData(UNIT_KB * 10)));
+                }
+            }
+        }
+
+        var res = await storageDatasetWriter.PutAllChildren(changes.ToAsyncEnumerable());
+
+        res.Should().NotBeNull();
+
+        var newChanges = new List<(string name, byte[])>();
+        for (var eventId = 1000000000; eventId <= 1000000024; eventId++)
+        {
+            newChanges.Add(($"ParentEntity/100077/Should_Put_All_Children_DTOs/20240122/event/{eventId}",
+                GenerateRandomData(UNIT_KB * 10, 1))); 
+            newChanges.Add(($"ParentEntity/100077/Should_Put_All_Children_DTOs/20240105/event/{eventId}",
+                GenerateRandomData(UNIT_KB * 10, 1))); 
+            newChanges.Add(($"ParentEntity/100075/Should_Put_All_Children_DTOs/20240121/event/{eventId}",
+                GenerateRandomData(UNIT_KB * 10, 1))); 
+            newChanges.Add(($"ParentEntity/100078/Should_Put_All_Children_DTOs/20240112/event/{eventId}",
+                GenerateRandomData(UNIT_KB * 10, 1))); 
+        }
+
+        var sw = Stopwatch.StartNew();
+        var newRes = await storageDatasetWriter.PutAllChildren(newChanges.ToAsyncEnumerable());
+        sw.Stop();
+        
+        sw.ElapsedMilliseconds.Should().BeCloseTo(200, 50);
+    }
 
     [Fact]
     public async Task Should_Put_Many_New_DTOs_FluentAssertions()
