@@ -10,6 +10,12 @@ namespace RxDatasets;
 
 public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
 {
+    private const string  TypeAndId = "[^/]+/[^/]+";
+
+    private static readonly Regex ParentRegex = new(
+        $"^({TypeAndId}(/{TypeAndId})*)/[^/]+(/[^/]+)?$",
+        RegexOptions.Compiled);
+    
     public async Task<ImmutableDatasetState> GetLatestIndex()
     {
         var availableVersion = await storageProvider.ListVersions();
@@ -21,10 +27,7 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
     {
         // Remove any trailing slashes to handle cases like "parent/child/"
         name = name.TrimEnd('/');
-
-        var typeAndId = "[^/]+/[^/]+";
-        var regex = new Regex($"^({typeAndId}(/{typeAndId})*)/[^/]+(/[^/]+)?$");
-        var match = regex.Match(name);
+        var match = ParentRegex.Match(name);
 
         return match.Success ? match.Groups[1].Value : null;
     }
