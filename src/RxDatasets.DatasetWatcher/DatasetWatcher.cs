@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+﻿﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.StorageProviders;
@@ -10,37 +10,32 @@ public interface IDatasetWatcher<out T>
     Task SubscribeAllData(IDatasetObserver<T> datasetObserver, CancellationToken cancellationToken);
 }
 
-public class DatasetWatcher<T> : IDatasetWatcher<T>
+public class DatasetWatcher<T>(
+    ILogger<DatasetWatcher<T>> logger,
+    IStorageReader<T> storageReader,
+    IOptions<DatasetWatcherConfig> watcherConfig)
+    : IDatasetWatcher<T>
 {
-    private readonly ILogger<DatasetWatcher<T>> _logger;
-    private readonly IStorageReader<T> _storageReader;
-    private readonly DatasetWatcherConfig _datasetWatcherConfig;
-
-    public DatasetWatcher(ILogger<DatasetWatcher<T>> logger, IStorageReader<T> storageReader,
-        IOptions<DatasetWatcherConfig> watcherConfig)
-    {
-        _logger = logger;
-        _storageReader = storageReader;
-        _datasetWatcherConfig = watcherConfig.Value;
-    }
+    private readonly DatasetWatcherConfig _datasetWatcherConfig = watcherConfig.Value;
 
 
     private async Task ReportADeltaToTheObserver(IDatasetObserver<T> datasetObserver, ulong nextToReportedVersion)
     {
         await datasetObserver.OnDatasetVersionStart(nextToReportedVersion);
-        var deltaIndex = await _storageReader.ReadDeltaIndex(nextToReportedVersion);
+        var deltaIndex = await storageReader.ReadDeltaIndex(nextToReportedVersion);
         var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
+        var deltaVersion = deltaIndexParsed.DeltaVersion>0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
         foreach (var entity in deltaIndexParsed.NewEntities)
         {
-            var data = await _storageReader.ReadDataFromSources(
-                [(ObjectNameTypeEnum.DELTA, deltaIndexParsed.DeltaVersion, entity.Position)], entity.Length);
+            var data = await storageReader.ReadDataFromSources(
+                [(ObjectNameTypeEnum.DELTA, deltaVersion, entity.Position)], entity.Length);
             await datasetObserver.OnCreate(entity.Name, data);
         }
 
         foreach (var entity in deltaIndexParsed.ChangedEntities)
         {
-            var data = await _storageReader.ReadDataFromSources(
-                [(ObjectNameTypeEnum.DELTA, deltaIndexParsed.DeltaVersion, entity.Position)], entity.Length);
+            var data = await storageReader.ReadDataFromSources(
+                [(ObjectNameTypeEnum.DELTA, deltaVersion, entity.Position)], entity.Length);
             await datasetObserver.OnChange(entity.Name, data);
         }
 
@@ -56,8 +51,8 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
     private async Task ReportAllDataToTheObserver(IDatasetObserver<T> datasetObserver, SnapshotIndex snapshotIndex,
         ReadOnlyMemory<byte> data)
     {
-
-        await datasetObserver.OnDatasetVersionStart(snapshotIndex.SnapshotVersion);
+        var snapshotVersion = snapshotIndex.SnapshotVersion>0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
+        await datasetObserver.OnDatasetVersionStart(snapshotVersion);
 
         foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
         {
@@ -82,7 +77,7 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
             }
         }
 
-        await datasetObserver.OnDatasetVersionEnd(snapshotIndex.SnapshotVersion);
+        await datasetObserver.OnDatasetVersionEnd(snapshotVersion);
 
     }
 
@@ -91,13 +86,13 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
     {
         try
         {
-            var versions = await _storageReader.ListVersions();
+            var versions = await storageReader.ListVersions();
             if (versions.Snapshots.Count == 0) return;
 
             var lastSnapshotVersion = versions.Snapshots.MaxBy((s) => s.Version).Version;
-            var snapshotIndex = await _storageReader.ReadSnapshotIndex(lastSnapshotVersion);
+            var snapshotIndex = await storageReader.ReadSnapshotIndex(lastSnapshotVersion);
             var snapshotIndexParsed = SnapshotIndex.Parser.ParseFrom(snapshotIndex.Span);
-            var snapshotData = await _storageReader.ReadSnapshotData(lastSnapshotVersion);
+            var snapshotData = await storageReader.ReadSnapshotData(lastSnapshotVersion);
             await ReportAllDataToTheObserver(datasetObserver, snapshotIndexParsed, snapshotData);
             var lastReportedVersion = lastSnapshotVersion;
 
@@ -121,7 +116,7 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
         try
         {
 
-            var versions = await _storageReader.ListVersions();
+            var versions = await storageReader.ListVersions();
             if (version < versions.OldestDelta)
             {
                 throw new InvalidOperationException(
@@ -137,7 +132,7 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
                     lastReportedVersion = version;
                 }
             
-                var updatedVersionsMaybe = await _storageReader.ListVersions();
+                var updatedVersionsMaybe = await storageReader.ListVersions();
                 if (updatedVersionsMaybe.NewestDelta == lastReportedVersion)
                 {
                     return lastReportedVersion;
@@ -148,7 +143,7 @@ public class DatasetWatcher<T> : IDatasetWatcher<T>
         }
         catch (Exception e)
         {
-            _logger.LogWarning(e, e.Message);
+            logger.LogWarning(e, e.Message);
             return lastReportedVersion;
         }
     }

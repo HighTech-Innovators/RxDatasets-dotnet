@@ -143,10 +143,12 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
             }
         }
 
-        if (mutableSnapshotIndex.SnapshotVersion != snapshotVersion)
+
+        var version = mutableSnapshotIndex.SnapshotVersion > 0 ? mutableSnapshotIndex.SnapshotVersion : mutableSnapshotIndex.SnapshotVersionLegacy;
+        if (version != snapshotVersion)
         {
             logger.LogWarning(
-                $"Snapshot version {mutableSnapshotIndex.SnapshotVersion} does not match the requested version {snapshotVersion}, overwriting it");
+                $"Snapshot version {version} does not match the requested version {snapshotVersion}, overwriting it");
             mutableSnapshotIndex.SnapshotVersion = snapshotVersion;
         }
 
@@ -218,7 +220,7 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
             .ToList();
 
         return (await Task.WhenAll(indexes))
-            .OrderBy(x => x.DeltaVersion)
+            .OrderBy(x => x.DeltaVersion).ThenBy((x) => x.DeltaVersionLegacy)
             .ToList();
     }
 

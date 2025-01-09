@@ -9,13 +9,15 @@ public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapsho
         Dictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>();
         snapshotIndex.Entities.ToList().ForEach(x => entities.Add(x.Key, ImmutableSnapshotEntity.FromProto(x.Value)));
 
-        return new ImmutableDatasetState(entities.ToImmutableDictionary(), snapshotIndex.SnapshotVersion, snapshotIndex.SnapshotVersion);
+        var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
+        return new ImmutableDatasetState(entities.ToImmutableDictionary(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
     }
 
     public SnapshotIndex ToProto()
     {
         SnapshotIndex snapshotIndex = new SnapshotIndex()
         {
+            SnapshotVersionLegacy = 0,
             SnapshotVersion = this.SnapshotVersion
         };
 

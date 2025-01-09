@@ -12,8 +12,9 @@ message SnapshotEntity {
 }
 
 message SnapshotIndex {
-	uint64 snapshot_version = 1; 
+	uint64 snapshot_version_legacy = 1; 
 	map<string, SnapshotEntity> entities = 2;
+	uint64 snapshot_version = 32;
 }
 
 message DeltaEntity {
@@ -24,10 +25,11 @@ message DeltaEntity {
 }
 
 message DeltaIndex {
-	uint64 delta_version = 1; 
+	uint64 delta_version_legacy = 1; 
 	repeated string deleted_names = 2; 
 	repeated DeltaEntity changed_entities = 3;
 	repeated DeltaEntity new_entities = 4;
+	uint64 delta_version = 32;
 }
 
 message ProcessedVersionsInfo {

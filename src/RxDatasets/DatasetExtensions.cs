@@ -49,7 +49,7 @@ public static class DatasetExtensions
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
         var tempSnapshotEntities = index.Entities;
-
+        var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
         foreach (var newEntity in delta.NewEntities)
         {
             if (!index.Entities.TryGetValue(newEntity.Name, out var existingEntity))
@@ -59,7 +59,7 @@ public static class DatasetExtensions
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
-                existingEntity.LastInsertedVersion.Add(delta.DeltaVersion),
+                existingEntity.LastInsertedVersion.Add(deltaVersion),
                 existingEntity.LastUpdatedVersion,
                 newEntity.Position,
                 newEntity.Length,
@@ -75,7 +75,7 @@ public static class DatasetExtensions
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
                 existingEntity.LastInsertedVersion,
-                delta.DeltaVersion,
+                deltaVersion,
                 changedEntity.Position,
                 changedEntity.Length,
                 changedEntity.Crc32);
@@ -88,7 +88,7 @@ public static class DatasetExtensions
             var existingEntity = index.Entities[deletedName];
 
             var updatedEntity = new ImmutableSnapshotEntity(
-                existingEntity.LastDeletedVersion.Add(delta.DeltaVersion),
+                existingEntity.LastDeletedVersion.Add(deltaVersion),
                 existingEntity.LastInsertedVersion,
                 existingEntity.LastUpdatedVersion,
                 0,
@@ -98,7 +98,7 @@ public static class DatasetExtensions
             tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
         }
 
-        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, delta.DeltaVersion);
+        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion);
     }
 
     public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState index, IEnumerable<DeltaIndex> deltas)
