@@ -260,7 +260,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(ImmutableDatasetState index, IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeParents, Stream stream, CancellationToken ct)
     {
-        var deltaIndex = new DeltaIndex { DeltaVersion = index!.LatestVersion + 1 };
+        var deltaIndex = new DeltaIndex { DeltaVersion = index!.LatestVersion + 1, DeltaVersionLegacy = 0};
 
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
@@ -373,6 +373,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         var deltaIndex = new DeltaIndex()
         {
+            DeltaVersionLegacy = 0,
             DeltaVersion = delta.DatasetVersion
         };
 

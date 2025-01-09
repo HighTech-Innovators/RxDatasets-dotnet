@@ -527,7 +527,6 @@ public class ObjectStorageProvider<T>(
         await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
 
-      
     private async Task<IDisposable> DeltaLock(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
