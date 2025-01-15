@@ -21,8 +21,8 @@ namespace RxDatasets.StorageTests
                 CacheSizeMB = 100
             });
             var storageProviderMock = new Mock<IStorageProvider<object>>();
-            var notificationsHubMock = new Mock<INotificationsHub<object>>();
-            var cacheStorageProvider = new CacheStorageProvider<object>(storageProviderMock.Object, cacheConfig, storageLogger.Object, notificationsHubMock.Object);
+            var readOnlyStorageProviderMock = new Mock<IReadOnlyStorageProvider<object>>();
+            var cacheStorageProvider = new CacheStorageProvider<object>(storageProviderMock.Object, cacheConfig, storageLogger.Object, null, readOnlyStorageProviderMock.Object);
 
             return (cacheStorageProvider, storageProviderMock);
         }
@@ -58,7 +58,7 @@ namespace RxDatasets.StorageTests
         }
 
         [Fact]
-        public async Task Should_Not_Hit_Cache_For_Delta_Index()
+        public async Task Should_Hit_Cache_For_Delta_Index()
         {
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
 
@@ -71,12 +71,12 @@ namespace RxDatasets.StorageTests
             var returnedDeltaIndex = await cacheStorageProvider.ReadDeltaIndex(version);
 
             //Assert
-            storageProviderMock.Verify(x => x.ReadDeltaIndex(It.IsAny<ulong>()), Times.Once);
+            storageProviderMock.Verify(x => x.ReadDeltaIndex(It.IsAny<ulong>()), Times.Never);
             storageProviderMock.Verify(x => x.StoreDelta(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
 
         [Fact]
-        public async Task Should_Not_Hit_Cache_For_Snapshot_Index()
+        public async Task Should_Hit_Cache_For_Snapshot_Index()
         {
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
 
@@ -96,7 +96,7 @@ namespace RxDatasets.StorageTests
             var returnedSnapshotIndex = await cacheStorageProvider.ReadSnapshotIndex(version);
 
             //Assert
-            storageProviderMock.Verify(x => x.ReadSnapshotIndex(It.IsAny<ulong>()), Times.Once);
+            storageProviderMock.Verify(x => x.ReadSnapshotIndex(It.IsAny<ulong>()), Times.Never);
             storageProviderMock.Verify(x => x.StoreSnapshot(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
 

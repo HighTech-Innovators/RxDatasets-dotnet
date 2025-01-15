@@ -37,7 +37,8 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     }
 
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
+        CancellationToken ct,
         [CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -53,8 +54,10 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub,  storageReader,false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
+        
 
-        var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, Options.Create(new WriterConfig { }), false);
 
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
@@ -101,9 +104,9 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
         IDiskStorage<object> s3Storage = new S3Storage<object>(storageLogger.Object, _s3Config!, false);
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
 
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub,  storageReader, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub,  readOnlyStorage, false);
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
         
         await persistentStorageProvider.StoreDelta(1, [1], [1]);
@@ -118,9 +121,9 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         await persistentStorageProvider.StoreSnapshot(6, [6], [6]);
 
         var versions = await persistentStorageProvider.ListVersions();
-        versions.oldestDelta.Should().Be(1);
-        versions.newestDelta.Should().Be(6);
-        versions.snapshots.MinBy(s=>s.Version)?.Version.Should().Be(1);
+        versions.OldestDelta.Should().Be(1);
+        versions.NewestDelta.Should().Be(6);
+        versions.Snapshots.MinBy(s=>s.Version)?.Version.Should().Be(1);
         
         // act
         await persistentStorageProvider.DeleteOlderThan(3, false);
@@ -129,9 +132,9 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         // Assert
 
         versions = await persistentStorageProvider.ListVersions();
-        versions.oldestDelta.Should().Be(4);
-        versions.newestDelta.Should().Be(6);
-        versions.snapshots.Select(s=>s.Version).Min().Should().Be(3);
+        versions.OldestDelta.Should().Be(4);
+        versions.NewestDelta.Should().Be(6);
+        versions.Snapshots.Select(s=>s.Version).Min().Should().Be(3);
         var snapshotsListFromLowLevelStorage = (await s3Storage.ListObjects("Object/snapshots/"))
             .GroupBy(s => SharedMethods.ExtractNumber(s.ObjectKey))
             .Select(g => g.Key);

@@ -20,8 +20,6 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProvider.S3;
-using RxDatasets.StorageProviders;
-
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation
 {
     public class E2ETestsUsingTestHostWithMinio(

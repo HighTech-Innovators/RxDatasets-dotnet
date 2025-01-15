@@ -110,15 +110,15 @@ public class DataWatcherTests
         var notificationsHub = new NotificationsHubSync<object>();
         var storageConfig = Options.Create(new StorageConfig());
 
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, lowLevelStorage);
-        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), storageConfig, lowLevelStorage, notificationsHub, storageReader,false );
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, lowLevelStorage);
+        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), storageConfig, lowLevelStorage, notificationsHub, readOnlyStorage,false );
         await ((ObjectStorageProvider<object>)storageProvider).StartAsync(CancellationToken.None);
         await UsingLowLevelInMemoryStorage.StartSnapshotCreationService(storageProvider, notificationsHub);
 
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), storageProvider, Options.Create(new WriterConfig()), false);
         var datasetObserver = new Mock<IDatasetObserver<object>>();
         
-        var datasetWatcher = new DatasetWatcher<object>(logger, storageReader, Options.Create(new DatasetWatcherConfig
+        var datasetWatcher = new DatasetWatcher<object>(logger, readOnlyStorage, Options.Create(new DatasetWatcherConfig
         {
             CheckingIntervalInSeconds = 0
         }));

@@ -8,7 +8,7 @@ using RxDatasets.Models;
 
 namespace RxDatasets;
 
-public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
+public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvider)
 {
     private const string  TypeAndId = "[^/]+/[^/]+";
 
@@ -20,7 +20,7 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
     {
         var availableVersion = await storageProvider.ListVersions();
 
-        return await GetIndexOfVersion(availableVersion.newestDelta);
+        return await GetIndexOfVersion(availableVersion.NewestDelta);
     }
 
     public static string? FindParentOfEntity(string name)
@@ -101,13 +101,13 @@ public class DatasetHelper(ILogger logger, IStorageProvider storageProvider)
 
         if (specificSnapshot != null)
         {
-            specificSnapshot = availableVersions.snapshots.Count > 0
-                ? availableVersions.snapshots.MaxBy((s) => s.Version).Version
+            specificSnapshot = availableVersions.Snapshots.Count > 0
+                ? availableVersions.Snapshots.MaxBy((s) => s.Version).Version
                 : 0ul;
             return await TryGetSnapshot(specificSnapshot.Value);
         }
 
-        foreach (var version in availableVersions.snapshots.Select(s => s.Version).OrderDescending())
+        foreach (var version in availableVersions.Snapshots.Select(s => s.Version).OrderDescending())
         {
             try
             {

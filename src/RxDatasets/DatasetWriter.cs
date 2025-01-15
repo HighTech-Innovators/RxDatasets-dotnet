@@ -22,8 +22,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
-    private readonly List<IDisposable> _disposableNotificationSubscriptions = [];
-    private readonly CompositeDisposable _subscriptions = new CompositeDisposable();
+    private readonly CompositeDisposable _subscriptions = new();
 
     public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
     {

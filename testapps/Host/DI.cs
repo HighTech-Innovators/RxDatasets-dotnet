@@ -14,8 +14,8 @@ public static class DI
         builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build();
 
         //new testdto
-        //RxDatasets.TestdtoV1.Server.DI.ConfigureServices(builderServices);
-        //builderServices.AddDtoServer<Hightechinnovators.Dtos.TestdtoV1.Testdto>().WithS3Storage().WithCache().WithSnapshot().WithCleanup().Build();
+        //RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
+        //builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithLocalDiskStorage().WithCache(readOnly: true).BuildReadOnly();
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();

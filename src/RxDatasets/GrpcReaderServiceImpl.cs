@@ -15,7 +15,6 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
     public record struct ListChangesResponse(ulong ToDatasetVersion, IEnumerable<string> NewEntities, IEnumerable<string> ChangedEntities, IEnumerable<string> DeletedEntities, string NextPageToken);
 
     private readonly int _paginationTimeOut = config.GetValue("PaginationCacheDuration", 60);
-    private readonly IDatasetReader<TEntity> _dataset = dataset;
     private readonly MessageParser<TEntity> _protoParser = new(() => (TEntity)Activator.CreateInstance(typeof(TEntity))!);
     private readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions()); 
 
@@ -30,7 +29,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         using var cts = CombiTokenSource(cancellationToken);
         try
         {
-            var entities = await _dataset
+            var entities = await dataset
                 .BatchGet(listOfNames, requestParent);
             return entities.Where(entity => entity.entityBytes is not null)
                 .Select(item => _protoParser.ParseFrom(item.entityBytes!.Value.Span)).ToList();
@@ -50,7 +49,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
     public async Task<TEntity> Get(string name, CancellationToken cancellationToken)
     {
-        var entity = await _dataset.Get(name) ?? throw new RpcException(new Status(StatusCode.NotFound,
+        var entity = await dataset.Get(name) ?? throw new RpcException(new Status(StatusCode.NotFound,
                 $"The requested {typeof(TEntity).Name} does not exist: {name}"));
 
         return _protoParser.ParseFrom(entity.entityBytes.Span);
@@ -61,7 +60,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         using var cts = CombiTokenSource(cancellationToken);
         try
         {
-            var list = await _dataset
+            var list = await dataset
                 .List(parent)
                 .Select(x => _protoParser.ParseFrom(x.entityBytes.Span))
                 .ToListAsync(cts.Token);
@@ -123,14 +122,14 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
     private async Task<(ICollection<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> GetChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
-        var changes = await _dataset.GetChangedNames(requestFromDatasetVersion);
+        var changes = await dataset.GetChangedNames(requestFromDatasetVersion);
         return (changes.changes, changes.toVersion);
     }
 
     private async Task<(ICollection<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
-        var changes = await _dataset.WaitChangedNames(requestFromDatasetVersion, ctsToken);
+        var changes = await dataset.WaitChangedNames(requestFromDatasetVersion, ctsToken);
         return (changes.changes, changes.toVersion);
     }
 

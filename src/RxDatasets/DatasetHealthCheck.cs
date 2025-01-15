@@ -32,13 +32,34 @@ public class DatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCh
         return HealthCheckResult.Healthy();
     }
 }
+
+public class ReadOnlyDatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var datasetReader = serviceProvider.GetRequiredService<IDatasetReader<T>>();
+
+        var healthCheckResults = new List<HealthCheckResult>();
+
+        if (datasetReader is DatasetReader<T> reader)
+        {
+            healthCheckResults.Add(await reader.CheckHealthAsync(cancellationToken));
+        }
+
+        if(healthCheckResults.Any(r => r.Status != HealthStatus.Healthy))
+        {
+            return healthCheckResults.First(x => x.Status != HealthStatus.Healthy);
+        }
+
+        return HealthCheckResult.Healthy();
+    }
+}
+
 public class DistributedLockHealthCheck<T>(DistributedLockService<T> lockService) : IHealthCheck
 {
-    private readonly DistributedLockService<T> _lockService = lockService;
-
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (_lockService.HasLock)
+        if (lockService.HasLock)
         {
             return Task.FromResult(HealthCheckResult.Healthy("Lock acquired."));
         }

@@ -9,6 +9,7 @@ using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
+using RxDatasets.StorageProviders.ReadOnly;
 
 namespace RxDatasets.StorageProviders;
 
@@ -22,24 +23,26 @@ public class ObjectStorageProvider<T>(
     bool retryInit = true,
     DistributedLockService<T>? lockService = null
     )
-    : IStorageProvider<T>, IHostedService
+    : ReadOnlyObjectStorageProvider<T>(logger, storageConfig, storage, storageReader, notificationsHub, retryInit, pollForChanges: false), IStorageProvider<T>, IHostedService
 {
     private readonly SemaphoreSlim _deltaSemaphore = new(1);
     private readonly SemaphoreSlim _snapshotSemaphore = new(1);
     private readonly SemaphoreSlim _processedVersionsSemaphore = new(1);
     private Task? _initTask;
     private IDisposable _disposableSubscription;
-    private readonly DeltaInfo _deltaInfo = new();
     private ProcessedVersionsInfo _processedVersionsInfo = new();
-    private List<SnapshotType> _snapshots = [];
 
-
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        if(lockService is null)
+        if (lockService is null)
+        {
             _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+            await _initTask;
+        }
+    
 
-        _disposableSubscription = notificationsHub.Subscribe<DistributedLockNotification>(async (notification) => {
+        _disposableSubscription = notificationsHub.Subscribe<DistributedLockNotification>(async (notification) =>
+        {
             if (notification.LockStatus == DistirbutedLockStatus.Acquried)
             {
                 _initTask = InitLoop(cancellationToken);
@@ -50,18 +53,15 @@ public class ObjectStorageProvider<T>(
             _initTask = null;
             await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
         });
-        
-        return _initTask ?? Task.CompletedTask;
+    
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public new async Task StopAsync(CancellationToken cancellationToken)
     {
         _disposableSubscription?.Dispose();
-        notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
-
-        return Task.CompletedTask;
+        await base.StopAsync(cancellationToken);
+        await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
     }
-    
 
     public async Task DeleteOlderThan(ulong version, bool keepAllDeltas)
     {
@@ -69,17 +69,17 @@ public class ObjectStorageProvider<T>(
 
         using var slotSnapshot = await SnapshotLock();
 
-        if (_snapshots.All(x => x.Version != version))
+        if (Snapshots.All(x => x.Version != version))
             throw new InvalidOperationException($"Snapshot version {version} does not exist");
         
         logger.LogInformation($"Storage Cleaning is happening, deleting anything older than version {version}!");
 
-        foreach (var snapshot in _snapshots.Where(k => k.Version < version).ToList())
+        foreach (var snapshot in Snapshots.Where(k => k.Version < version).ToList())
         {
             var folderKey = DatasetHelper.GetObjectFolder<T>(snapshot.Version, ObjectNameTypeEnum.SNAPSHOT,
                 storageConfig.Value);
             await storage.DeleteFolder(folderKey);
-            _snapshots.Remove(snapshot);
+            Snapshots.Remove(snapshot);
             await SaveSnapshotInfo();
         }
 
@@ -87,7 +87,7 @@ public class ObjectStorageProvider<T>(
         {
             using var slotDelta = await DeltaLock();
 
-            for (var deltaToDelete = _deltaInfo.EarliestDeltaVersion;
+            for (var deltaToDelete = DeltaInfo.EarliestDeltaVersion;
                  deltaToDelete <= version;
                  deltaToDelete++)
             {
@@ -95,17 +95,9 @@ public class ObjectStorageProvider<T>(
                 await storage.DeleteFolder(folderKey);
             }
 
-            _deltaInfo.EarliestDeltaVersion = version + 1;
+            DeltaInfo.EarliestDeltaVersion = version + 1;
             await SaveDeltaInfo();
         }
-    }
-    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
-    {
-        return storageReader.ReadSnapshotData(snapshotVersion);
-    }
-    public Task ReadSnapshotData(ulong version, Action<Stream> callback)
-    {
-        return storageReader.ReadSnapshotData(version, callback);
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
@@ -130,11 +122,11 @@ public class ObjectStorageProvider<T>(
         else
             await storage.UploadBytes(indexObjectName, index);
 
-        if (_deltaInfo.EarliestDeltaVersion == 0)
+        if (DeltaInfo.EarliestDeltaVersion == 0)
         {
-            _deltaInfo.EarliestDeltaVersion = deltaVersion;
+            DeltaInfo.EarliestDeltaVersion = deltaVersion;
         }
-        _deltaInfo.LatestDeltaVersion++;
+        DeltaInfo.LatestDeltaVersion++;
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
@@ -159,12 +151,12 @@ public class ObjectStorageProvider<T>(
         else // Deleted Delta data
             await storage.UploadBytes(indexObjectName, index);
         
-        if (_deltaInfo.EarliestDeltaVersion == 0)
+        if (DeltaInfo.EarliestDeltaVersion == 0)
         {
-            _deltaInfo.EarliestDeltaVersion = deltaVersion;
+            DeltaInfo.EarliestDeltaVersion = deltaVersion;
         }
         
-        _deltaInfo.LatestDeltaVersion++;
+        DeltaInfo.LatestDeltaVersion++;
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
@@ -220,9 +212,9 @@ public class ObjectStorageProvider<T>(
             await storage.UploadBytes(indexObjectName, index);
         }
 
-        if (_snapshots.All(s => s.Version != snapshotVersion))
+        if (Snapshots.All(s => s.Version != snapshotVersion))
         {
-            _snapshots.Add(new SnapshotType
+            Snapshots.Add(new SnapshotType
             (
                 snapshotVersion,
                 DateTimeOffset.UtcNow
@@ -232,7 +224,7 @@ public class ObjectStorageProvider<T>(
         }
 
         await notificationsHub.Notify(
-            new SnapshotCreatedNotification(_snapshots.Max(sv => sv.Version)));
+            new SnapshotCreatedNotification(Snapshots.Max(sv => sv.Version)));
     }
 
     private async Task VerifyStreamUploadIfConfigured(string dataObjectName, long expectedDataLength)
@@ -265,9 +257,9 @@ public class ObjectStorageProvider<T>(
             await storage.UploadBytes(indexObjectName, index);
         }
 
-        if (_snapshots.All((s) => s.Version != snapshotVersion))
+        if (Snapshots.All((s) => s.Version != snapshotVersion))
         {
-            _snapshots.Add(new SnapshotType
+            Snapshots.Add(new SnapshotType
             (
                 snapshotVersion,
                 DateTimeOffset.UtcNow
@@ -277,31 +269,9 @@ public class ObjectStorageProvider<T>(
         }
 
         await notificationsHub.Notify(
-            new SnapshotCreatedNotification(_snapshots.Max(sv => sv.Version)));
+            new SnapshotCreatedNotification(Snapshots.Max(sv => sv.Version)));
     }
-
-
-    public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
-    {
-        return storageReader.ReadDeltaIndex(version);
-    }
-
-    public Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
-    {
-        return storageReader.ReadSnapshotIndex(version);
-    }
-
-    public async Task<(ulong oldestDelta, ulong newestDelta, List<SnapshotType> snapshots)>
-        ListVersions()
-    {
-        await EnsureProviderIsInitialized();
-        
-        return (_deltaInfo.EarliestDeltaVersion,
-            _deltaInfo.LatestDeltaVersion, _snapshots);
-    }
-
-   
-
+    
     public async Task StoreProcessedVersion(string who, ulong version)
     {
         ThrowIfNoLockIsAcquired();
@@ -325,25 +295,6 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(
-        List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
-    {
-        await EnsureProviderIsInitialized();
-        sources = sources.Where(source =>
-        {
-            switch (source.type)
-            {
-                case ObjectNameTypeEnum.SNAPSHOT
-                    when _snapshots.All(s => s.Version != source.version):
-                case ObjectNameTypeEnum.DELTA when source.version < _deltaInfo.EarliestDeltaVersion:
-                    // Skip, we don't think we can handle this version request
-                    return false;
-                default:
-                    return true;
-            }
-        }).ToList();
-       return await storageReader.ReadDataFromSources(sources, length);
-    }
 
     public async Task<ulong> GetProcessedVersion(string who)
     {
@@ -361,8 +312,6 @@ public class ObjectStorageProvider<T>(
             ? _processedVersionsInfo.ProcessedVersions.Min(v => v.Value)
             : 0ul;
     }
-
-    
     
     private string GetProcessedVersionsFilename()
     {
@@ -382,22 +331,22 @@ public class ObjectStorageProvider<T>(
     private async Task SaveDeltaInfo()
     {
 
-        if (_deltaInfo.CalculateSize() == 0)
+        if (DeltaInfo.CalculateSize() == 0)
             return;
 
         var filename = GetDeltaInfoFilename();
-        var data = _deltaInfo.ToByteArray();
+        var data = DeltaInfo.ToByteArray();
         await storage.UploadBytes(filename, data);
     }
 
     private async Task SaveSnapshotInfo()
     {
-        if (_snapshots.Count == 0)
+        if (Snapshots.Count == 0)
             return;
 
         var filename = GetSnapshotInfoFilename();
         var snapshotInfo = new SnapshotInfo();
-        snapshotInfo.SnapshotVersions.AddRange(_snapshots.Select(s=> new SnapshotInfo.Types.snapshotVersion(){Timestamp = s.DateTime?.ToTimestamp(), Version = s.Version}));
+        snapshotInfo.SnapshotVersions.AddRange(Snapshots.Select(s=> new SnapshotInfo.Types.snapshotVersion(){Timestamp = s.DateTime?.ToTimestamp(), Version = s.Version}));
         var data = snapshotInfo.ToByteArray();
         await storage.UploadBytes(filename, data);
     }
@@ -431,22 +380,6 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    private async Task<TMessage?> TryParseVersionFileAsync<TMessage>(string filenameSuffix,
-        MessageParser<TMessage> parser)
-        where TMessage : IMessage<TMessage>
-    {
-        var filename = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + filenameSuffix;
-        try
-        {
-            logger.LogInformation($"Attempting to parse file: {filename}");
-            return await DownloadAndParseProtobufFileAsync(filename, parser);
-        }
-        catch (FileNotFoundException ex)
-        {
-            logger.LogInformation($"FileNotFoundException: {ex.Message}. File {filename} not found.");
-            return default;
-        }
-    }
     
 
     private async Task<TMessage> DownloadAndParseProtobufFileAsync<TMessage>(string filename, MessageParser<TMessage> parser)
@@ -518,11 +451,8 @@ public class ObjectStorageProvider<T>(
 
     private async Task Initialize(CancellationToken cancellationToken)
     {
+        await base.StartAsync(cancellationToken);
         if (storage == null) throw new InvalidOperationException("Storage Provider was not initialized");
-        var versions = await storageReader.ListVersions();
-        _deltaInfo.EarliestDeltaVersion = versions.OldestDelta;
-        _deltaInfo.LatestDeltaVersion = versions.NewestDelta;
-        _snapshots = versions.Snapshots;
         await TryLoadProcessedVersionsInfo();
         await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
@@ -543,10 +473,4 @@ public class ObjectStorageProvider<T>(
         return new ActionDisposable(() => _snapshotSemaphore.Release());
     }
 
-    public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
-    {
-        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
-            storageConfig.Value);
-        return storage.GetObjectContentLength(objectName);
-    }
 }

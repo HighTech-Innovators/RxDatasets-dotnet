@@ -37,20 +37,23 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
     }
     
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
+        CancellationToken ct,
         [CallerMemberName] string memberName = "")
     {
         
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, _storage);
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, _storage);
 
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _storage, notificationsHub, storageReader, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _storage, notificationsHub, readOnlyStorage, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-        StartSnapshotCreationService(persistentStorageProvider, notificationsHub);
-        var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        await StartSnapshotCreationService(persistentStorageProvider, notificationsHub);
+
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, Options.Create(new WriterConfig()), false);
         return (datasetReader, datasetWriter);
     }
@@ -67,7 +70,6 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Assert
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
-        newReader.Dispose();
     }
 
     [Fact]
@@ -87,7 +89,6 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
-        newReader.Dispose();
     }
 
     [Fact]
@@ -104,7 +105,6 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Assert
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
-        newReader.Dispose();
     }
 
     [Fact]
@@ -115,7 +115,6 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
-        datasetReader.Dispose();
 
         // Act
         await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
@@ -137,7 +136,6 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
-        datasetReader.Dispose();
         
         // Act
         await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
@@ -176,9 +174,9 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
         StorageConfig.Value.UploadVerificationMode = verificationMode;
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, lowLevelStorageProvider.Object);
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, lowLevelStorageProvider.Object);
 
-        var persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, lowLevelStorageProvider.Object, notificationsHub,  storageReader,false);
+        var persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, lowLevelStorageProvider.Object, notificationsHub,  readOnlyStorage,false);
         await persistentStorageProvider.StartAsync(CancellationToken.None);
 
         return persistentStorageProvider;

@@ -23,6 +23,11 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
 
     }
 
+    public Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
+    {
+        throw new NotImplementedException();
+    }
+
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
         if (_deltas.TryGetValue(snapshotVersion, out var data))
@@ -66,7 +71,7 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
-    public Task<(ulong oldestDelta, ulong newestDelta, List<SnapshotType> snapshots)> ListVersions()
+    public Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
         if (_deltas.IsEmpty)
             return Task.FromResult((0ul, 0ul, new List<SnapshotType>()));
@@ -75,7 +80,7 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         var newestDelta = _deltas.Keys.Max();
         var snapshots = _snapshots.Select(x => new SnapshotType(x.Key, x.Value.creationTime)).GroupBy((g) => g.Version).Select((s) => s.First()).ToList();
 
-        return Task.FromResult((oldestDelta, newestDelta, snapshots));
+        return Task.FromResult((OldestDelta: oldestDelta, NewestDelta: newestDelta, Snapshots: snapshots));
     }
 
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
