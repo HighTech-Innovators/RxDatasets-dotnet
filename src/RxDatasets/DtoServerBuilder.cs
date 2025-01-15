@@ -8,6 +8,7 @@ using RxDatasets.StorageProviders;
 using System.Reactive.Concurrency;
 using Google.Protobuf;
 using RxDatasets.GenericNotifierLogic;
+using RxDatasets.StorageProviders.ReadOnly;
 
 namespace RxDatasets
 {
@@ -19,9 +20,15 @@ namespace RxDatasets
             // Initialize the DtoServerBuilder with the provided IServiceCollection
             return new DtoServerBuilder<TEntity>(services);
         }
+        
+        public static DtoServerBuilder<TEntity> AddReadOnlyDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
+        {
+            services.AddSingleton(serviceProvider => serviceProvider);
+            return new DtoServerBuilder<TEntity>(services, true);
+        }
     }
 
-    public class DtoServerBuilder<TEntity>(IServiceCollection services)
+    public class DtoServerBuilder<TEntity>(IServiceCollection services, bool readOnlyMode = false)
         where TEntity : class, IMessage<TEntity>
     {
         private bool _isCacheConfigured;
@@ -35,9 +42,50 @@ namespace RxDatasets
             {
                return this;
             }
+            
+            services.AddValidatedConfigSection<StorageConfig>();
 
-            services.AddValidatedConfigSection<DtoStorageCacheConfig>();          
+            services.AddValidatedConfigSection<DtoStorageCacheConfig>();
             services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
+            _isCacheConfigured = true;
+            
+            
+            if (readOnlyMode)
+            {
+                
+                AddReadOnlyCachingDI();
+            }
+            else
+            {
+                AddReadWriteCachingDI();
+            }
+
+            return this;
+        }
+
+        private void AddReadOnlyCachingDI()
+        {            
+            services.AddSingleton<ReadOnlyObjectStorageProvider<TEntity>>();
+            services.AddSingleton<IReadOnlyStorageProvider<TEntity>>(sp =>
+                new ReadOnlyCacheStorageProvider<TEntity>(
+                    sp.GetRequiredService<ReadOnlyObjectStorageProvider<TEntity>>(),
+                    sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
+                    sp.GetRequiredService<INotificationsHub<TEntity>>(),
+                    sp.GetRequiredService<ILogger<ReadOnlyCacheStorageProvider<TEntity>>>()
+                ));
+
+            services.AddHostedService(sp => sp.GetRequiredService<ReadOnlyObjectStorageProvider<TEntity>>()); 
+            services.AddHostedService(sp =>
+                (ReadOnlyCacheStorageProvider<TEntity>)sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
+
+        }
+
+        private void AddReadWriteCachingDI()
+        {
+            services.AddSingleton<IReadOnlyStorageProvider<TEntity>, ReadOnlyObjectStorageProvider<TEntity>>();
+            services.AddHostedService(sp =>
+                (ReadOnlyObjectStorageProvider<TEntity>)sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
+            
             services.AddSingleton<ObjectStorageProvider<TEntity>>();
             services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
             services.AddSingleton<IStorageProvider<TEntity>>(sp =>
@@ -45,13 +93,11 @@ namespace RxDatasets
                     sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
                     sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
                     sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>(),
-                    sp.GetRequiredService<INotificationsHub<TEntity>>()
-            ));
+                    sp.GetRequiredService<INotificationsHub<TEntity>>(),
+                    sp.GetRequiredService<ObjectStorageProvider<TEntity>>()));
+            
+            services.AddHostedService(sp => (ReadOnlyObjectStorageProvider<TEntity>) sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
 
-            services.AddHostedService(sp => (CacheStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
-            _isCacheConfigured = true;
-
-            return this;
         }
 
         public DtoServerBuilder<TEntity> WithSnapshot()
@@ -88,29 +134,49 @@ namespace RxDatasets
             return this;
         }
         
-        public IServiceCollection Build()
+        public void Build()
         {
             AddDefaultStorageProvider();
-            services.AddHealthChecks().AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
-            services.AddValidatedConfigSection<StorageConfig>();
-            services.AddValidatedConfigSection<WriterConfig>();
-            services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
-                     .AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>()
-                     .AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+            services
+                .AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
+                .AddSingleton<DatasetReader<TEntity>>()
+                .AddSingleton<IDatasetReader<TEntity>>(sp => sp.GetRequiredService<DatasetReader<TEntity>>());
+            services.AddHostedService<DatasetReader<TEntity>>(sp => (DatasetReader<TEntity>) sp.GetRequiredService<IDatasetReader<TEntity>>());
 
-            return services;
+            if (readOnlyMode)
+            {
+                services.AddHealthChecks()
+                    .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+                return;
+
+            }
+           
+            services.AddHealthChecks()
+                .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+            services.AddValidatedConfigSection<WriterConfig>();
+            services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+            
         }
+
 
         private void AddDefaultStorageProvider()
         {
             if(_isCacheConfigured || _isInMemoryDataset)
                 return;
             
+            services.AddValidatedConfigSection<StorageConfig>();
             services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
-
+            
+            if(readOnlyMode)
+            {
+                services.AddSingleton<IReadOnlyStorageProvider<TEntity>, ReadOnlyObjectStorageProvider<TEntity>>();
+                services.AddHostedService(sp => (ReadOnlyObjectStorageProvider<TEntity>) sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>()); 
+               
+                return;
+            };
+            
             services.AddSingleton<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
             services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
-         
         }
     }
 }

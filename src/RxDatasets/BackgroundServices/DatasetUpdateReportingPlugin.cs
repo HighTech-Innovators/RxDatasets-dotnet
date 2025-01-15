@@ -13,7 +13,7 @@ namespace RxDatasets.BackgroundServices
         
         public async Task ProcessAllUnreportedDeltas(CancellationToken stoppingToken)
         {
-            var newestDelta = (await storageProvider.ListVersions()).newestDelta;
+            var newestDelta = (await storageProvider.ListVersions()).NewestDelta;
             var lastProcessedDelta = await storageProvider.GetProcessedVersion(ReportingIdentifier);
 
             while (!stoppingToken.IsCancellationRequested && lastProcessedDelta < newestDelta)

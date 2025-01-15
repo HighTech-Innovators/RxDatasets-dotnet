@@ -32,13 +32,14 @@ public class StorageCleanTaskTests
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
         IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, notificationsHub);
         
-        var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
         var storageCleanerLogger = new Mock<ILogger<StorageCleaningService<object>>>();
         var snapshotCreationPlugInLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var snapshotCreationServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
 
-        var datasetReader = new DatasetReader<object>(notificationsHub, readerLogger.Object, inMemoryStorage, false);
+
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), inMemoryStorage, notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);        
         var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
         
         var storageCleaningTask = new StorageCleaningService<object>(notificationsHub, inMemoryStorage, ts, _storageCleanupConfig, storageCleanerLogger.Object);
@@ -65,14 +66,15 @@ public class StorageCleanTaskTests
         IDiskStorage<object> localDiskStorage = new LocalDiskStorage<object>(new Mock<ILogger<LocalDiskStorage<object>>>().Object, config);
         INotificationsHub<object> notificationsHub = new NotificationsHub<object>();
         var storageConfig = Options.Create(new StorageConfig());
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, localDiskStorage);
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, localDiskStorage);
 
-        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, localDiskStorage, notificationsHub, storageReader, false);
+        IStorageProvider<object> storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, localDiskStorage, notificationsHub, readOnlyStorage, false);
         await ((ObjectStorageProvider<object>)storageProvider).StartAsync(CancellationToken.None);
-        var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
         
-        var datasetReader = new DatasetReader<object>(notificationsHub, readerLogger.Object, storageProvider, false);
+
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), storageProvider, notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, storageProvider, Options.Create(new WriterConfig { }), false);
         
         var storageCleanerLogger = new Mock<ILogger<StorageCleaningService<object>>>();

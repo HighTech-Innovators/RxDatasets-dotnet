@@ -44,7 +44,8 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
     }
 
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
+        CancellationToken ct,
         [CallerMemberName] string memberName = "")
     {
         _s3Config!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -56,13 +57,15 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
 
 
         IDiskStorage<object> s3Storage = new MinioS3Storage<object>(storageLogger.Object, _s3Config!, false);
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
+        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
 
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub, storageReader);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub, readOnlyStorage);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
 
-        var datasetReader = new DatasetReader<object>(notificationsHub, Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, false);
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);
+        
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, _writerConfig!, false);
 
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();

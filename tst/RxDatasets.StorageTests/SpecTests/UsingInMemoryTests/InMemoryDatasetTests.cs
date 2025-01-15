@@ -22,14 +22,17 @@ public class InMemoryDatasetTests : StorageTestSpec
         _storageProvider = new InMemoryStorageProvider<object>(new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _notificationsHub);
     }
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
+    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
+        CancellationToken ct,
         string memberName = "")
     {
-        var readerLogger = new Mock<ILogger<DatasetReader<object>>>();
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
 
-        var datasetReader = new DatasetReader<object>(_notificationsHub, readerLogger.Object, _storageProvider, false);
+
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), _storageProvider, _notificationsHub);
+        await datasetReader.StartAsync(CancellationToken.None);
+        
         var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
 
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();

@@ -95,7 +95,7 @@ public class ObjectStorageReader<T>(
     {
         try
         {
-            logger.LogInformation($"Attempting to retrieve latest version from Delta and Snapshot Info files. for {typeof(T).Name}");
+            logger.LogDebug($"Attempting to retrieve latest version from Delta and Snapshot Info files. for {typeof(T).Name}");
 
             var deltaTask = DownloadAndParseProtobufFileAsync<DeltaInfo>(GetDeltaInfoFilename(), DeltaInfo.Parser);
             var snapshotTask = DownloadAndParseProtobufFileAsync<SnapshotInfo>(GetSnapshotInfoFilename(), SnapshotInfo.Parser);
@@ -107,13 +107,13 @@ public class ObjectStorageReader<T>(
             var deltaInfo = await deltaTask;
             var snapshotInfo = await snapshotTask;
 
-            logger.LogInformation($"Successfully loaded DeltaInfo and SnapshotInfo files for {typeof(T).Name}.");
+            logger.LogDebug($"Successfully loaded DeltaInfo and SnapshotInfo files for {typeof(T).Name}.");
             
             return (deltaInfo, snapshotInfo);
         }
         catch (FileNotFoundException ex)
         {
-            logger.LogInformation($"FileNotFoundException: {ex.FileName}. Delta or Snapshot file not found.");
+            logger.LogDebug($"FileNotFoundException: {ex.FileName}. Delta or Snapshot file not found.");
             return await TryGetVersionFromFallbacks();
         }
     }
@@ -211,8 +211,6 @@ public class ObjectStorageReader<T>(
     private async Task<TMessage> DownloadAndParseProtobufFileAsync<TMessage>(string filename, MessageParser<TMessage> parser)
         where TMessage : IMessage<TMessage>
     {
-        logger.LogInformation($"Downloading and parsing file: {filename}");
-
         var fileBytes = await diskStorage.DownloadBytes(filename);
         return parser.ParseFrom(fileBytes.Span);
     }
@@ -245,5 +243,13 @@ public class ObjectStorageReader<T>(
            }));
         
         return (deltaInfo, snapshotInfo);
+    }
+    
+    
+    public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
+    {
+        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+            storageConfig.Value);
+        return diskStorage.GetObjectContentLength(objectName);
     }
 }

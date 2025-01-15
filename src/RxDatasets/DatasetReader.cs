@@ -1,6 +1,7 @@
+
 using System.Reactive.Disposables;
-using System.Reactive.Linq;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.GenericNotifierLogic;
@@ -9,49 +10,98 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetReader<T> : IDatasetReader<T>, IDisposable
+public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 {
     private readonly ILogger<DatasetReader<T>> _logger;
-    private readonly IStorageProvider<T> _storageProvider;
+    private readonly IReadOnlyStorageProvider<T> _storageProvider;
+    private readonly INotificationsHub<T>? _notificationsHub;
+    private readonly bool _retryInitialization;
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
-    private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
-    public Task? InitializationTask;
+    private ImmutableDatasetState? _mostRecentSnapshotIndex;
+    private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
-    private readonly bool _retryInitialization;
     private readonly CompositeDisposable _subscriptions = [];
-    private TaskCompletionSource _indexChangedTaskCompletionSource = new();
+    private readonly CancellationTokenSource _cts = new();
 
-
-    public DatasetReader(INotificationsHub<T> notificationsHub,
-        ILogger<DatasetReader<T>> logger,
-        IStorageProvider<T> storageProvider,
-        bool retryInitialization = true)
+    public DatasetReader(ILogger<DatasetReader<T>> logger,
+        IReadOnlyStorageProvider<T> storageProvider, INotificationsHub<T>? notificationsHub,
+        bool retryInitialization = false)
     {
         _storageProvider = storageProvider;
+        this._notificationsHub = notificationsHub;
+        _retryInitialization = retryInitialization;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
-        _retryInitialization = retryInitialization;
-        _subscriptions.Add(notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
-        _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
-        _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+    }    
+    
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+        await _initializationTask;
+        if (_notificationsHub == null)
+        {
+            _ = Task.Run(async () =>
+            {
+                while (!_cts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false);
+                    _initializationTask = Initialize();
+                    await _initializationTask;
+                }
+            }, cancellationToken);
+            return;
+        }
+        
+        _subscriptions.Add(_notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
+        _subscriptions.Add(_notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _subscriptions.Add(_notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
                 Uninitialize();
             }
 
-            InitializationTask = InitializationLoop();
-            await InitializationTask;
-        }));
+            _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+            await _initializationTask;
+        })); 
+    }
+    
+    private async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
+    {
+        using var updateSlot = await Lock(_writerSemaphore);
+        try
+        {
+            ThrowIfNotInitialized();
+            _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
+            var tcs = IndexChangedTaskCompletionSource;
+            IndexChangedTaskCompletionSource = new TaskCompletionSource();
+            tcs.SetResult();
+        }
+        catch (InvalidOperationException)
+        { 
+            // we are not ready
+        }
+    }
+    
+
+    private async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
+    {
+        if (_mostRecentSnapshotIndex == null
+            || (_mostRecentSnapshotIndex != null && notification.Version > _mostRecentSnapshotIndex.SnapshotVersion))
+        {
+            _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex(); ;
+        }
+    }
+    
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _cts.CancelAsync();
+        _subscriptions?.Dispose();
     }
 
-    private void Uninitialize()
-    {
-        InitializationTask = null;
-        _index = null;
-        _indexBasedOnMostRecentSnapshot = null;
-    }
+    private TaskCompletionSource IndexChangedTaskCompletionSource { get; set; } = new();
+
 
     private async Task InitializationLoop()
     {
@@ -77,79 +127,46 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
             _index = await _datasetHelper.GetLatestIndex();
             try
             {
-                _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
+                _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
             }
             catch (FileNotFoundException)
             {
                 //ignored as we dont have a snapshot yet
             }
-            _logger.LogInformation($"Initialized {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
+            _logger.LogInformation($"Initialized ReadOnly {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, $"Failed to initialize Dataset {typeof(T).Name}");
+            _logger.LogCritical(ex, $"Failed to initialize ReadOnly Dataset {typeof(T).Name}");
             throw;
         }
     }
 
-    public async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
+    private void Uninitialize()
     {
-        using var updateSlot = await Lock(_writerSemaphore);
-        try
-        {
-            ThrowIfNotInitialized();
-            _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
-            var tcs = _indexChangedTaskCompletionSource;
-            _indexChangedTaskCompletionSource = new TaskCompletionSource();
-            tcs.SetResult();
-        }
-        catch (InvalidOperationException)
-        { 
-            // we are not ready
-        }
+        _initializationTask = null;
+        _index = null;
+        _mostRecentSnapshotIndex = null;
     }
-
-    public async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
-    {
-      if (_indexBasedOnMostRecentSnapshot == null
-          || (_indexBasedOnMostRecentSnapshot != null && notification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
-        {
-            _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex(); ;
-        }
-    }
-
-    private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
-    {
-        var tempState = datasetState;
-
-         if(latestDelta > tempState.LatestVersion)
-        {
-            var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
-            tempState = tempState.ApplyDeltas(deltas);
-            _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
-        }
-
-        return tempState;
-    }
-
+    
     private ImmutableDatasetState ThrowIfNotInitialized()
     {
-        if (InitializationTask == null)
+        if (_initializationTask == null)
         {
             _logger.LogError("Received a request, however we are not ready yet");
-            throw new InvalidOperationException("Initialization is not yet completed");
+            throw new InvalidOperationException("Not initialized - possibly because storage isn't ready or doesn't have a lock");
         }
 
-        if (!InitializationTask!.IsCompleted)
+        if (!_initializationTask!.IsCompleted)
         {
             _logger.LogError("Dataset received a request before it was initialized");
             throw new InvalidOperationException("Initialization is not yet completed");
         }
 
-        if (InitializationTask.IsFaulted)
+        if (_initializationTask.IsFaulted)
         {
-            _logger.LogError(InitializationTask.Exception, "Dataset received a request, but initialization failed");
-            throw new InvalidOperationException("Initialization failed", InitializationTask.Exception);
+            _logger.LogError(_initializationTask.Exception, "Dataset received a request, but initialization failed");
+            throw new InvalidOperationException("Initialization failed", _initializationTask.Exception);
         }
 
         return _index!;
@@ -178,13 +195,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (_indexBasedOnMostRecentSnapshot != null && entityVersion <= _indexBasedOnMostRecentSnapshot!.SnapshotVersion)
+        if (_mostRecentSnapshotIndex != null && entityVersion <= _mostRecentSnapshotIndex!.SnapshotVersion)
         {
             // At this point, we KNOW it must be in there and be the latest version in existence,
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
-            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
+            var entityFromSnapshot = _mostRecentSnapshotIndex.Entities[name];
+            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _mostRecentSnapshotIndex.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
 
@@ -207,7 +224,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
     {
         if (fromVersion == _index!.LatestVersion)
         {
-            await _indexChangedTaskCompletionSource.Task.WaitAsync(cancellationToken);
+            await IndexChangedTaskCompletionSource.Task.WaitAsync(cancellationToken);
         }
 
         return await GetChangedNames(fromVersion);
@@ -279,45 +296,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
             });
         return changedNames;
     }
-
-    public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
-    {
-        if (InitializationTask == null)
-        {
-            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not yet started");
-        }
-
-        if (!InitializationTask.IsCompletedSuccessfully)
-            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not completed");
-
-        try
-        {
-            await _storageProvider.ListVersions();
-        }
-        catch (Exception e)
-        {
-            return HealthCheckResult.Unhealthy("DatasetReader: Failed to get latest versions from storageProvider", e);
-        }
-
-        return HealthCheckResult.Healthy();
-    }
-
-    public ulong GetLatestVersion()
-    {
-        var indexRef = ThrowIfNotInitialized();
-        return indexRef.LatestVersion;
-    }
-    public ulong GetLastUsedSnapshotVersion()
-    {
-       ThrowIfNotInitialized();
-       return _indexBasedOnMostRecentSnapshot?.SnapshotVersion ?? (ulong)0;
-    }
-    
-    public ulong GetMainIndexSnapshotVersion()
-    {
-        var indexRef = ThrowIfNotInitialized();
-        return indexRef?.SnapshotVersion ?? (ulong)0;
-    }
     
     public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
     {
@@ -338,20 +316,63 @@ public class DatasetReader<T> : IDatasetReader<T>, IDisposable
         }
     }
 
+    public async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
+    {
+        var tempState = datasetState;
+
+        if(latestDelta > tempState.LatestVersion)
+        {
+            var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
+            tempState = tempState.ApplyDeltas(deltas);
+            _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
+        }
+
+        return tempState;
+    }
+    
+    public ulong GetLatestVersion()
+    {
+        var indexRef = ThrowIfNotInitialized();
+        return indexRef.LatestVersion;
+    }
+    public ulong GetLastUsedSnapshotVersion()
+    {
+        ThrowIfNotInitialized();
+        return _mostRecentSnapshotIndex?.SnapshotVersion ?? (ulong)0;
+    }
+    
+    public ulong GetMainIndexSnapshotVersion()
+    {
+        var indexRef = ThrowIfNotInitialized();
+        return indexRef?.SnapshotVersion ?? (ulong)0;
+    }
+    
+    public new async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        if (_initializationTask == null)
+        {
+            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not yet started");
+        }
+
+        if (!_initializationTask.IsCompletedSuccessfully)
+            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not completed");
+
+        try
+        {
+            await _storageProvider.ListVersions();
+        }
+        catch (Exception e)
+        {
+            return HealthCheckResult.Unhealthy("DatasetReader: Failed to get latest versions from storageProvider", e);
+        }
+
+        return HealthCheckResult.Healthy();
+    }
+
+
     private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
     {
         await semaphore.WaitAsync();
         return new ActionDisposable(() => semaphore.Release());
-    }
-
-    private async Task<IDisposable> Lock(SemaphoreSlim semaphore, CancellationToken cancellationToken)
-    {
-        await semaphore.WaitAsync(cancellationToken);
-        return new ActionDisposable(() => semaphore.Release());
-    }
-
-    public void Dispose()
-    {
-        _subscriptions?.Dispose();
     }
 }

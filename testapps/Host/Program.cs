@@ -1,6 +1,9 @@
 using System.Net;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-public class Program
+
+namespace Host;
+
+public static class Program
 {
     public static void Main(string[] args)
     {
