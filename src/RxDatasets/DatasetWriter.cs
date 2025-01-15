@@ -1,3 +1,4 @@
+
 using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -145,6 +146,43 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await ApplyDelta(delta);
 
         _logger.LogInformation($"Deleted entity version {_index.LatestVersion}");
+        return WriteResponseFor(delta);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(string ancestor, CancellationToken ct = default)
+    {
+        using var slot = await Lock(ct);
+        ThrowIfNotInitialized();
+
+        var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
+
+        var deletedNames = new List<string>(_index!.Entities.Count);
+
+        foreach (var (name,entity) in _index!.Entities)
+        {
+            if (!name.StartsWith(prefix))
+                continue;
+
+            if (entity.GetLatestChangeType() == ChangeType.Deleted)
+                continue;
+
+            deletedNames.Add(name);
+        }
+
+        if (!deletedNames.Any())
+        {
+            return new IDatasetWriter<T>.WriteResponse()
+            {
+                NewDatasetVersion = _index.LatestVersion
+            };
+        }
+
+        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+
+        var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
+        await ApplyDelta(delta);
+
+        _logger.LogInformation($"Deleted {deleteChanges.Length} descendants of {prefix} entity version");
         return WriteResponseFor(delta);
     }
 

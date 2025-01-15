@@ -25,6 +25,35 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(string ancestor, CancellationToken ct = default)        
+    {
+        using var slot = await Lock(ct);
+        var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
+
+        var deletedNames = new List<string>(_currentSnapshot.Count);
+
+        foreach (var name in _currentSnapshot.Keys)
+        {
+            if (!name.StartsWith(prefix))
+                continue;
+
+            deletedNames.Add(name);
+        }
+
+        if (!deletedNames.Any())
+        {
+            return new IDatasetWriter<T>.WriteResponse()
+            {
+                NewDatasetVersion = LatestVersion
+            };
+        }
+
+        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+        var delta = new Delta(deleteChanges, LatestVersion + 1);
+        ApplyDelta(delta);
+        return WriteResponseFor(delta);
+    }
+
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
