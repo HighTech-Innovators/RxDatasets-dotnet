@@ -312,7 +312,87 @@ public abstract class StorageTestSpec
         deleteResult.NumUpdatedEntities.Should().Be(0);
         deleteResult.NewDatasetVersion.Should().Be(initialDatasetVersion);
     }
+    
+    [Fact]
+    public async Task Should_DeleteMany_DTOs_With_Valid_Ancestor()
+    {
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
+        var randomBytes = GenerateRandomData(UNIT_KB);
+        var key = "providers/90/";
 
+        await azBlobStorageDatasetWriter.Put("providers/90/asset/122", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/90/asset/1232", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/91/asset/12321", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/91/asset/12322", randomBytes);
+        
+        var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
+
+        var res = await azBlobStorageDatasetWriter.DeleteMany(key);
+
+        res.Should().NotBeNull();
+        res.NumDeletedEntities.Should().Be(2);
+        res.NumAddedEntities.Should().Be(0);
+        res.NumUpdatedEntities.Should().Be(0);
+        res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
+    }
+    
+      [Fact]
+    public async Task Should_Not_DeleteMany_DTOs_With_Invalid_Ancestor()
+    {
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
+        var randomBytes = GenerateRandomData(UNIT_KB);
+        var key = "parent";
+
+        var res = async () => await azBlobStorageDatasetWriter.DeleteMany(key);
+
+        await res.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task Should_Not_DeleteMany_Deleted_DTOs()
+    {
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
+        var randomBytes = GenerateRandomData(UNIT_KB);
+        var key = "providers/90/";
+
+        await azBlobStorageDatasetWriter.Put("providers/90/asset/122", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/90/asset/1232", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/91/asset/12321", randomBytes);
+        await azBlobStorageDatasetWriter.Put("providers/91/asset/12322", randomBytes);
+        var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
+
+        var deleteResult = await azBlobStorageDatasetWriter.DeleteMany(key);
+        var secondDeleteResult = await azBlobStorageDatasetWriter.DeleteMany(key);
+
+        //Use fluent assertions for these assertions        //Use fluent assertions for these assertions
+        deleteResult.Should().NotBeNull();
+        deleteResult.NumDeletedEntities.Should().Be(2);
+        deleteResult.NumAddedEntities.Should().Be(0);
+        deleteResult.NumUpdatedEntities.Should().Be(0);
+        deleteResult.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
+
+        secondDeleteResult.Should().NotBeNull();
+        secondDeleteResult.NumDeletedEntities.Should().Be(0);
+        secondDeleteResult.NumAddedEntities.Should().Be(0);
+        secondDeleteResult.NumUpdatedEntities.Should().Be(0);
+        secondDeleteResult.NewDatasetVersion.Should().Be(deleteResult.NewDatasetVersion);
+    }
+
+    [Fact]
+    public async Task Should_Not_DeleteMany_Non_Existent_DTOs()
+    {
+        var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
+        var ancestor = "providers/90/";
+        var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
+
+        var deleteResult = await azBlobStorageDatasetWriter.DeleteMany(ancestor);
+
+        deleteResult.Should().NotBeNull();
+        deleteResult.NumDeletedEntities.Should().Be(0);
+        deleteResult.NumAddedEntities.Should().Be(0);
+        deleteResult.NumUpdatedEntities.Should().Be(0);
+        deleteResult.NewDatasetVersion.Should().Be(initialDatasetVersion);
+    }
     [Fact]
     public async Task Should_Read_After_Snapshot_Create()
     {

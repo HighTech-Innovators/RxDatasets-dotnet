@@ -29,7 +29,10 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
-
+        var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (splitAncestor.Length  == 0 || splitAncestor.Length % 2 != 0)
+            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
+        
         var deletedNames = new List<string>(_currentSnapshot.Count);
 
         foreach (var name in _currentSnapshot.Keys)
