@@ -347,13 +347,18 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return indexRef?.SnapshotVersion ?? (ulong)0;
     }
     
-    public new async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
     {
         if (_initializationTask == null)
         {
-            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not yet started");
+            return HealthCheckResult.Healthy("DatasetReader: Initialization task is not yet started");
         }
 
+        return await GetHealthCheckResult();
+    }
+
+    private async Task<HealthCheckResult> GetHealthCheckResult()
+    {
         if (!_initializationTask.IsCompletedSuccessfully)
             return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not completed");
 
@@ -363,12 +368,21 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
         catch (Exception e)
         {
-            return HealthCheckResult.Unhealthy("DatasetReader: Failed to get latest versions from storageProvider", e);
+            return HealthCheckResult.Unhealthy("DatasetReader: Failed to get latest versions from dataset", e);
         }
 
         return HealthCheckResult.Healthy();
     }
 
+    public async Task<HealthCheckResult> CheckReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        if (_initializationTask == null)
+        {
+            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not yet started");
+        }
+        
+        return await GetHealthCheckResult();
+    }
 
     private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
     {
