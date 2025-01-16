@@ -23,6 +23,8 @@ public class DatasetWatcher<T>(
         await datasetObserver.OnDatasetVersionStart(nextToReportedVersion);
         var deltaIndex = await storageReader.ReadDeltaIndex(nextToReportedVersion);
         var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
+        deltaIndexParsed.ValidateAgainstVersion(nextToReportedVersion);
+
         var deltaVersion = deltaIndexParsed.DeltaVersion>0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
         foreach (var entity in deltaIndexParsed.NewEntities)
         {
@@ -91,6 +93,7 @@ public class DatasetWatcher<T>(
             var lastSnapshotVersion = versions.Snapshots.MaxBy((s) => s.Version).Version;
             var snapshotIndex = await storageReader.ReadSnapshotIndex(lastSnapshotVersion);
             var snapshotIndexParsed = SnapshotIndex.Parser.ParseFrom(snapshotIndex.Span);
+            snapshotIndexParsed.ValidateAgainstVersion(lastSnapshotVersion);
             var snapshotData = await storageReader.ReadSnapshotData(lastSnapshotVersion);
             await ReportAllDataToTheObserver(datasetObserver, snapshotIndexParsed, snapshotData);
             var lastReportedVersion = lastSnapshotVersion;

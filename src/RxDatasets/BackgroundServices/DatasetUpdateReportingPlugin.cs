@@ -41,6 +41,8 @@ namespace RxDatasets.BackgroundServices
             {
                 var deltaIndex = await storageProvider.ReadDeltaIndex(deltaVersion);
                 deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
+                deltaIndexParsed.ValidateAgainstVersion(deltaVersion);
+
             }
             catch (FileNotFoundException)
             {
