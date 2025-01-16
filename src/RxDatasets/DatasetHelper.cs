@@ -127,7 +127,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
-
+        mutableSnapshotIndex.ValidateAgainstVersion(snapshotVersion);
         var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
             .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
 
@@ -213,8 +213,10 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         List<Task<DeltaIndex>> indexes = Enumerable.Range(1, (int)iterations)
             .Select(async i =>
             {
-                var readDeltaIndex = await storageProvider.ReadDeltaIndex(fromVersion + (ulong)i);
+                var version = fromVersion + (ulong)i;
+                var readDeltaIndex = await storageProvider.ReadDeltaIndex(version);
                 var index = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
+                index.ValidateAgainstVersion(version);
                 return index;
             })
             .ToList();

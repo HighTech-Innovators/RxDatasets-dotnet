@@ -43,10 +43,11 @@ The `DeltaEntity` message contains the following fields:
 
 ```protobuf
 message DeltaIndex {
-	uint64 delta_version = 1; 
-	repeated string deleted_entity_names = 2; 
-	repeated DeltaEntity updated_entities = 3;
-	repeated DeltaEntity created_entities = 4;
+      uint64 delta_version_legacy = 1;
+      repeated string deleted_names = 2;
+      repeated DeltaEntity changed_entities = 3;
+      repeated DeltaEntity new_entities = 4;
+      uint64 delta_version = 32;
 }
 
 message DeltaEntity {
@@ -84,8 +85,9 @@ The `SnapshotEntity` message contains the following fields:
 
 ```protobuf
 message SnapshotIndex {
-	uint64 snapshot_version = 1; 
-	map<string, SnapshotEntity> entities = 2;
+  uint64 snapshot_version_legacy = 1;
+  map<string, SnapshotEntity> entities = 2;
+  uint64 snapshot_version = 32;
 }
 
 message SnapshotEntity {
@@ -151,7 +153,8 @@ Assuming you want to get a list of all the entities that currently exist in the 
 1. Read the `DeltaInfo.pb` and `SnapshotInfo.pb` file to determine which delta and snapshot files are available.
 2. Read the snapshot `index.pb` file of the latest snapshot.
 3. Read the remaining deltas `index.pb` starting from the latest snapshot version up to the latest delta version.
-
+4. (Optional) Extra index data sanity validation can be done by checking if both "snapshot_version" & "snapshot_version_legacy" are not 0 and one of them must be the version you are trying to load
+ 
 For each entity in the snapshot and delta files, you can read the actual data of the entity from the `data.pbs` file of the same delta/snapshot.
 To efficiently read the data.pbs file, you can use the `position_in_file` and `number_of_bytes` fields of the entity in the `index.pb` file to determine the position and length of the entity in the `data.pbs` file, allowing you to read only the required data.
 The resulting byte array is also in protobuf format and can then be deserialized into the actual entity object using the proto-generated code of the DTO.
