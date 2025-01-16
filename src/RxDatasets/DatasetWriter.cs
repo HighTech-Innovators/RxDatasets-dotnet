@@ -155,7 +155,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         ThrowIfNotInitialized();
 
         var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
-
+        var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (splitAncestor.Length  == 0 || splitAncestor.Length % 2 != 0)
+            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
+        
         var deletedNames = new List<string>(_index!.Entities.Count);
 
         foreach (var (name,entity) in _index!.Entities)
