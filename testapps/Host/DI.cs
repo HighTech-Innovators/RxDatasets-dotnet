@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RxDatasets;
 using RxDatasets.BackgroundServices;
 using RxDatasets.StorageProvider.LocalDisk;
@@ -8,10 +9,12 @@ namespace Host;
 
 public static class DI
 {
+    private const string ReadinessTags = "readiness";
+
     public static void ConfigureServices(IServiceCollection builderServices)
     { 
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build();
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock(ReadinessTags).WithCache().WithSnapshot().WithCleanup().Build(ReadinessTags);
 
         //new testdto
         //RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
@@ -34,8 +37,17 @@ public static class DI
         app.UseRouting();
         app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
 
-        app.MapHealthChecks("/healthz");
+        app.MapHealthChecks("/healthz", new HealthCheckOptions
+        {
+            Predicate = check => !check.Tags.Contains(ReadinessTags)
+        });
 
+        app.MapHealthChecks("/readiness", new HealthCheckOptions
+        {
+            Predicate = check => check.Tags.Contains(ReadinessTags)
+        });
+       
+        
         app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
     }
 }

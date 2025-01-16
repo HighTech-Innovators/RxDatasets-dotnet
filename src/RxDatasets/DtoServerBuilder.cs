@@ -125,16 +125,16 @@ namespace RxDatasets
             return this;
         }
         
-        public DtoServerBuilder<TEntity> WithDistributedLock(params string[] healthTags)
+        public DtoServerBuilder<TEntity> WithDistributedLock(params string[] readinessTags)
         {
             services.AddSingleton<DistributedLockService<TEntity>>();
             services.AddHostedService(sp => sp.GetRequiredService<DistributedLockService<TEntity>>());
-            services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, healthTags);
+            services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
 
             return this;
         }
         
-        public void Build()
+        public void Build(params string[] readinessTags)
         {
             AddDefaultStorageProvider();
             services
@@ -146,12 +146,14 @@ namespace RxDatasets
             if (readOnlyMode)
             {
                 services.AddHealthChecks()
+                    .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
                     .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
                 return;
 
             }
            
             services.AddHealthChecks()
+                .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
                 .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
             services.AddValidatedConfigSection<WriterConfig>();
             services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();

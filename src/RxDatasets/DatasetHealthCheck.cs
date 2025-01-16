@@ -32,18 +32,23 @@ public class DatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCh
         return HealthCheckResult.Healthy();
     }
 }
-
-public class ReadOnlyDatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
+public class DatasetReadinessCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         var datasetReader = serviceProvider.GetRequiredService<IDatasetReader<T>>();
+        var datasetWriter = serviceProvider.GetRequiredService<IDatasetWriter<T>>();
 
         var healthCheckResults = new List<HealthCheckResult>();
 
         if (datasetReader is DatasetReader<T> reader)
         {
-            healthCheckResults.Add(await reader.CheckHealthAsync(cancellationToken));
+            healthCheckResults.Add(await reader.CheckReadinessAsync(cancellationToken));
+        }
+
+        if (datasetWriter is DatasetWriter<T> writer)
+        {
+            healthCheckResults.Add(await writer.CheckReadinessAsync(cancellationToken));
         }
 
         if(healthCheckResults.Any(r => r.Status != HealthStatus.Healthy))
@@ -55,17 +60,41 @@ public class ReadOnlyDatasetHealthCheck<T>(IServiceProvider serviceProvider) : I
     }
 }
 
+public class ReadOnlyDatasetHealthCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var datasetReader = serviceProvider.GetRequiredService<IDatasetReader<T>>();
+        
+        if (datasetReader is DatasetReader<T> reader)
+        {
+            return await reader.CheckHealthAsync(cancellationToken);
+        }
+        
+        return HealthCheckResult.Healthy();
+    }
+}
+public class ReadOnlyDatasetReadinessCheck<T>(IServiceProvider serviceProvider) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var datasetReader = serviceProvider.GetRequiredService<IDatasetReader<T>>();
+        
+        if (datasetReader is DatasetReader<T> reader)
+        {
+            return await reader.CheckReadinessAsync(cancellationToken);
+        }
+        
+        return HealthCheckResult.Healthy();
+    }
+}
 public class DistributedLockHealthCheck<T>(DistributedLockService<T> lockService) : IHealthCheck
 {
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (lockService.HasLock)
-        {
-            return Task.FromResult(HealthCheckResult.Healthy("Lock acquired."));
-        }
-        else
-        {
-            return Task.FromResult(HealthCheckResult.Degraded("Waiting for lock."));
-        }
+        return
+         Task.FromResult(lockService.HasLock ? HealthCheckResult.Healthy("Ready to process requests.") 
+            : HealthCheckResult.Unhealthy("Not ready - Waiting for lock."));
+
     }
 }

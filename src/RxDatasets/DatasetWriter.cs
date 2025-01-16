@@ -469,9 +469,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         if (InitializationTask == null)
         {
-            return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not yet started");
+            return HealthCheckResult.Healthy("DatasetWriter: Initialization task is not yet started");
         }
 
+        return await GetHealthCheckResult();
+    }
+
+    private async Task<HealthCheckResult> GetHealthCheckResult()
+    {
         if (!InitializationTask.IsCompletedSuccessfully)
             return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not completed");
 
@@ -485,6 +490,16 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         return HealthCheckResult.Healthy();
+    }
+
+    public async Task<HealthCheckResult> CheckReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        if (InitializationTask == null)
+        {
+            return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not yet started");
+        }
+        
+        return await GetHealthCheckResult();
     }
 
     private async Task<IDisposable> Lock()
