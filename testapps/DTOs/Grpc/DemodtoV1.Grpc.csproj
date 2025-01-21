@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
@@ -8,9 +8,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Google.Protobuf" Version="3.28.3" />
-        <PackageReference Include="Grpc.Core.Api" Version="2.66.0" />
-        <PackageReference Include="Grpc.Tools" Version="2.67.0">
+        <PackageReference Include="Google.Protobuf" />
+        <PackageReference Include="Grpc.Core.Api" />
+        <PackageReference Include="Grpc.Tools">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
