@@ -15,7 +15,7 @@ public class ObjectStorageReader<T>(
     )
     : IStorageReader<T>
 {
-   public Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
+    public Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
     {
         throw new NotImplementedException();
     }
@@ -107,7 +107,14 @@ public class ObjectStorageReader<T>(
             var deltaInfo = await deltaTask;
             var snapshotInfo = await snapshotTask;
 
-            logger.LogDebug($"Successfully loaded DeltaInfo and SnapshotInfo files for {typeof(T).Name}.");
+            if (VersionsAreCorrupted(deltaInfo, snapshotInfo)) 
+                (deltaInfo, snapshotInfo) = await CreateLatestVersionFromObjectLists();
+            
+                
+            logger.LogDebug($"loaded DeltaInfo " +
+                            $"(oldest v = {deltaInfo.EarliestDeltaVersion}, latest v = {deltaInfo.LatestDeltaVersion} )" +
+                            $" and SnapshotInfo [{string.Join(",", snapshotInfo.SnapshotVersions.Select(s=>s.Version))}] " +
+                            $"files for {typeof(T).Name}.");
             
             return (deltaInfo, snapshotInfo);
         }
@@ -116,6 +123,14 @@ public class ObjectStorageReader<T>(
             logger.LogDebug($"FileNotFoundException: {ex.FileName}. Delta or Snapshot file not found.");
             return await TryGetVersionFromFallbacks();
         }
+    }
+
+    private static bool VersionsAreCorrupted(DeltaInfo deltaInfo, SnapshotInfo snapshotInfo)
+    {
+        return (deltaInfo.EarliestDeltaVersion == 0 || (snapshotInfo.SnapshotVersions.Count > 0 &&
+                                                        deltaInfo.EarliestDeltaVersion >
+                                                        snapshotInfo.SnapshotVersions.Max(s => s.Version)+1));
+
     }
 
     private async Task<(DeltaInfo deltaInfo, SnapshotInfo snapshotInfo)> TryGetVersionFromFallbacks()
@@ -217,13 +232,15 @@ public class ObjectStorageReader<T>(
 
     private async Task<(DeltaInfo deltaInfo, SnapshotInfo snapshotInfo)> CreateLatestVersionFromObjectLists()
     {
-        var deltas = (await diskStorage.ListObjects(DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "deltas/"))
+        var objectNamePrefix = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.DeltasFolderNameWithSlash;
+        var listObjects = await diskStorage.ListObjects(objectNamePrefix);
+        var deltas = listObjects
             .OrderBy(d => SharedMethods.ExtractNumber(d.ObjectKey))
             .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey))
             .Select(g => g.First())
             .ToList();
 
-        var listOfSnapshots = await diskStorage.ListObjects(DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "snapshot/");
+        var listOfSnapshots = await diskStorage.ListObjects(DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.SnapshotsFolderNameWithSlash);
         var snapshots = listOfSnapshots.OrderBy(d => SharedMethods.ExtractNumber(d.ObjectKey))
             .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey))
             .Select(g => g.First())

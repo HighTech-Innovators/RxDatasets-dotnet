@@ -159,7 +159,7 @@ namespace RxDatasets.StorageTests
             ulong latestSnapshotVersion;
             while (true)
             {
-                var listOfSnapshots = await storageProvider.ListObjects(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/");
+                var listOfSnapshots = await storageProvider.ListObjects(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash);
 
                 if (listOfSnapshots.Any())
                 {
@@ -251,7 +251,7 @@ namespace RxDatasets.StorageTests
                 {
                     List<(string ObjectKey, DateTimeOffset DateTime)> snapshots =
                         await storageProvider.ListObjects(
-                            DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/");
+                            DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash);
 
                     if (snapshots.Any())
                     {

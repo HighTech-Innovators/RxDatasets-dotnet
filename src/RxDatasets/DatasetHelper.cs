@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.Models;
+using RxDatasets.StorageProviders;
 
 namespace RxDatasets;
 
@@ -164,8 +165,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         var deltaOrSnapshotString = deltaOrSnapshot switch
         {
-            ObjectNameTypeEnum.DELTA => "deltas",
-            ObjectNameTypeEnum.SNAPSHOT => "snapshots",
+            ObjectNameTypeEnum.DELTA => FolderNames.DeltasFolderName,
+            ObjectNameTypeEnum.SNAPSHOT => FolderNames.SnapshotsFolderName,
             _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
         };
 
@@ -184,8 +185,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         var deltaOrSnapshotString = deltaOrSnapshot switch
         {
-            ObjectNameTypeEnum.DELTA => "deltas",
-            ObjectNameTypeEnum.SNAPSHOT => "snapshots",
+            ObjectNameTypeEnum.DELTA => FolderNames.DeltasFolderName,
+            ObjectNameTypeEnum.SNAPSHOT => FolderNames.SnapshotsFolderName,
             _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
         };
 
