@@ -20,6 +20,8 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProvider.S3;
+using RxDatasets.StorageProviders;
+
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation
 {
     public class E2ETestsUsingTestHostWithMinio(
@@ -194,7 +196,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             {
                 var listOfSnapshots = await _minioClient!.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + "snapshots/"))
+                        .WithPrefix(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash))
                     .ToList()
                     .ToTask();
 
@@ -288,7 +290,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
                 {
                     var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix("customRootFolder/Demodto/snapshots/")
+                        .WithPrefix("customRootFolder/Demodto/"+ FolderNames.SnapshotsFolderNameWithSlash)
                         .WithRecursive(true));
 
                     var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();

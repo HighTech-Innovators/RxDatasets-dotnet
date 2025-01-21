@@ -135,7 +135,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         versions.OldestDelta.Should().Be(4);
         versions.NewestDelta.Should().Be(6);
         versions.Snapshots.Select(s=>s.Version).Min().Should().Be(3);
-        var snapshotsListFromLowLevelStorage = (await s3Storage.ListObjects("Object/snapshots/"))
+        var snapshotsListFromLowLevelStorage = (await s3Storage.ListObjects("Object/" + FolderNames.SnapshotsFolderNameWithSlash))
             .GroupBy(s => SharedMethods.ExtractNumber(s.ObjectKey))
             .Select(g => g.Key);
         snapshotsListFromLowLevelStorage.Min().Should().Be(3);

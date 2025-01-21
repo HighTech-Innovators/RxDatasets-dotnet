@@ -130,7 +130,7 @@ public class StorageCleanTaskTests
         //assert
         (var oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         const int expectedRemainingSnapshots = 2;
-        var listObjects = (await localStorage.ListObjects("Object/snapshots/")).GroupBy(s=>SharedMethods.ExtractNumber(s.ObjectKey)).Select(g=>g.Key);
+        var listObjects = (await localStorage.ListObjects("Object/" + FolderNames.SnapshotsFolderNameWithSlash)).GroupBy(s=>SharedMethods.ExtractNumber(s.ObjectKey)).Select(g=>g.Key);
 
         snapshots.Count.Should().Be(expectedRemainingSnapshots);
         listObjects.Count().Should().Be(expectedRemainingSnapshots);
