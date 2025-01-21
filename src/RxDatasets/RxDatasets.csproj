@@ -19,22 +19,22 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.ProtoBuf" Version="3.28.3" />
-    <PackageReference Include="Grpc.Tools" Version="2.67.0">
+    <PackageReference Include="Google.ProtoBuf" />
+    <PackageReference Include="Grpc.Tools">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.0" />
-    <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
-    <PackageReference Include="System.Reactive" Version="6.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-    <PackageReference Include="System.Linq.Async" Version="6.0.1" />
-    <PackageReference Include="Grpc.Core.Api" Version="2.66.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <PackageReference Include="System.IO.Hashing" />
+    <PackageReference Include="System.Reactive" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="System.Linq.Async" />
+    <PackageReference Include="Grpc.Core.Api" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
     <!-- Iconfig.GetValue !?! -->
   </ItemGroup>
 
