@@ -613,15 +613,15 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("Parent2/Should_List_With_Parent_3", bytes3);
 
         // List entities with the matching parent
-        var resultList = await azBlobStorageDatasetReader.List("Parent1").ToListAsync();
+        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent1")).Names, null);
 
         resultList.Should().HaveCount(2);
 
         var entity1 = resultList.First(x => x.name == "Parent1/Should_List_With_Parent_1");
         var entity2 = resultList.First(x => x.name == "Parent1/Should_List_With_Parent_2");
 
-        entity1.entityBytes.ToArray().Should().BeEquivalentTo(bytes1);
-        entity2.entityBytes.ToArray().Should().BeEquivalentTo(bytes2);
+        entity1.entityBytes?.ToArray().Should().BeEquivalentTo(bytes1);
+        entity2.entityBytes?.ToArray().Should().BeEquivalentTo(bytes2);
     }
 
     [Fact]
@@ -632,11 +632,12 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("Parent1/Should_Not_List_Without_Parent_1", GenerateRandomData(UNIT_KB));
         await azBlobStorageDatasetWriter.Put("Parent2/Should_Not_List_Without_Parent_2", GenerateRandomData(UNIT_KB));
 
-        var resultList = await azBlobStorageDatasetReader.List("Parent3").ToListAsync();
+        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent3")).Names, null);
+
         resultList.Should().BeEmpty();
 
-        var resultList2 = await azBlobStorageDatasetReader.List("").ToListAsync();
-        resultList2.Should().BeEmpty();
+        var resultList2 = await azBlobStorageDatasetReader.List("");
+        resultList2.Names.Should().BeEmpty();
     }
 
     [Fact]
@@ -649,8 +650,8 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put(key, GenerateRandomData(UNIT_KB));
 
         await azBlobStorageDatasetWriter.Delete(key);
-        var resultList = await azBlobStorageDatasetReader.List(parent).ToListAsync();
-        resultList.Should().BeEmpty();
+        var resultList = await azBlobStorageDatasetReader.List(parent);
+        resultList.Names.Should().BeEmpty();
     }
 
     
@@ -820,7 +821,7 @@ public abstract class StorageTestSpec
         (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null)).ToList();
         (azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
 
-        await azBlobStorageDatasetReader.List("parent").ToListAsync();
+        await azBlobStorageDatasetReader.List("parent");
         (azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
     }
 

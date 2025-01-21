@@ -256,11 +256,11 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return new Delta(deletes.Values.Concat(updates.Values).Concat(news.Values).ToArray(), 0U);
     }
 
-    private async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> GetAll(ulong version,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private IEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> GetAll(ulong version,
+        CancellationToken cancellationToken)
     {
         (string name, ReadOnlyMemory<byte> entityBytes)[] snapshot;
-        using (await Lock(cancellationToken))
+        using (Lock(cancellationToken))
         {
             // NOTE: doesn't check version
             snapshot = _currentSnapshot.Select(x => (x.Key, new ReadOnlyMemory<byte>(x.Value))).ToArray();
@@ -302,11 +302,14 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return entities;
     }
 
-    public IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
     {
         var prefix = parent + "/";
-        var a = GetAll(ulong.MaxValue, CancellationToken.None);
-        return a.Where(ent => ent.name.StartsWith(prefix));
+       var names = GetAll(ulong.MaxValue, CancellationToken.None)
+           .Where(ent => ent.name.StartsWith(prefix))
+           .Select(s=>s.name).ToList();
+       
+        return Task.FromResult<(List<string> Names, ulong LatestVersion)>((names, 0));
     }
 
     private async Task<IDisposable> Lock()

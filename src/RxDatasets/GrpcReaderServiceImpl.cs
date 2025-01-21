@@ -57,15 +57,19 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
     public async Task<(ICollection<TEntity> batch, string? nextPageToken)> List(string parent, int pageSize, string pageToken, CancellationToken cancellationToken)
     {
+        var isPaging = pageToken?.Length > 0;
         using var cts = CombiTokenSource(cancellationToken);
         try
         {
-            var list = await dataset
-                .List(parent)
-                .Select(x => _protoParser.ParseFrom(x.entityBytes.Span))
-                .ToListAsync(cts.Token);
+            var (names, toDatasetVersion) = isPaging ? PullRemainder<string>(pageToken) : await dataset
+                .List(parent);
+            
+            var (paginatedNames, nextPageToken, responseToDatasetVersion) = Paginate(names, pageSize, toDatasetVersion);
 
-            return (list, null);
+            var batch = await BatchGet(paginatedNames, parent, cts.Token);
+        
+
+            return (batch, nextPageToken);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
