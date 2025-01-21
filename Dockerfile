@@ -61,6 +61,7 @@ COPY tst tst
 COPY testapps testapps
 COPY *.sln ./
 COPY Directory.Build.props ./
+COPY Directory.Packages.props ./
 
 COPY --from=nuget-config /root/.nuget/NuGet/NuGet.Config ./nuget.config
 RUN dotnet subset restore *.sln --root-directory . --output restore_subset/

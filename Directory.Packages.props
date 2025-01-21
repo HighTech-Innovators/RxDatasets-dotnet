@@ -5,7 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="AWSSDK.S3" Version="3.7.405.8" />
-    <PackageVersion Include="Azure.Storage.Blobs" Version="12.22.2" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.23.0" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="FluentAssertions" Version="[6.12.1, 8.0.0)" />
     <PackageVersion Include="Google.Protobuf" Version="3.29.3" />
@@ -18,21 +18,21 @@
     <PackageVersion Include="Grpc.Net.Client.Web" Version="2.67.0" />
     <PackageVersion Include="Grpc.Reflection" Version="2.67.0" />
     <PackageVersion Include="Grpc.Tools" Version="2.69.0" />
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="Microsoft.Reactive.Testing" Version="6.0.1" />
     <PackageVersion Include="Minio" Version="6.0.1" />
     <PackageVersion Include="Moq" Version="4.20.72" />
