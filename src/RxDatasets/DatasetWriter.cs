@@ -99,11 +99,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 //ignored as we dont have a snapshot yet
             }
 
-            _logger.LogInformation($"Initialized {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
+            _logger.LogInformation($"Initialized DatasetWriter {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, "Failed to initialize Dataset");
+            _logger.LogCritical(ex, "Failed to initialize Writer Dataset");
             throw;
         }
     }

@@ -84,13 +84,16 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         if (snapshotIndex.SnapshotVersion == 0)
         {
+            logger.LogInformation($"No Snapshot was seen, Applying deltas from v1 util v{version}");
             deltas = await GetChangedDeltas(0, version);
         }
         else
         {
+            logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it to version {version}");
             deltas = await GetChangedDeltas(snapshotIndex.SnapshotVersion, version);
         }
 
+        logger.LogInformation($"Applying {(deltas.Count > 0 ? "deltas from" + deltas.Min(d=>d.DeltaVersion) + " - " + deltas.Max(d=>d.DeltaVersion) : "no deltas")} to the main index");
         snapshotIndex = snapshotIndex.ApplyDeltas(deltas);
 
         return snapshotIndex;
