@@ -133,11 +133,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             {
                 //ignored as we dont have a snapshot yet
             }
-            _logger.LogInformation($"Initialized ReadOnly {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
+            _logger.LogInformation($"Initialized DataReader {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, $"Failed to initialize ReadOnly Dataset {typeof(T).Name}");
+            _logger.LogCritical(ex, $"Failed to initialize DataReader Dataset {typeof(T).Name}");
             throw;
         }
     }
