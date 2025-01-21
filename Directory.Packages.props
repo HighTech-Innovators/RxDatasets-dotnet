@@ -6,7 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="AWSSDK.S3" Version="3.7.405.8" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.23.0" />
-    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="FluentAssertions" Version="[6.12.1, 8.0.0)" />
     <PackageVersion Include="Google.Protobuf" Version="3.29.3" />
     <PackageVersion Include="Grpc.AspNetCore.Server" Version="2.67.0" />
