@@ -297,26 +297,19 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return changedNames;
     }
     
-    public async IAsyncEnumerable<(string name, ReadOnlyMemory<byte> entityBytes)> List(string parent)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
     {
         var indexRef = ThrowIfNotInitialized();
-        List<(string name, ReadOnlyMemory<byte> bytes)> entities = [];
         var prefix = parent + "/";
 
-        foreach (var entity in indexRef.Entities
-                     .Where(x => x.Key.StartsWith(prefix))
-                     .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted))
-        {
-            var entityBytes = await ReadEntityBytes(entity.Key);
-            entities.Add((entity.Key, entityBytes));
-        }
-        foreach (var entity in entities)
-        {
-            yield return entity;
-        }
+        return Task.FromResult((indexRef.Entities
+            .Where(x => x.Key.StartsWith(prefix))
+            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+            .Select(entity => entity.Key).ToList(), indexRef.LatestVersion));
+       
     }
 
-    public async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
+    private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
     {
         var tempState = datasetState;
 
