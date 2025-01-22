@@ -113,6 +113,7 @@ namespace RxDatasets
         public DtoServerBuilder<TEntity> WithInMemoryDataset()
         {
             services.AddSingleton<IStorageProvider<TEntity>, InMemoryStorageProvider<TEntity>>();
+            services.AddSingleton<IReadOnlyStorageProvider<TEntity>>(sp => sp.GetRequiredService<IStorageProvider<TEntity>>());
             _isInMemoryDataset = true;
             return this;
         }
