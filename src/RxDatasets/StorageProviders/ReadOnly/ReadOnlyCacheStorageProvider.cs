@@ -207,7 +207,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     {
         var cacheKeyWholeSnapshot = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
 
-        if (!MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
+        if (MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
         {
             return data.Length;
         }
