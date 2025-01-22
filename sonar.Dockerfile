@@ -50,6 +50,7 @@ ARG RunExternalProvidersTests=false
 # Copy solution file(s)
 COPY *.sln ./
 COPY Directory.Build.props ./
+COPY Directory.Packages.props ./
 
 # Copy all project directories
 COPY src/ ./src/
