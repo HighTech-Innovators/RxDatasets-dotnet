@@ -4,6 +4,7 @@
       <Value>proto\**.*</Value>
     </AdditionalFilesToIncludeForSolution>
     <AllowParallelTestExecution>True</AllowParallelTestExecution>
+    <EnableRDI>False</EnableRDI>
     <MetricsExclusionList>
       <Value>tst\RxDatasets.Tests\RxDatasets.Tests.csproj</Value>
       <Value>tst\RxDatasets.StorageTests\RxDatasets.StorageTests.csproj</Value>
@@ -17,6 +18,7 @@
       <Value>testapps\Host\Host.csproj</Value>
       <Value>src\RxDatasets.Reporting\RxDatasets.Reporting.csproj</Value>
     </MetricsExclusionList>
+    <RdiConfigured>True</RdiConfigured>
     <SolutionConfigured>True</SolutionConfigured>
   </Settings>
   <EngineModes>

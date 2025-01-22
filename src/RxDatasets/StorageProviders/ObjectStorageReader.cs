@@ -258,7 +258,7 @@ public class ObjectStorageReader<T>(
                Timestamp = Timestamp.FromDateTime(s.DateTime.UtcDateTime),
                Version = (ulong)SharedMethods.ExtractNumber(s.ObjectKey)
            }));
-        
+        // SH: add a log line here summarizing what the disk said
         return (deltaInfo, snapshotInfo);
     }
     
