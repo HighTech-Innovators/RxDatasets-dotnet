@@ -22,7 +22,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     {
         SizeLimit = cacheConfig.Value.CacheSizeMB * MB_BYTES
     });
-    private ulong _lastCachedSnapshot;
+    private ulong _currentlyCachedSnapshot;
     private readonly CompositeDisposable _subscriptions = new();
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -43,7 +43,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         {
             var (_, _, snapshots) = await ListVersions();
 
-            if (snapshots.Count == 0 || snapshots.Max(s => s.Version) <= _lastCachedSnapshot)
+            if (snapshots.Count == 0 || snapshots.Max(s => s.Version) <= _currentlyCachedSnapshot)
                 return;
 
             await InitCache(cancellationToken);
@@ -69,21 +69,31 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             }
         }
     }
+    private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
+    {
+        await semaphore.WaitAsync();
+        return new ActionDisposable(() => semaphore.Release());
+    }
+
+    private readonly SemaphoreSlim _initSemaphore = new(1);
+
     private async Task InitCache(CancellationToken ct)
     {
+        using var initLock = await Lock(_initSemaphore);
+
         var (_, _, snapshots) = await ListVersions();
-        foreach (var version in snapshots.Select(s => s.Version).OrderDescending())
+        foreach (var version in snapshots.Select(s => s.Version).Where( v => v > _currentlyCachedSnapshot).OrderDescending())
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                var oldSnapshotVersion = _lastCachedSnapshot;
-                await TryCacheSnapshot(version);
-                _lastCachedSnapshot = version;
+                var oldSnapshotVersion = _currentlyCachedSnapshot;
+                await CacheSnapshot(version);
+                _currentlyCachedSnapshot = version;
                 InvalidateSnapshotCache(oldSnapshotVersion);
 
                 logger.LogInformation($"Initialized cache with snapshot v{version}");
-                break;
+                return;
             }
             catch (FileNotFoundException e)
             {
@@ -93,7 +103,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             catch (Exception e)
             {
                 logger.LogWarning(e,
-                    $"Skipping snapshot v{version} because we got {e} , we will try the next available snapshot for initial caching.");
+                    $"Skipping snapshot v{version} because we got {e}, we will try the next available snapshot for initial caching.");
             }
         }
     }
@@ -106,7 +116,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         MemoryCache.Remove(cacheKey);
     }
 
-    private async Task TryCacheSnapshot(ulong snapshotVersion)
+    private async Task CacheSnapshot(ulong snapshotVersion)
     {
         var index = await ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
@@ -130,7 +140,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
         var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
         {
-            var data =await readOnlyStorageProvider.ReadDeltaIndex(version);
+            var data = await readOnlyStorageProvider.ReadDeltaIndex(version);
             entry.Size = data.Length;
             return data;
         });
