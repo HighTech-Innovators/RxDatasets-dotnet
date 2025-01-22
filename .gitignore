@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 .env
 *.meta
 /testapps/Host/dataset-localstorage/Demodto
+
+# NCrunch
+.NCrunch*
