@@ -88,9 +88,6 @@ public class ObjectStorageReader<T>(
         return DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "SnapshotInfo.pb";
     }
 
-
-
- 
     private async Task<(DeltaInfo deltaInfo, SnapshotInfo snapshotInfo)> ReadVersionInfo()
     {
         try

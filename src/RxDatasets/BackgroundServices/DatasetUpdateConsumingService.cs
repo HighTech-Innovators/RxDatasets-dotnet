@@ -37,12 +37,16 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation($"DatasetUpdateConsumingService<{_datasetUpdateConsumer.ConsumerIdentifier}> Started");
-        using var subscription = _notificationsHub
-            .Subscribe<DatasetUpdatedNotification>((_)=>  OnDatasetUpdated());
-
         try
         {
-            await WorkAndWaitLoop(stoppingToken);
+            // Start the loop before subscribing - especially important for UNIT TEST scenarios
+            // where the subscription is Sync, and the message we immediately get there must be handled before the subscription is 'done'.
+            var workAndWaitLoop = WorkAndWaitLoop(stoppingToken);
+
+            using var subscription = _notificationsHub
+                .Subscribe<DatasetUpdatedNotification>((_) => OnDatasetUpdated());
+
+            await workAndWaitLoop;
         }
         finally
         {

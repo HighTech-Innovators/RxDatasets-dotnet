@@ -20,10 +20,10 @@ public class ObjectStorageProvider<T>(
     IDiskStorage<T> storage,
     INotificationsHub<T> notificationsHub, 
     IStorageReader<T> storageReader,
-    bool retryInit = true,
+    bool startIfInitFails = true,
     DistributedLockService<T>? lockService = null
     )
-    : ReadOnlyObjectStorageProvider<T>(logger, storageConfig, storage, storageReader, notificationsHub, retryInit, pollForChanges: false), IStorageProvider<T>, IHostedService
+    : ReadOnlyObjectStorageProvider<T>(logger, storageConfig, storage, storageReader, notificationsHub, startIfInitFails), IStorageProvider<T>, IHostedService
 {
     private readonly SemaphoreSlim _deltaSemaphore = new(1);
     private readonly SemaphoreSlim _snapshotSemaphore = new(1);
@@ -32,11 +32,11 @@ public class ObjectStorageProvider<T>(
     private IDisposable _disposableSubscription;
     private ProcessedVersionsInfo _processedVersionsInfo = new();
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public new async Task StartAsync(CancellationToken cancellationToken)
     {
         if (lockService is null)
         {
-            _initTask = retryInit ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+            _initTask = startIfInitFails ? InitLoop(cancellationToken) : Initialize(cancellationToken);
             await _initTask;
         }
     
@@ -449,9 +449,9 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    private async Task Initialize(CancellationToken cancellationToken)
+    protected override async Task Initialize(CancellationToken cancellationToken)
     {
-        await base.StartAsync(cancellationToken);
+        await base.Initialize(cancellationToken);
         if (storage == null) throw new InvalidOperationException("Storage Provider was not initialized");
         await TryLoadProcessedVersionsInfo();
         await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
