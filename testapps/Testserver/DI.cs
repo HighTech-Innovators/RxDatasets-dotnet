@@ -1,5 +1,7 @@
 using RxDatasets;
 using RxDatasets.BackgroundServices;
+using RxDatasets.Abstractions;
+using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace Host.Testserver;
 
@@ -9,6 +11,7 @@ public static class DI
     {
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
         builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build();
+		builderServices.AddSingleton<IDiskStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>,LowLevelInMemoryStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>>();
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();
