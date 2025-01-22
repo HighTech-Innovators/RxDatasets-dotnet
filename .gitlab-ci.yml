@@ -164,7 +164,7 @@ sonarqube-check:
   stage: sonarqube-check
   dependencies:
     - dotnet test
-  allow_failure: true
+  allow_failure: false
   only:
     - merge_requests
     - master
