@@ -14,48 +14,34 @@ public class ReadOnlyObjectStorageProvider<T>(
         IDiskStorage<T> storage,
         IStorageReader<T> storageReader,
         INotificationsHub<T>? notificationsHub,
-        bool retryInit = true,
-        bool pollForChanges = true
+        bool startIfInitFails = true
     )
     : IReadOnlyStorageProvider<T>, IHostedService
 {
-
     private Task? _initTask;
     
     protected readonly DeltaInfo DeltaInfo = new();
     protected List<SnapshotType> Snapshots = [];
     private readonly CancellationTokenSource _cts = new();
-
     
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _initTask = retryInit ? InitLoop(_cts.Token) : Initialize(_cts.Token);
-        if (pollForChanges)
-        {
-            _ = Task.Run(async () =>
-            {
-                while (!_cts.Token.IsCancellationRequested)
-                {
-                    await CheckForVersionsUpdate();
-                }
-            }, cancellationToken);
-        }
-        await _initTask;
-        
-    }
+        // Note that this code is NOT run when using the R/W version (derived class).
+        cancellationToken.Register(_cts.Cancel);
 
-    private async Task CheckForVersionsUpdate()
-    {
-        await Task.Delay(5000, _cts.Token);
-        _initTask = Initialize(_cts.Token);
-        await _initTask;
+        var firstInitTask = Initialize(_cts.Token);
+
+        if (!startIfInitFails)
+            await firstInitTask;
+
+        _ = InitAndUpdateLoop(_cts.Token);
     }
 
     private async Task SendDatasetUpdatedNotificationsIfNeeded(DeltaInfo oldDeltaInfo, List<SnapshotType> oldSnapshots)
     {
-        if (notificationsHub == null || !pollForChanges)
-            return;        
-        
+        if (notificationsHub == null)
+            return;
+
         if (!oldDeltaInfo.Equals(DeltaInfo))
         {
             await notificationsHub.Notify(new DatasetUpdatedNotification(DeltaInfo.LatestDeltaVersion));
@@ -167,40 +153,41 @@ public class ReadOnlyObjectStorageProvider<T>(
         }
     }
 
-
-    private async Task InitLoop(CancellationToken cancellationToken)
+    private async Task InitAndUpdateLoop(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            await Task.Delay(5 * 1000, cancellationToken);
             try
             {
                 await Initialize(cancellationToken);
-                break;
-            }
-            catch (SynchronizationLockException ex)
-            {
-                logger.LogError(ex, "Failed to initialize object storage provider because no lock to write version files was available");
-                break;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to initialize object storage provider");
-                await Task.Delay(5 * 1000, cancellationToken);
+                logger.LogError(ex, "Failed to initialize/update");
             }
         }
     }
 
-    private async Task Initialize(CancellationToken cancellationToken)
+    protected virtual async Task Initialize(CancellationToken cancellationToken)
     {
-        if (storage == null) throw new InvalidOperationException("Storage Provider was not initialized");
+        var previousDeltaInfo = DeltaInfo.Clone();
+        var previousSnapshots = Snapshots;
+
+        _initTask = DoInitialize(cancellationToken);
+
+        await SendDatasetUpdatedNotificationsIfNeeded(previousDeltaInfo, previousSnapshots);
+        await _initTask;
+    }
+
+    private async Task DoInitialize(CancellationToken cancellationToken)
+    {
+        if (storage == null) throw new InvalidOperationException("Disk Storage was not initialized");
         
-        var tempDeltaInfo = DeltaInfo.Clone();
-        var tempSnapshots = Snapshots;
         var versions = await storageReader.ListVersions();
         DeltaInfo.EarliestDeltaVersion = versions.OldestDelta;
         DeltaInfo.LatestDeltaVersion = versions.NewestDelta;
-        Snapshots = versions.Snapshots;  
-        await SendDatasetUpdatedNotificationsIfNeeded(tempDeltaInfo, tempSnapshots);
+        Snapshots = versions.Snapshots;
     }
     
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)

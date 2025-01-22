@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;

@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FluentAssertions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -27,14 +28,14 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         _storage = new LowLevelInMemoryStorage<object>(storageLogger.Object);
     }
 
-    internal static async Task StartSnapshotCreationService(IStorageProvider<object> storageProvider, INotificationsHub<object> notificationsHub)
+    internal static IHostedService CreateSnapshotCreationService(IStorageProvider<object> storageProvider, INotificationsHub<object> notificationsHub)
     {
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         var snapshotCreationConfig = Options.Create(new SnapshotCreationConfig {SnapshotInterval = 5});
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, storageProvider, snapshotCreationConfig, new TestScheduler());
         var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
-        await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
+        return datasetUpdateConsumingService;
     }
     
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
@@ -49,12 +50,15 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _storage, notificationsHub, readOnlyStorage, false);
 
-        await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-        await StartSnapshotCreationService(persistentStorageProvider, notificationsHub);
+        var scs = CreateSnapshotCreationService(persistentStorageProvider, notificationsHub);
 
         var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
-        await datasetReader.StartAsync(CancellationToken.None);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, Options.Create(new WriterConfig()), false);
+
+        await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
+        await scs.StartAsync(CancellationToken.None);
+        await datasetReader.StartAsync(CancellationToken.None);
+
         return (datasetReader, datasetWriter);
     }
 
