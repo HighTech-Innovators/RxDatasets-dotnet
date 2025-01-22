@@ -9,7 +9,6 @@ using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
 using System.Reactive.Disposables;
-using System.Text.RegularExpressions;
 
 namespace RxDatasets;
 

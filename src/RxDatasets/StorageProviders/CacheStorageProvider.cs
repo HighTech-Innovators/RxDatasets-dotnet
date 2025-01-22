@@ -8,19 +8,18 @@ using RxDatasets.StorageProviders.ReadOnly;
 
 namespace RxDatasets.StorageProviders;
 
-public class CacheStorageProvider<T> : ReadOnlyCacheStorageProvider<T>, IStorageProvider<T>
+public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProvider<T, TStorageProvider>, IStorageProvider<T> where TStorageProvider: IStorageProvider<T>
 {
     private const int MB_BYTES = 1024 * 1024;
 
     private readonly IOptions<DtoStorageCacheConfig> _cacheConfig;
     private readonly IStorageProvider<T> _storageProvider;
-    private readonly ILogger<CacheStorageProvider<T>> _logger;
+    private readonly ILogger<CacheStorageProvider<T, TStorageProvider>> _logger;
 
-    public CacheStorageProvider(IStorageProvider<T> storageProvider,
+    public CacheStorageProvider(TStorageProvider storageProvider,
         IOptions<DtoStorageCacheConfig> cacheConfig,
-        ILogger<CacheStorageProvider<T>> logger,
-        INotificationsHub<T>? notificationsHub,
-        IReadOnlyStorageProvider<T> readOnlyStorageProvider) : base(readOnlyStorageProvider, cacheConfig, notificationsHub, logger)
+        ILogger<CacheStorageProvider<T, TStorageProvider>> logger,
+        INotificationsHub<T>? notificationsHub) : base(storageProvider, cacheConfig, notificationsHub, logger)
     {
         _storageProvider = storageProvider;
         _logger = logger;
@@ -28,39 +27,43 @@ public class CacheStorageProvider<T> : ReadOnlyCacheStorageProvider<T>, IStorage
         StartAsync(CancellationToken.None);
     }
 
-    private string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
-
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
-        var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT);
+        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
         try
-        { 
+        {
+            SetCache(indexCacheKey, index);
             var bytesAsSpan = new ReadOnlyMemory<byte>(data);
-            SetCache(cacheKey, bytesAsSpan);
+            SetCache(dataCacheKey, bytesAsSpan);
             await _storageProvider.StoreSnapshot(snapshotVersion, index, data);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Something went wrong while storing snapshot data!");
-            MemoryCache.Remove(cacheKey);
+            MemoryCache.Remove(indexCacheKey);
+            MemoryCache.Remove(dataCacheKey);
             throw;
         }
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
-        var cacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
+        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
+        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
        
         try
         {
-            SetCache(cacheKey, new ReadOnlyMemory<byte>(data));
+            SetCache(dataCacheKey, new ReadOnlyMemory<byte>(index));
+            SetCache(indexCacheKey, new ReadOnlyMemory<byte>(data));
 
             await _storageProvider.StoreDelta(deltaVersion, index, data);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Something went wrong while storing delta data cache!");
-            MemoryCache.Remove(cacheKey);
+            MemoryCache.Remove(indexCacheKey);
+            MemoryCache.Remove(dataCacheKey);
             throw;
         }
     }
@@ -82,15 +85,17 @@ public class CacheStorageProvider<T> : ReadOnlyCacheStorageProvider<T>, IStorage
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
-        var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT);
+        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
         try
         {
+            SetCache(indexCacheKey, index);
             if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
             {
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
                 var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
-                SetCache(cacheKey, bytesAsSpan);
+                SetCache(dataCacheKey, bytesAsSpan);
                 await _storageProvider.StoreSnapshot(snapshotVersion, index, byteArray);
             }
             else
@@ -101,22 +106,25 @@ public class CacheStorageProvider<T> : ReadOnlyCacheStorageProvider<T>, IStorage
         catch (Exception ex)
         {
             _logger.LogError(ex, "Something went wrong while storing delta data cache!");
-            MemoryCache.Remove(cacheKey);
+            MemoryCache.Remove(indexCacheKey);
+            MemoryCache.Remove(dataCacheKey);
             throw;
         }
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
-        var cacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
+        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
+        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
         try
         {
+            SetCache(indexCacheKey, index);
             if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
             {
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
                 var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
-                SetCache(cacheKey, bytesAsSpan);
+                SetCache(dataCacheKey, bytesAsSpan);
                 await _storageProvider.StoreDelta(deltaVersion, index, byteArray);
             }
             else
@@ -127,7 +135,8 @@ public class CacheStorageProvider<T> : ReadOnlyCacheStorageProvider<T>, IStorage
         catch (Exception ex)
         {
             _logger.LogError(ex, "Something went wrong while storing delta data cache!");
-            MemoryCache.Remove(cacheKey);
+            MemoryCache.Remove(indexCacheKey);
+            MemoryCache.Remove(dataCacheKey);
             throw;
         }
     }

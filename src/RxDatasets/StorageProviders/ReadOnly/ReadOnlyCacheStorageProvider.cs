@@ -10,12 +10,12 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets.StorageProviders.ReadOnly;
 
-public class ReadOnlyCacheStorageProvider<T>(
-    IReadOnlyStorageProvider<T> readOnlyStorageProvider,
+public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
+    TStorageProvider readOnlyStorageProvider,
     IOptions<DtoStorageCacheConfig> cacheConfig,
     INotificationsHub<T>? notificationsHub,
-    ILogger<ReadOnlyCacheStorageProvider<T>> logger)
-    : IReadOnlyStorageProvider<T>, IHostedService
+    ILogger<ReadOnlyCacheStorageProvider<T, TStorageProvider>> logger)
+    : IReadOnlyStorageProvider<T>, IHostedService where TStorageProvider : IReadOnlyStorageProvider<T>
 {
     private const int MB_BYTES = 1024 * 1024;
     protected readonly IMemoryCache MemoryCache = new MemoryCache(new MemoryCacheOptions()
@@ -122,7 +122,7 @@ public class ReadOnlyCacheStorageProvider<T>(
         _subscriptions.Dispose();
         return Task.CompletedTask;
     }
-    private string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
+    protected string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
     private string GetPositionedCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot, long position, int length) => $"{deltaOrSnapshot}_{indexData}_{version}_pos{position}_len{length}";
 
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)

@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RxDatasets;
 using RxDatasets.BackgroundServices;
-using RxDatasets.StorageProvider.LocalDisk;
-using RxDatasets.StorageProvider.Minio;
 using RxDatasets.StorageProvider.S3;
 
 namespace Host;

@@ -1,5 +1,4 @@
-﻿using System.Reactive.Linq;
-using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.GenericNotifierLogic;

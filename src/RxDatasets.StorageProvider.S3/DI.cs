@@ -1,7 +1,6 @@
 ﻿using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.S3

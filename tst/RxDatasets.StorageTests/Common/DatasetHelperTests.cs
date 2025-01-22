@@ -1,9 +1,7 @@
 ﻿using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
-using RxDatasets.Configs;
 using RxDatasets.Models;
 using System.Collections.Immutable;
 

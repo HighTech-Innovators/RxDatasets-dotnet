@@ -93,7 +93,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             deltas = await GetChangedDeltas(snapshotIndex.SnapshotVersion, version);
         }
 
-        logger.LogInformation($"Applying {(deltas.Count > 0 ? "deltas from" + deltas.Min(d=>d.DeltaVersion) + " - " + deltas.Max(d=>d.DeltaVersion) : "no deltas")} to the main index");
+        logger.LogInformation($"Applying {(deltas.Count > 0 ? $"deltas from {deltas.Min(d=>d.DeltaVersion)}/(legacy){deltas.Min(d=>d.DeltaVersionLegacy)} - {deltas.Max(d=>d.DeltaVersion)}/(legacy){deltas.Max(d=>d.DeltaVersionLegacy)}" : " no deltas")} to the main index");
         snapshotIndex = snapshotIndex.ApplyDeltas(deltas);
 
         return snapshotIndex;

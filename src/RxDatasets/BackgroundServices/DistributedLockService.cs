@@ -5,7 +5,6 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
-using RxDatasets.StorageProviders;
 
 namespace RxDatasets.BackgroundServices
 {

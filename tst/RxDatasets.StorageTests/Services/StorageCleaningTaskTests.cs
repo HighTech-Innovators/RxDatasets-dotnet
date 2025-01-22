@@ -11,7 +11,6 @@ using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.LocalDisk;
 using RxDatasets.StorageProviders;
-using Xunit.Sdk;
 
 namespace RxDatasets.StorageTests.Services;
 
