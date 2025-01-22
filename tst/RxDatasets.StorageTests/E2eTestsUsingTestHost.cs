@@ -96,7 +96,7 @@ namespace RxDatasets.StorageTests
 
             // Start the second host
             (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(storage: storageProvider, false);
-            await Task.Delay(TimeSpan.FromSeconds(3));
+            //await Task.Delay(TimeSpan.FromSeconds(3));
 
 
             // Check that the second host is not healthy

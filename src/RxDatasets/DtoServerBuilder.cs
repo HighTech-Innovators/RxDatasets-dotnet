@@ -1,6 +1,4 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
@@ -9,6 +7,7 @@ using System.Reactive.Concurrency;
 using Google.Protobuf;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProviders.ReadOnly;
+using Microsoft.Extensions.Hosting;
 
 namespace RxDatasets
 {
@@ -31,118 +30,116 @@ namespace RxDatasets
     public class DtoServerBuilder<TEntity>(IServiceCollection services, bool readOnlyMode = false)
         where TEntity : class, IMessage<TEntity>
     {
-        private bool _isCacheConfigured;
+        private bool _withCache;
         private bool _isInMemoryDataset;
+        private bool _withDistributedLock;
+        private bool _withSnapshot;
+        private bool _withCleanup;
 
         public IServiceCollection Services => services;
 
         public DtoServerBuilder<TEntity> WithCache()
         {
-            if (_isInMemoryDataset)
-            {
-               return this;
-            }
-            
-            services.AddValidatedConfigSection<StorageConfig>();
-
-            services.AddValidatedConfigSection<DtoStorageCacheConfig>();
-            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
-            _isCacheConfigured = true;
-            
-            
-            if (readOnlyMode)
-            {
-                
-                AddReadOnlyCachingDI();
-            }
-            else
-            {
-                AddReadWriteCachingDI();
-            }
-
+            _withCache = true;
             return this;
         }
 
-        private void AddReadOnlyCachingDI()
-        {            
-            services.AddSingleton<ReadOnlyObjectStorageProvider<TEntity>>();
-            services.AddSingleton<IReadOnlyStorageProvider<TEntity>>(sp =>
-                new ReadOnlyCacheStorageProvider<TEntity>(
-                    sp.GetRequiredService<ReadOnlyObjectStorageProvider<TEntity>>(),
-                    sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
-                    sp.GetRequiredService<INotificationsHub<TEntity>>(),
-                    sp.GetRequiredService<ILogger<ReadOnlyCacheStorageProvider<TEntity>>>()
-                ));
+        private void AddReadOnlyObjectStorage()
+        {
+            // Register the usage of ObjectStorage
+            services.AddValidatedConfigSection<StorageConfig>();
+            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
 
-            services.AddHostedService(sp => sp.GetRequiredService<ReadOnlyObjectStorageProvider<TEntity>>()); 
-            services.AddHostedService(sp =>
-                (ReadOnlyCacheStorageProvider<TEntity>)sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
+            // Register the 'actual' ObjectStorageProvider as HostedService
+            services.AddSingletonAsHostedService<ReadOnlyObjectStorageProvider<TEntity>>();
 
+            if (_withCache)
+            {
+                services.AddValidatedConfigSection<DtoStorageCacheConfig>();
+                services.AddSingletonAsHostedService<IReadOnlyStorageProvider<TEntity>,
+                        ReadOnlyCacheStorageProvider<TEntity,
+                            ReadOnlyObjectStorageProvider<TEntity>>>(); // Register the cache
+            }
+            else
+            {
+                services.AddSingletonAlias<IReadOnlyStorageProvider<TEntity>, ReadOnlyObjectStorageProvider<TEntity>>();
+            }
         }
 
-        private void AddReadWriteCachingDI()
+        private void AddReadWriteObjectStorage()
         {
-            services.AddSingleton<IReadOnlyStorageProvider<TEntity>, ReadOnlyObjectStorageProvider<TEntity>>();
-            services.AddHostedService(sp =>
-                (ReadOnlyObjectStorageProvider<TEntity>)sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
-            
-            services.AddSingleton<ObjectStorageProvider<TEntity>>();
-            services.AddHostedService(sp => sp.GetRequiredService<ObjectStorageProvider<TEntity>>());
-            services.AddSingleton<IStorageProvider<TEntity>>(sp =>
-                new CacheStorageProvider<TEntity>(
-                    sp.GetRequiredService<ObjectStorageProvider<TEntity>>(),
-                    sp.GetRequiredService<IOptions<DtoStorageCacheConfig>>(),
-                    sp.GetRequiredService<ILogger<CacheStorageProvider<TEntity>>>(),
-                    sp.GetRequiredService<INotificationsHub<TEntity>>(),
-                    sp.GetRequiredService<ObjectStorageProvider<TEntity>>()));
-            
-            services.AddHostedService(sp => (ReadOnlyObjectStorageProvider<TEntity>) sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>());
+            // Register the 'actual' ObjectStorageProvider as HostedService
+            services.AddSingletonAsHostedService<ObjectStorageProvider<TEntity>>();
 
+            // Register the cache as the 'to be used' provider (for R/W, and R/O), and register that as Hosted Service
+            if (_withCache)
+            {
+                services.AddValidatedConfigSection<DtoStorageCacheConfig>();
+                services.AddSingletonAsHostedService<IStorageProvider<TEntity>,
+                    CacheStorageProvider<TEntity, ObjectStorageProvider<TEntity>>>(); // Register the cache
+            }
+            else
+            {
+                services.AddSingletonAlias<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
+            }
+
+            services.AddSingletonAlias<IReadOnlyStorageProvider<TEntity>, IStorageProvider<TEntity>>();
         }
 
         public DtoServerBuilder<TEntity> WithSnapshot()
         {
-            services.AddValidatedConfigSection<SnapshotCreationConfig>();
-            services.AddSingleton<IScheduler>(_ => Scheduler.Default);
-            services.AddSingleton<SnapshotCreationPlugin<TEntity>>();
-            services.AddHostedService<DatasetUpdateConsumingService<TEntity, SnapshotCreationPlugin<TEntity>>>();
-
+            _withSnapshot = true;
             return this;
         }
 
         public DtoServerBuilder<TEntity> WithInMemoryDataset()
         {
-            services.AddSingleton<IStorageProvider<TEntity>, InMemoryStorageProvider<TEntity>>();
-            services.AddSingleton<IReadOnlyStorageProvider<TEntity>>(sp => sp.GetRequiredService<IStorageProvider<TEntity>>());
             _isInMemoryDataset = true;
             return this;
         }
 
         public DtoServerBuilder<TEntity> WithCleanup()
         {
-            services.AddValidatedConfigSection<CleanupConfig>();
-            services.AddHostedService<StorageCleaningService<TEntity>>();
-
+            _withCleanup = true;
             return this;
         }
         
         public DtoServerBuilder<TEntity> WithDistributedLock(params string[] readinessTags)
         {
-            services.AddSingleton<DistributedLockService<TEntity>>();
-            services.AddHostedService(sp => sp.GetRequiredService<DistributedLockService<TEntity>>());
-            services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
-
+            _withDistributedLock = true;
             return this;
         }
         
         public void Build(params string[] readinessTags)
         {
-            AddDefaultStorageProvider();
-            services
-                .AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>()
-                .AddSingleton<DatasetReader<TEntity>>()
-                .AddSingleton<IDatasetReader<TEntity>>(sp => sp.GetRequiredService<DatasetReader<TEntity>>());
-            services.AddHostedService<DatasetReader<TEntity>>(sp => (DatasetReader<TEntity>) sp.GetRequiredService<IDatasetReader<TEntity>>());
+            AddStorageProvider();
+
+            if (!_isInMemoryDataset && _withDistributedLock)
+            {
+                services.AddSingletonAsHostedService<DistributedLockService<TEntity>>();
+                services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
+            }
+
+            if (!_isInMemoryDataset && _withSnapshot)
+            {
+                services.AddValidatedConfigSection<SnapshotCreationConfig>();
+                services.AddSingleton<IScheduler>(_ => Scheduler.Default);
+                services.AddSingleton<SnapshotCreationPlugin<TEntity>>();
+                services.AddHostedService<DatasetUpdateConsumingService<TEntity, SnapshotCreationPlugin<TEntity>>>();
+            }
+
+            if (!_isInMemoryDataset && _withCleanup)
+            {
+                services.AddValidatedConfigSection<CleanupConfig>();
+                services.AddHostedService<StorageCleaningService<TEntity>>();
+            }
+
+            services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>();
+
+            if (!readOnlyMode)
+                services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
+            else
+                services.AddSingletonAsHostedService<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
 
             if (readOnlyMode)
             {
@@ -156,30 +153,57 @@ namespace RxDatasets
             services.AddHealthChecks()
                 .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
                 .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+
             services.AddValidatedConfigSection<WriterConfig>();
             services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
-            
         }
 
-
-        private void AddDefaultStorageProvider()
+        private void AddStorageProvider()
         {
-            if(_isCacheConfigured || _isInMemoryDataset)
+            if (_isInMemoryDataset)
+            {
+                services.AddSingleton<IStorageProvider<TEntity>, InMemoryStorageProvider<TEntity>>();
+                services.AddSingletonAlias<IReadOnlyStorageProvider<TEntity>, IStorageProvider<TEntity>>();
                 return;
-            
+            }
+
+            // Register the usage of ObjectStorage
             services.AddValidatedConfigSection<StorageConfig>();
             services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
-            
-            if(readOnlyMode)
-            {
-                services.AddSingleton<IReadOnlyStorageProvider<TEntity>, ReadOnlyObjectStorageProvider<TEntity>>();
-                services.AddHostedService(sp => (ReadOnlyObjectStorageProvider<TEntity>) sp.GetRequiredService<IReadOnlyStorageProvider<TEntity>>()); 
-               
-                return;
-            };
-            
-            services.AddSingleton<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
-            services.AddHostedService(sp => (ObjectStorageProvider<TEntity>) sp.GetRequiredService<IStorageProvider<TEntity>>());
+
+            if (readOnlyMode)
+                AddReadOnlyObjectStorage();
+            else
+                AddReadWriteObjectStorage();
         }
+    }
+
+    public static class DependencyInjectionExtensions
+    {
+        public static IServiceCollection AddSingletonAlias<TInterface, TImplementation>(this IServiceCollection sc)
+            where TImplementation : TInterface
+            where TInterface : class
+            => sc.AddSingleton<TInterface>(sp => sp.GetRequiredService<TImplementation>());
+
+        public static IServiceCollection AddSingletonAsHostedService<TService>(
+            this IServiceCollection services)
+            where TService : class, IHostedService
+        {
+            services.AddSingleton<TService>();
+            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TService>());
+            return services;
+        }
+
+        public static IServiceCollection AddSingletonAsHostedService<TInterface, TService>(
+            this IServiceCollection services)
+            where TService : class, IHostedService, TInterface
+            where TInterface : class
+        {
+            services.AddSingleton<TService>();
+            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TService>());
+            services.AddSingletonAlias<TInterface, TService>();
+            return services;
+        }
+
     }
 }

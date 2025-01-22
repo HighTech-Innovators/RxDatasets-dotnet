@@ -231,31 +231,34 @@ public class ObjectStorageReader<T>(
     {
         var objectNamePrefix = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.DeltasFolderNameWithSlash;
         var listObjects = await diskStorage.ListObjects(objectNamePrefix);
-        var deltas = listObjects
-            .OrderBy(d => SharedMethods.ExtractNumber(d.ObjectKey))
-            .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey))
+        var deltas = listObjects.Select(d => SharedMethods.ExtractNumber(d.ObjectKey))
+            .Order()
+            .GroupBy(v=>v)
             .Select(g => g.First())
             .ToList();
 
         var listOfSnapshots = await diskStorage.ListObjects(DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.SnapshotsFolderNameWithSlash);
-        var snapshots = listOfSnapshots.OrderBy(d => SharedMethods.ExtractNumber(d.ObjectKey))
-            .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey))
+        var snapshots = listOfSnapshots.Select(s=> (Version: (ulong)SharedMethods.ExtractNumber(s.ObjectKey), s.DateTime))
+            .OrderBy(d => d.Version)
+            .GroupBy(g => g.Version)
             .Select(g => g.First())
             .ToList();
 
         var deltaInfo = new DeltaInfo();
         var snapshotInfo = new SnapshotInfo();
 
-        deltaInfo.EarliestDeltaVersion = deltas.Count > 0 ? (ulong)SharedMethods.ExtractNumber(deltas.First().ObjectKey): 0ul;
-        deltaInfo.LatestDeltaVersion = deltas.Count > 0 ? (ulong)SharedMethods.ExtractNumber(deltas.Last().ObjectKey): 0ul;
+        deltaInfo.EarliestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.First(): 0ul;
+        deltaInfo.LatestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.Last(): 0ul;
 
         snapshotInfo.SnapshotVersions.AddRange(snapshots.Select(s =>
            new SnapshotInfo.Types.snapshotVersion
            {
                Timestamp = Timestamp.FromDateTime(s.DateTime.UtcDateTime),
-               Version = (ulong)SharedMethods.ExtractNumber(s.ObjectKey)
+               Version = s.Version
            }));
-        // SH: add a log line here summarizing what the disk said
+
+        logger.LogInformation($"We scanned up {snapshots.Count} snapshots [{string.Join(",", snapshots.Select(s => s.Version))}]" +
+                              $" and {deltas.Count} deltas, v({deltaInfo.EarliestDeltaVersion}, {deltaInfo.LatestDeltaVersion}))");
         return (deltaInfo, snapshotInfo);
     }
     

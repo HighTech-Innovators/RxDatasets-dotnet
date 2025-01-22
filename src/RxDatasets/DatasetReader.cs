@@ -29,30 +29,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         bool retryInitialization = false)
     {
         _storageProvider = storageProvider;
-        this._notificationsHub = notificationsHub;
+        _notificationsHub = notificationsHub;
         _retryInitialization = retryInitialization;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
-    }    
-    
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
-        await _initializationTask;
         if (_notificationsHub == null)
-        {
-            _ = Task.Run(async () =>
-            {
-                while (!_cts.Token.IsCancellationRequested)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false);
-                    _initializationTask = Initialize();
-                    await _initializationTask;
-                }
-            }, cancellationToken);
             return;
-        }
-        
         _subscriptions.Add(_notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
         _subscriptions.Add(_notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
         _subscriptions.Add(_notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
@@ -65,6 +47,31 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
             await _initializationTask;
         })); 
+    }    
+    
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        // this is only started in ReadOnly Mode
+        _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
+        await _initializationTask;
+        
+        _ = Task.Run(async () =>
+            {
+                while (!_cts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false);
+                    try
+                    {
+                        _initializationTask = Initialize();
+                        await _initializationTask;
+
+                    }
+                    catch (Exception)
+                    {
+                        //ignored as errors will be logged when they are thrown
+                    }
+                }
+            }, cancellationToken);
     }
     
     private async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)

@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using RxDatasets.Abstractions;
 
 namespace RxDatasets.Configs;
 
