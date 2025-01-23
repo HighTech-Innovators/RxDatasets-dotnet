@@ -186,7 +186,7 @@ namespace RxDatasets
             where TService : class, IHostedService
         {
             services.AddSingleton<TService>();
-            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TService>());
+            services.AddHostedService(sp => sp.GetRequiredService<TService>());
             return services;
         }
 
@@ -196,7 +196,7 @@ namespace RxDatasets
             where TInterface : class
         {
             services.AddSingleton<TService>();
-            services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TService>());
+            services.AddHostedService(sp => sp.GetRequiredService<TService>());
             services.AddSingletonAlias<TInterface, TService>();
             return services;
         }
