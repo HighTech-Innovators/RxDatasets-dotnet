@@ -46,10 +46,6 @@ namespace RxDatasets
 
         private void AddReadOnlyObjectStorage()
         {
-            // Register the usage of ObjectStorage
-            services.AddValidatedConfigSection<StorageConfig>();
-            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
-
             // Register the 'actual' ObjectStorageProvider as HostedService
             services.AddSingletonAsHostedService<ReadOnlyObjectStorageProvider<TEntity>>();
 

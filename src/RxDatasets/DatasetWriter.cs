@@ -37,6 +37,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
                 Uninitialize();
+                return;
             }
 
             InitializationTask = InitializationLoop();
