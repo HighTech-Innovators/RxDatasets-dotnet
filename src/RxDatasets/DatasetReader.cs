@@ -42,6 +42,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
                 Uninitialize();
+                return;
             }
 
             _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
