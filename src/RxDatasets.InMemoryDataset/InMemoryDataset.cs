@@ -24,7 +24,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(string ancestor, CancellationToken ct = default)        
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)        
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";

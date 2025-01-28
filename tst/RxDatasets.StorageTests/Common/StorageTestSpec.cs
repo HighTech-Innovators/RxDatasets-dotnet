@@ -313,7 +313,7 @@ public abstract class StorageTestSpec
     }
     
     [Fact]
-    public async Task Should_DeleteMany_DTOs_With_Valid_Ancestor()
+    public async Task Should_DeleteChildren_DTOs_With_Valid_Ancestor()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
@@ -326,7 +326,7 @@ public abstract class StorageTestSpec
         
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var res = await azBlobStorageDatasetWriter.DeleteMany(key);
+        var res = await azBlobStorageDatasetWriter.DeleteChildren(key);
 
         res.Should().NotBeNull();
         res.NumDeletedEntities.Should().Be(2);
@@ -336,19 +336,19 @@ public abstract class StorageTestSpec
     }
     
       [Fact]
-    public async Task Should_Not_DeleteMany_DTOs_With_Invalid_Ancestor()
+    public async Task Should_Not_DeleteChildren_DTOs_With_Invalid_Ancestor()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
         var key = "parent";
 
-        var res = async () => await azBlobStorageDatasetWriter.DeleteMany(key);
+        var res = async () => await azBlobStorageDatasetWriter.DeleteChildren(key);
 
         await res.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
-    public async Task Should_Not_DeleteMany_Deleted_DTOs()
+    public async Task Should_Not_DeleteChildren_Deleted_DTOs()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var randomBytes = GenerateRandomData(UNIT_KB);
@@ -360,8 +360,8 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("providers/91/asset/12322", randomBytes);
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var deleteResult = await azBlobStorageDatasetWriter.DeleteMany(key);
-        var secondDeleteResult = await azBlobStorageDatasetWriter.DeleteMany(key);
+        var deleteResult = await azBlobStorageDatasetWriter.DeleteChildren(key);
+        var secondDeleteResult = await azBlobStorageDatasetWriter.DeleteChildren(key);
 
         //Use fluent assertions for these assertions        //Use fluent assertions for these assertions
         deleteResult.Should().NotBeNull();
@@ -378,13 +378,13 @@ public abstract class StorageTestSpec
     }
 
     [Fact]
-    public async Task Should_Not_DeleteMany_Non_Existent_DTOs()
+    public async Task Should_Not_DeleteChildren_Non_Existent_DTOs()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
         var ancestor = "providers/90/";
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var deleteResult = await azBlobStorageDatasetWriter.DeleteMany(ancestor);
+        var deleteResult = await azBlobStorageDatasetWriter.DeleteChildren(ancestor);
 
         deleteResult.Should().NotBeNull();
         deleteResult.NumDeletedEntities.Should().Be(0);
