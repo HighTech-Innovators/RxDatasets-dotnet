@@ -145,7 +145,42 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var delta = new Delta([(name, null, ChangeType.Deleted)], _index.LatestVersion + 1);
         await ApplyDelta(delta);
 
-        _logger.LogInformation($"Deleted entity version {_index.LatestVersion}");
+        _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index.LatestVersion);
+        return WriteResponseFor(delta);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    {
+        using var slot = await Lock(ct);
+        ThrowIfNotInitialized();
+
+        var deletedNames = new List<string>(_index!.Entities.Count);
+
+        await foreach (var name in names.WithCancellation(ct))
+        {
+            if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
+                existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+            {
+                continue;
+            }
+
+            deletedNames.Add(name);
+        }
+
+        if (!deletedNames.Any())
+        {
+            return new IDatasetWriter<T>.WriteResponse()
+            {
+                NewDatasetVersion = _index.LatestVersion
+            };
+        }
+
+        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+
+        var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
+        await ApplyDelta(delta);
+
+        _logger.LogInformation("Deleted {Count} entities; version {NewVersion}", deleteChanges.Length, _index.LatestVersion);
         return WriteResponseFor(delta);
     }
 
@@ -185,7 +220,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
         await ApplyDelta(delta);
 
-        _logger.LogInformation($"Deleted {deleteChanges.Length} descendants of {prefix} entity version");
+        _logger.LogInformation("Deleted {Count} descendants of '{Prefix}'; version {NewVersion}", deleteChanges.Length, prefix, _index.LatestVersion);
         return WriteResponseFor(delta);
     }
 
@@ -198,7 +233,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         if (result.Success)
             return;
 
-        throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"valiation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
+        throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"Validation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
     }
 
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
@@ -221,7 +256,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         await ApplyDelta(delta);
 
-        _logger.LogInformation($"Put entity version {_index.LatestVersion}");
+        _logger.LogInformation("Put 1 entity; version {NewVersion}", _index.LatestVersion);
         return WriteResponseFor(delta);
     }
 

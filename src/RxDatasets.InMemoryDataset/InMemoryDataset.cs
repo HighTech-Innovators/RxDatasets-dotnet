@@ -14,7 +14,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private readonly List<Delta> _deltas = [];
     private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)        
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
@@ -22,6 +22,29 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         var delta = new Delta(new[] {(name, (byte[]?) null, ChangeType.Deleted)}, LatestVersion + 1);
         ApplyDelta(delta);
         return WriteResponseFor(delta);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    {
+        using var slot = await Lock(ct);
+        var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
+
+        await foreach (var name in names.WithCancellation(ct))
+        {
+            if (_currentSnapshot.TryGetValue(name, out _))
+                changes[name] = (name, null, ChangeType.Deleted);
+        }
+
+        if (changes.Count == 0)
+        {
+            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+        }
+
+        // Create delta and apply it
+        var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
+        ApplyDelta(theDelta);
+
+        return WriteResponseFor(theDelta);
     }
 
     public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)        
