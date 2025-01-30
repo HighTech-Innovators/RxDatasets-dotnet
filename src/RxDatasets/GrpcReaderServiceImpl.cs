@@ -61,10 +61,20 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         using var cts = CombiTokenSource(cancellationToken);
         try
         {
-            var (names, toDatasetVersion) = isPaging ? PullRemainder<string>(pageToken) : await dataset
-                .List(parent);
+            List<string>? names;
+            var alreadySkipped = 0;
+            ulong toDatasetVersion;
+
+            if (isPaging)
+            {
+                (names, alreadySkipped, toDatasetVersion) = PullRemainder<string>(pageToken);
+            }
+            else
+            {
+                (names, toDatasetVersion) = await dataset.List(parent);
+            }
             
-            var (paginatedNames, nextPageToken, responseToDatasetVersion) = Paginate(names, pageSize, toDatasetVersion);
+            var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion);
 
             var batch = await BatchGet(paginatedNames, parent, cts.Token);
         
@@ -90,13 +100,24 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         try
         {
             var isPaging = request.PageToken?.Length > 0;
-            var (allChanges, toDatasetVersion) = isPaging
-                    ? PullRemainder<(string name, ChangeType changeType)>(request.PageToken!) 
-                    : request.WaitForChanges 
-                        ? await WaitChanges(request.FromDatasetVersion, cts.Token) 
-                        : await GetChanges(request.FromDatasetVersion, cts.Token);
+            List<(string name, ChangeType changeType)>? allChanges;
+            var alreadySkipped = 0;
+            ulong toDatasetVersion;
 
-            var (changes, nextPageToken, responseToDatasetVersion) = Paginate(allChanges, request.PageSize, toDatasetVersion);
+            if (isPaging)
+            {
+                (allChanges, alreadySkipped, toDatasetVersion) =
+                    PullRemainder<(string name, ChangeType changeType)>(request.PageToken!);
+            }
+            else
+            {
+                var allChangesCollection = request.WaitForChanges ? await WaitChanges(request.FromDatasetVersion, cts.Token) 
+                    : await GetChanges(request.FromDatasetVersion, cts.Token);
+                allChanges = allChangesCollection.allChanges;
+                toDatasetVersion = allChangesCollection.toDatasetVersion;
+            } 
+
+            var (changes, nextPageToken, responseToDatasetVersion) = Paginate(allChanges, request.PageSize, alreadySkipped, toDatasetVersion);
             return new ListChangesResponse
             {
                 ToDatasetVersion = responseToDatasetVersion,
@@ -123,21 +144,21 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         }
     }
 
-    private async Task<(ICollection<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> GetChanges(ulong requestFromDatasetVersion,
+    private async Task<(List<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> GetChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
         var changes = await dataset.GetChangedNames(requestFromDatasetVersion);
         return (changes.changes, changes.toVersion);
     }
 
-    private async Task<(ICollection<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
+    private async Task<(List<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
         var changes = await dataset.WaitChangedNames(requestFromDatasetVersion, ctsToken);
         return (changes.changes, changes.toVersion);
     }
 
-    private (ICollection<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(ICollection<T> allChanges, int requestPageSize, ulong toDatasetVersion)
+    private (List<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(List<T> allChanges, int requestPageSize, int skipSize, ulong toDatasetVersion)
     {
         if (requestPageSize == 0)
             requestPageSize = _defaultPageSize;
@@ -148,26 +169,30 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         if (allChanges.Count <= requestPageSize)
             return (allChanges, string.Empty, toDatasetVersion);
 
-        var thisPage = allChanges.Take(requestPageSize).ToList();
-        var remainder = allChanges.Skip(requestPageSize).ToList();
+        var toReadSize = skipSize+requestPageSize;
+        var thisPage = allChanges[skipSize..toReadSize];
+        
+        if(toReadSize == allChanges.Count)
+            return (thisPage, string.Empty, toDatasetVersion);
+        
         var nextPageToken = Guid.NewGuid().ToString().ToLowerInvariant();
-        StoreRemainder(nextPageToken, remainder,toDatasetVersion);
+        StoreRemainder(nextPageToken, allChanges, toReadSize, toDatasetVersion);
         return (thisPage, nextPageToken, 0);
     }
 
-    private void StoreRemainder<T>(string key, ICollection<T> collection, ulong toDatasetVersion)
+    private void StoreRemainder<T>(string key, List<T> collection, int alreadyReadSize, ulong toDatasetVersion)
     {
-        _memoryCache.Set(key, (collection, toDatasetVersion), TimeSpan.FromSeconds(_paginationTimeOut));
+        _memoryCache.Set(key, (collection, alreadyReadSize, toDatasetVersion), TimeSpan.FromSeconds(_paginationTimeOut));
     }
 
-    private (ICollection<T> Remainder, ulong ToDatasetVersion) PullRemainder<T>(string key)
+    private (List<T> Remainder, int AlreadySkipped, ulong ToDatasetVersion) PullRemainder<T>(string key)
     {
-        var cacheValueFound = _memoryCache.TryGetValue(key, out (ICollection<T> collection, ulong ToDatasetVersion) cacheValue);
+        var cacheValueFound = _memoryCache.TryGetValue(key, out (List<T> collection, int alreadySkipped, ulong ToDatasetVersion) cacheValue);
         _memoryCache.Remove(key);
-        if (!cacheValueFound || cacheValue.collection is not ICollection<T> remainder)
+        if (!cacheValueFound || cacheValue.collection is not List<T> remainder)
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not exist or is no longer valid"));
-        logger.LogInformation($"Cache hit for {key} in dataset reader");
-        return (cacheValue.collection, cacheValue.ToDatasetVersion);
+        logger.LogDebug($"Cache hit for {key} in dataset reader");
+        return (cacheValue.collection, cacheValue.alreadySkipped , cacheValue.ToDatasetVersion);
     }
 
     private static int? AsInt(string? config) => config switch

@@ -1,6 +1,6 @@
 ﻿namespace RxDatasets.Abstractions;
 
-public record ChangeSet(ulong toVersion, ICollection<(string name, ChangeType changeType)> changes);
+public record ChangeSet(ulong toVersion, List<(string name, ChangeType changeType)> changes);
 public interface IDatasetReader<T>
 {
     Task<ChangeSet> GetChangedNames(ulong fromVersion);
