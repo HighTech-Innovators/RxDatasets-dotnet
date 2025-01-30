@@ -271,9 +271,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return Task.FromResult(new ChangeSet(toVersion, changedNames));
     }
 
-    private ICollection<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
+    private List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
     {
-        ICollection<(string key, ChangeType change)> changedNames = [];
+        List<(string key, ChangeType change)> changedNames = [];
 
         indexRef.Entities
             .Where(x => x.Value.GetLatestEntityVersion() > fromVersion && x.Value.GetLatestEntityVersion() <= toVersion)
