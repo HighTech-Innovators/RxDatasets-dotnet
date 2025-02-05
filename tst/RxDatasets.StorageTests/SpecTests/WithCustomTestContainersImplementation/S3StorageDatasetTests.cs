@@ -18,6 +18,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     : StorageTestSpecWithTwoStepInit, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {
     private IOptions<S3Config>? _s3Config;
+    private IDiskStorage<object> _s3Storage;
 
     public async Task InitializeAsync()
     {
@@ -49,9 +50,9 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
 
-        IDiskStorage<object> s3Storage = new S3Storage<object>(storageLogger.Object, _s3Config!, false);
-        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub,  storageReader,false);
+        _s3Storage = new S3Storage<object>(storageLogger.Object, _s3Config!, false);
+        IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, _s3Storage);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _s3Storage, notificationsHub,  storageReader,false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
         
@@ -94,6 +95,24 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
+    
+    
+    [Fact(Skip = "Takes too long")]
+    public async Task Should_retrieve_more_than_1000_items()
+    {
+        var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
+
+        var expectedMax = 3000;
+        for (var i = 0; i < expectedMax; i++)
+        {
+            var bytes = GenerateRandomData(10, i);
+            await datasetWriter.Put(nameof(Should_retrieve_more_than_1000_items), bytes);
+        }
+
+        
+        (await _s3Storage.ListObjects("Object/" + FolderNames.DeltasFolderNameWithSlash)).Select(d=>SharedMethods.ExtractNumber(d.ObjectKey)).Max().Should().Be(expectedMax);
+    }
+
     
     [Fact]
     public async Task Should_Delete_Files()
