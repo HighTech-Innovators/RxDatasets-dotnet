@@ -666,34 +666,34 @@ public abstract class StorageTestSpec
         var key2 = "Should_Get_Changed_Names_Updates_2";
 
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 1));
-        var changedNames01 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
+        var changedNames01 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Put(key2, GenerateRandomData(UNIT_KB, 2));
-        var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
+        var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 3));
-        var changedNames03 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
+        var changedNames03 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
 
-        var changedNames13 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).changes.ToList();
-        var changedNames23 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 2)).changes.ToList();
+        var changedNames13 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).Changes.ToList();
+        var changedNames23 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 2)).Changes.ToList();
 
         changedNames01.Should().HaveCount(1);
-        changedNames01.Find(x => x.name == key1).changeType.Should().Be(ChangeType.New);
+        changedNames01.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.New);
 
         changedNames02.Should().HaveCount(2);
-        changedNames02.Find(x => x.name == key1).changeType.Should().Be(ChangeType.New);
-        changedNames02.Find(x => x.name == key2).changeType.Should().Be(ChangeType.New);
+        changedNames02.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.New);
+        changedNames02.Find(x => x.Name == key2).ChangeType.Should().Be(ChangeType.New);
 
         changedNames03.Should().HaveCount(2);
-        changedNames03.Find(x => x.name == key1).changeType.Should().Be(ChangeType.New);
-        changedNames03.Find(x => x.name == key2).changeType.Should().Be(ChangeType.New);
+        changedNames03.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.New);
+        changedNames03.Find(x => x.Name == key2).ChangeType.Should().Be(ChangeType.New);
 
         changedNames13.Should().HaveCount(2);
-        changedNames13.Find(x => x.name == key1).changeType.Should().Be(ChangeType.Changed);
-        changedNames13.Find(x => x.name == key2).changeType.Should().Be(ChangeType.New);
+        changedNames13.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.Changed);
+        changedNames13.Find(x => x.Name == key2).ChangeType.Should().Be(ChangeType.New);
 
         changedNames23.Should().HaveCount(1);
-        changedNames23.Find(x => x.name == key1).changeType.Should().Be(ChangeType.Changed);
+        changedNames23.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.Changed);
     }
 
     [Fact]
@@ -704,30 +704,30 @@ public abstract class StorageTestSpec
 
         var key1 = "Should_Get_Changed_Names_Updates_1";
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 1));
-        var changedNames01 =( await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).changes.ToList();
+        var changedNames01 =( await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Delete(key1);
-        var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).changes.ToList();
+        var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 2));
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 3));
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 4));
-        var changedNames05 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 3)).changes.ToList();
+        var changedNames05 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 3)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Delete(key1);
-        var changedNames06 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 3)).changes.ToList();
+        var changedNames06 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 3)).Changes.ToList();
 
         changedNames01.Should().HaveCount(1);
-        changedNames01.Find(x => x.name == key1).changeType.Should().Be(ChangeType.New);
+        changedNames01.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.New);
 
         changedNames02.Should().HaveCount(1);
-        changedNames02.Find(x => x.name == key1).changeType.Should().Be(ChangeType.Deleted);
+        changedNames02.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.Deleted);
 
         changedNames05.Should().HaveCount(1);
-        changedNames05.Find(x => x.name == key1).changeType.Should().Be(ChangeType.Changed);
+        changedNames05.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.Changed);
 
         changedNames06.Should().HaveCount(1);
-        changedNames06.Find(x => x.name == key1).changeType.Should().Be(ChangeType.Deleted);
+        changedNames06.Find(x => x.Name == key1).ChangeType.Should().Be(ChangeType.Deleted);
     }
 
     [Fact]
@@ -836,15 +836,15 @@ public abstract class StorageTestSpec
         var putResult = await azBlobStorageDatasetWriter.Put("AddingOneShouldLeadToListOfOneNewEntity", bytes);
 
         // When
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).Changes.ToList();
 
 
         // Then
-        result.Where(x => x.changeType == ChangeType.New).Should().HaveCount(1);
-        result.Where(x => x.changeType == ChangeType.New).Should().Contain(("AddingOneShouldLeadToListOfOneNewEntity", ChangeType.New));
+        result.Where(x => x.ChangeType == ChangeType.New).Should().HaveCount(1);
+        result.Where(x => x.ChangeType == ChangeType.New).Should().Contain(("AddingOneShouldLeadToListOfOneNewEntity", ChangeType.New));
 
-        result.Where(x => x.changeType == ChangeType.Changed).Should().BeEmpty();
-        result.Where(x => x.changeType == ChangeType.Deleted).Should().BeEmpty();
+        result.Where(x => x.ChangeType == ChangeType.Changed).Should().BeEmpty();
+        result.Where(x => x.ChangeType == ChangeType.Deleted).Should().BeEmpty();
     }
 
 
@@ -871,15 +871,15 @@ public abstract class StorageTestSpec
         await waitChangedListTask.WaitAsync(TimeSpan.FromMilliseconds(1000), cancellationToken);
 
         // When
-        var result = (await waitChangedListTask).changes.ToList();
+        var result = (await waitChangedListTask).Changes.ToList();
 
 
         // Then
-        result.Where(x => x.changeType == ChangeType.New).Should().HaveCount(1);
-        result.Where(x => x.changeType == ChangeType.New).Should().Contain(("AddingOneShouldLeadToListOfOneNewEntity", ChangeType.New));
+        result.Where(x => x.ChangeType == ChangeType.New).Should().HaveCount(1);
+        result.Where(x => x.ChangeType == ChangeType.New).Should().Contain(("AddingOneShouldLeadToListOfOneNewEntity", ChangeType.New));
 
-        result.Where(x => x.changeType == ChangeType.Changed).Should().BeEmpty();
-        result.Where(x => x.changeType == ChangeType.Deleted).Should().BeEmpty();
+        result.Where(x => x.ChangeType == ChangeType.Changed).Should().BeEmpty();
+        result.Where(x => x.ChangeType == ChangeType.Deleted).Should().BeEmpty();
     }
     
     [Fact]
@@ -915,7 +915,7 @@ public abstract class StorageTestSpec
         var deleteResult = await azBlobStorageDatasetWriter.Delete(name);
 
         // When
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).Changes.ToList();
 
         // Then
         result.Should().BeEmpty();
@@ -932,7 +932,7 @@ public abstract class StorageTestSpec
         var putResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         // When
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(0)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -950,7 +950,7 @@ public abstract class StorageTestSpec
         var updateResult = await azBlobStorageDatasetWriter.Put(name, GenerateRandomData(UNIT_KB, 1));
 
         // When
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(putResult.NewDatasetVersion)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(putResult.NewDatasetVersion)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -968,7 +968,7 @@ public abstract class StorageTestSpec
         var deleteResult = await azBlobStorageDatasetWriter.Delete(name);
 
         // When
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(putResult.NewDatasetVersion)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(putResult.NewDatasetVersion)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -995,7 +995,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().BeEmpty();
@@ -1027,7 +1027,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -1057,7 +1057,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -1087,7 +1087,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -1114,7 +1114,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -1141,7 +1141,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();
@@ -1174,7 +1174,7 @@ public abstract class StorageTestSpec
         //T
         var to = azBlobStorageDatasetReader.GetLatestVersion();
 
-        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).changes.ToList();
+        var result = (await azBlobStorageDatasetReader.GetChangedNames(from)).Changes.ToList();
 
         // Then
         result.Should().ContainSingle();

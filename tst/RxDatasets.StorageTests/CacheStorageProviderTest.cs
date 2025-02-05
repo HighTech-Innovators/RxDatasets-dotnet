@@ -46,7 +46,7 @@ namespace RxDatasets.StorageTests
             ulong version = 1;
 
             await cacheStorageProvider.StoreDelta(version, indexBytes, dataBytes);
-            var returnedBytes = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, version, 256)], 512);
+            var returnedBytes = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, 256)], 512);
             var expectedBytes = dataBytes.Skip(256).Take(512).ToArray();
 
             //Assert
@@ -118,7 +118,7 @@ namespace RxDatasets.StorageTests
             await using var readFileStream = File.OpenRead("test.pb");
             await cacheStorageProvider.StoreSnapshot(version, indexBytes, readFileStream);
             readFileStream.Close();
-            var returnedData = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.SNAPSHOT, version, 256)], 512);
+            var returnedData = await cacheStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Snapshot, version, 256)], 512);
 
             var expectedBytes = dataBytes.Skip(256).Take(512).ToArray();
 

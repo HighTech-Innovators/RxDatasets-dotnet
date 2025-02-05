@@ -76,6 +76,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     }
 
     private readonly SemaphoreSlim _initSemaphore = new(1);
+    private TStorageProvider _readOnlyStorageProvider = readOnlyStorageProvider;
 
     private async Task InitCache(CancellationToken ct)
     {
@@ -111,8 +112,8 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     private void InvalidateSnapshotCache(ulong oldSnapshotVersion)
     {
         if (oldSnapshotVersion <= 0) return;
-        var cacheKey = GetCacheKey(oldSnapshotVersion, ObjectNameIndexOrDataEnum.DATA,
-            ObjectNameTypeEnum.SNAPSHOT);
+        var cacheKey = GetCacheKey(oldSnapshotVersion, ObjectNameIndexOrDataEnum.Data,
+            ObjectNameTypeEnum.Snapshot);
         MemoryCache.Remove(cacheKey);
     }
 
@@ -137,10 +138,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
-        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
+        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
         var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
         {
-            var data = await readOnlyStorageProvider.ReadDeltaIndex(version);
+            var data = await _readOnlyStorageProvider.ReadDeltaIndex(version);
             entry.Size = data.Length;
             return data;
         });
@@ -159,10 +160,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
-        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT);
+        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot);
         var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
         {
-            var data = await readOnlyStorageProvider.ReadSnapshotIndex(version);
+            var data = await _readOnlyStorageProvider.ReadSnapshotIndex(version);
             entry.Size= data.Length;
             return data;
         });
@@ -178,8 +179,8 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
         foreach (var (type, version, position) in sources)
         {
-            var cacheKeyWhole = GetCacheKey(version, ObjectNameIndexOrDataEnum.DATA, type);
-            var cacheKeySpecificRange = GetPositionedCacheKey(version, ObjectNameIndexOrDataEnum.DATA, type, position, length);
+            var cacheKeyWhole = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, type);
+            var cacheKeySpecificRange = GetPositionedCacheKey(version, ObjectNameIndexOrDataEnum.Data, type, position, length);
             
             if (MemoryCache.TryGetValue(cacheKeySpecificRange, out ReadOnlyMemory<byte> data))
             {
@@ -192,11 +193,11 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             }
         }
 
-        var dataFromSources = await readOnlyStorageProvider.ReadDataFromSources(sources, length);
+        var dataFromSources = await _readOnlyStorageProvider.ReadDataFromSources(sources, length);
 
         sources.ForEach(s =>
         {
-            var cacheKeySpecificRange = GetPositionedCacheKey(s.version, ObjectNameIndexOrDataEnum.DATA, s.type, s.position, length);
+            var cacheKeySpecificRange = GetPositionedCacheKey(s.version, ObjectNameIndexOrDataEnum.Data, s.type, s.position, length);
             SetCache(cacheKeySpecificRange, dataFromSources);
         });
 
@@ -205,24 +206,24 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public async Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
-        var cacheKeyWholeSnapshot = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var cacheKeyWholeSnapshot = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
 
         if (MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
         {
             return data.Length;
         }
 
-        return await readOnlyStorageProvider.GetSnapshotDataContentLength(snapshotVersion);
+        return await _readOnlyStorageProvider.GetSnapshotDataContentLength(snapshotVersion);
     }
 
 
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
     {
 
-        var cacheKeyWholeSnapshot = GetCacheKey(version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var cacheKeyWholeSnapshot = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
         
         if (!MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
-            return readOnlyStorageProvider.ReadSnapshotData(version, callback);
+            return _readOnlyStorageProvider.ReadSnapshotData(version, callback);
        
         var memoryStream = new MemoryStream(data.ToArray());
         using (memoryStream)
@@ -240,10 +241,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
-        var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
         return await MemoryCache.GetOrCreateAsync(cacheKey, async entry =>
         {
-            var readSnapshotData = await readOnlyStorageProvider.ReadSnapshotData(snapshotVersion);
+            var readSnapshotData = await _readOnlyStorageProvider.ReadSnapshotData(snapshotVersion);
             entry.Size = readSnapshotData.Length;
             return readSnapshotData;
         });
@@ -251,6 +252,6 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
-        return readOnlyStorageProvider.ListVersions();
+        return _readOnlyStorageProvider.ListVersions();
     }
 }

@@ -18,7 +18,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
     : StorageTestSpecWithTwoStepInit, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
 {
     private IOptions<S3Config>? _s3Config;
-    private IDiskStorage<object> _s3Storage;
+    private IDiskStorage<object>? _s3Storage;
 
     public async Task InitializeAsync()
     {
@@ -110,7 +110,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         }
 
         
-        (await _s3Storage.ListObjects("Object/" + FolderNames.DeltasFolderNameWithSlash)).Select(d=>SharedMethods.ExtractNumber(d.ObjectKey)).Max().Should().Be(expectedMax);
+        (await _s3Storage!.ListObjects("Object/" + FolderNames.DeltasFolderNameWithSlash)).Select(d=>SharedMethods.ExtractNumber(d.ObjectKey)).Max().Should().Be(expectedMax);
     }
 
     

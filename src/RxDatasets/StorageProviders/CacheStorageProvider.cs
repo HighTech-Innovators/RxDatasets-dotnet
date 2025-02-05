@@ -29,8 +29,8 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
-        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT);
-        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot);
+        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
         try
         {
             SetCache(indexCacheKey, index);
@@ -49,8 +49,8 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
-        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
-        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
+        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
+        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta);
        
         try
         {
@@ -85,8 +85,8 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
-        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT);
-        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT);
+        var indexCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot);
+        var dataCacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
         try
         {
             SetCache(indexCacheKey, index);
@@ -114,8 +114,8 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
-        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA);
-        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA);
+        var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
+        var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta);
         try
         {
             SetCache(indexCacheKey, index);

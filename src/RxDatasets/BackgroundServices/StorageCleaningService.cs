@@ -81,7 +81,7 @@ namespace RxDatasets.BackgroundServices
             {
                 scheduler.ScheduleAsync((TimeSpan)delay, (_, _) => SearchForOutdatedData());
             }
-            _listOfSnapshotsDatesScheduledForDeleting.Add(earliestSnapshotTime.Value);
+            _listOfSnapshotsDatesScheduledForDeleting.Add(earliestSnapshotTime!.Value);
         }
 
 
@@ -91,12 +91,12 @@ namespace RxDatasets.BackgroundServices
                 return Task.CompletedTask;
 
             _disposableSnapshotNotificationSubscription = notificationsHub
-                .Subscribe<SnapshotCreatedNotification>( (_) => SearchForOutdatedData());
+                .Subscribe<SnapshotCreatedNotification>( _ => SearchForOutdatedData());
 
             if (!config.Value.KeepAllDeltas)
             {
                 _disposableVersionProcessedNotificationSubscription = notificationsHub
-                    .Subscribe<VersionProcessedNotification>((_) => SearchForOutdatedData());
+                    .Subscribe<VersionProcessedNotification>(_ => SearchForOutdatedData());
             }
 
             _ = SearchForOutdatedData();

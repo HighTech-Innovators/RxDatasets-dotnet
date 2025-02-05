@@ -7,7 +7,6 @@ namespace RxDatasets.StorageProvider.LocalDisk
     {
         private readonly string _rootFolder;
         private readonly ILogger<LocalDiskStorage<T>> _logger;
-        private bool _initialized;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
         public LocalDiskStorage(ILogger<LocalDiskStorage<T>> logger, IOptions<LocalDiskStorageConfig> config)
@@ -27,7 +26,6 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 {
                     Directory.CreateDirectory(_rootFolder);
                 }
-                _initialized = true;
                 SetHealthy();
             }
             catch (Exception ex)
@@ -55,7 +53,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
             if (!Directory.Exists(directory))
             {
-                Directory.CreateDirectory(directory);
+                Directory.CreateDirectory(directory!);
             }
 
             return fullPath;
@@ -135,7 +133,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
         public async Task UploadBytes(string key, byte[] data)
         {
             var filePath = GetFullPath(key);
-            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath), $".tmp_{Path.GetFileName(filePath)}");
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath)!, $".tmp_{Path.GetFileName(filePath)}");
 
             try
             {
@@ -172,7 +170,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
         public async Task UploadFileStream(string key, Stream stream)
         {
             var filePath = GetFullPath(key);
-            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath), $".tmp_{Path.GetFileName(filePath)}");
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath)!, $".tmp_{Path.GetFileName(filePath)}");
 
             try
             {

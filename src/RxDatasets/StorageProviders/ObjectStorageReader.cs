@@ -22,21 +22,21 @@ public class ObjectStorageReader<T>(
 
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         return diskStorage.DownloadBytes(objectName);
     }
     
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         return diskStorage.DownloadWithCallBack(objectName, callback);
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
+        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
             storageConfig.Value);
         var bytes = await diskStorage.DownloadBytes(objectName);
 
@@ -45,7 +45,7 @@ public class ObjectStorageReader<T>(
 
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT,
+        var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         var bytes = await diskStorage.DownloadBytes(objectName);
         return bytes;
@@ -70,7 +70,7 @@ public class ObjectStorageReader<T>(
 
         foreach (var (type, version, position) in sources)
         {
-            var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.DATA, type, storageConfig.Value);
+            var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Data, type, storageConfig.Value);
             return await diskStorage.DownloadBytes(objectName, position, length);
         }
 
@@ -265,7 +265,7 @@ public class ObjectStorageReader<T>(
     
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         return diskStorage.GetObjectContentLength(objectName);
     }

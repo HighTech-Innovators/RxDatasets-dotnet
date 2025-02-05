@@ -14,9 +14,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     private readonly ILogger<InMemoryStorageProvider<T>> _logger;
     private readonly INotificationsHub<T> _notificationsHub;
 
-    public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> Logger, INotificationsHub<T> notificationsHub)
+    public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> logger, INotificationsHub<T> notificationsHub)
     {
-        _logger = Logger;
+        _logger = logger;
         _notificationsHub = notificationsHub;
         _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready)).Wait();
 
@@ -62,7 +62,7 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         await using (stream)
         {
             dataBytes = new byte[stream.Length];  // Initialize the byte array to the length of the file
-            stream.Read(dataBytes);
+            stream.ReadExactly(dataBytes);
         }
 
         _deltas[deltaVersion] = (index, dataBytes);
@@ -162,9 +162,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         {
             switch (type)
             {
-                case ObjectNameTypeEnum.SNAPSHOT when _snapshots.TryGetValue(version, out var snapshot):
+                case ObjectNameTypeEnum.Snapshot when _snapshots.TryGetValue(version, out var snapshot):
                     return Task.FromResult(snapshot.data.Slice((int)position, length));
-                case ObjectNameTypeEnum.DELTA when _deltas.TryGetValue(version, out var delta):
+                case ObjectNameTypeEnum.Delta when _deltas.TryGetValue(version, out var delta):
                     return Task.FromResult(delta.data.Slice((int)position, length));
             }
         }

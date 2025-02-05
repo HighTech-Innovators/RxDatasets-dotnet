@@ -1,3 +1,4 @@
+// ReSharper disable UnusedTypeParameter
 namespace RxDatasets.Abstractions;
 
 public interface IStorageProviderReader

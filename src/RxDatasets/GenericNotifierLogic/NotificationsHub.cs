@@ -32,7 +32,7 @@ namespace RxDatasets.GenericNotifierLogic
                     {
                         await handler(notification);
                     }
-                    catch (Exception ex)
+                    catch
                     {
                         // Ignored, handlers should handle failure cases
                     }

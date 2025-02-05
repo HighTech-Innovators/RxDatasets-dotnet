@@ -14,7 +14,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 {
     private readonly ILogger<DatasetReader<T>> _logger;
     private readonly IReadOnlyStorageProvider<T> _storageProvider;
-    private readonly INotificationsHub<T>? _notificationsHub;
     private readonly bool _retryInitialization;
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
@@ -29,15 +28,14 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         bool retryInitialization = false)
     {
         _storageProvider = storageProvider;
-        _notificationsHub = notificationsHub;
         _retryInitialization = retryInitialization;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _logger = logger;
-        if (_notificationsHub == null)
+        if (notificationsHub == null)
             return;
-        _subscriptions.Add(_notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
-        _subscriptions.Add(_notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
-        _subscriptions.Add(_notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
+        _subscriptions.Add(notificationsHub.Subscribe<DatasetUpdatedNotification>(OnDatasetUpdated));
+        _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
+        _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
             if (notification.ServiceStatus == ServiceStatus.NotReady)
             {
@@ -98,14 +96,14 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         if (_mostRecentSnapshotIndex == null
             || (_mostRecentSnapshotIndex != null && notification.Version > _mostRecentSnapshotIndex.SnapshotVersion))
         {
-            _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex(); ;
+            _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
         }
     }
     
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         await _cts.CancelAsync();
-        _subscriptions?.Dispose();
+        _subscriptions.Dispose();
     }
 
     private TaskCompletionSource IndexChangedTaskCompletionSource { get; set; } = new();
@@ -209,7 +207,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
             var entityFromSnapshot = _mostRecentSnapshotIndex.Entities[name];
-            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _mostRecentSnapshotIndex.SnapshotVersion,
+            sources.Add((ObjectNameTypeEnum.Snapshot, _mostRecentSnapshotIndex.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
 
@@ -218,11 +216,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
             // Double check that we 
             if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
-                sources.Add((ObjectNameTypeEnum.SNAPSHOT, _index.SnapshotVersion, entityInMainIndex.Position));
+                sources.Add((ObjectNameTypeEnum.Snapshot, _index.SnapshotVersion, entityInMainIndex.Position));
         }
         else
         {
-            sources.Add((ObjectNameTypeEnum.DELTA, entityVersion, entityInMainIndex.Position));
+            sources.Add((ObjectNameTypeEnum.Delta, entityVersion, entityInMainIndex.Position));
         }
 
         return await _storageProvider.ReadDataFromSources(sources, entityInMainIndex.Length);
@@ -339,13 +337,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public ulong GetLastUsedSnapshotVersion()
     {
         ThrowIfNotInitialized();
-        return _mostRecentSnapshotIndex?.SnapshotVersion ?? (ulong)0;
+        return _mostRecentSnapshotIndex?.SnapshotVersion ?? 0;
     }
     
     public ulong GetMainIndexSnapshotVersion()
     {
         var indexRef = ThrowIfNotInitialized();
-        return indexRef?.SnapshotVersion ?? (ulong)0;
+        return indexRef?.SnapshotVersion ?? 0;
     }
     
     public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
@@ -360,7 +358,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task<HealthCheckResult> GetHealthCheckResult()
     {
-        if (!_initializationTask.IsCompletedSuccessfully)
+        if (!_initializationTask!.IsCompletedSuccessfully)
             return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not completed");
 
         try

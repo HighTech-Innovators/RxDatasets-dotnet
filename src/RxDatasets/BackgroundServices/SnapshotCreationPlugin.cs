@@ -55,8 +55,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             snapshots.Count > 0 
                 ? snapshots.MaxBy(s => s.Version)
                 : new SnapshotType(0, null);
-       
-       ulong lastSnapshotVersion = snapshot.Version;
+
+        ulong lastSnapshotVersion = snapshot!.Version;
        DateTimeOffset? lastSnapshotTime = snapshot.DateTime;
         // Don't do or schedule anything if there is no delta since the last snapshot (or no data at all)
         if (newestDelta <= lastSnapshotVersion)
@@ -179,7 +179,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 var targetEntityPosition = targetSnapshotStreamPosition;
 
                 var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
+                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
 
                 await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
                 targetSnapshotStreamPosition += entityLength;

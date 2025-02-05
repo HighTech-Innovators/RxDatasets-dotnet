@@ -100,7 +100,7 @@ namespace RxDatasets
             return this;
         }
         
-        public DtoServerBuilder<TEntity> WithDistributedLock(params string[] readinessTags)
+        public DtoServerBuilder<TEntity> WithDistributedLock()
         {
             _withDistributedLock = true;
             return this;
