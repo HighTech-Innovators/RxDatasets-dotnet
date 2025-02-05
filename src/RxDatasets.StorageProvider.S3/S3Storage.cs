@@ -469,14 +469,26 @@ namespace RxDatasets.StorageProvider.S3
             await EnsureInitialized();
             try
             {
-                var request = new ListObjectsV2Request
-                {
-                    BucketName = _bucketName,
-                    Prefix = prefix
-                };
+                var results = new List<(string ObjectKey, DateTimeOffset DateTime)>();
+                string continuationToken = null;
 
-                var response = await _s3Client.ListObjectsV2Async(request);
-                var results = response.S3Objects.Select(s3Object => (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(s3Object.LastModified))).ToList();
+                do
+                {
+                    var request = new ListObjectsV2Request
+                    {
+                        BucketName = _bucketName,
+                        Prefix = prefix,
+                        ContinuationToken = continuationToken
+                    };
+
+                    var response = await _s3Client.ListObjectsV2Async(request);
+                    results.AddRange(response.S3Objects.Select(s3Object =>
+                        (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(s3Object.LastModified))));
+
+                    continuationToken = response.NextContinuationToken;
+
+                } while (!string.IsNullOrEmpty(continuationToken)); // Keep iterating until there are no more pages
+
                 SetHealthy();
                 return results;
             }
@@ -493,6 +505,7 @@ namespace RxDatasets.StorageProvider.S3
                 throw new InvalidOperationException("S3 is unavailable", ex);
             }
         }
+
 
         public async Task<long> GetObjectContentLength(string objectKey)
         {

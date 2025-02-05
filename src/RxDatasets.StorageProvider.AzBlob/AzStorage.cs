@@ -284,26 +284,33 @@ public class AzStorage<T> : IDiskStorage<T>
         try
         {
             await EnsureInitialized();
-            var pages = _containerClient.GetBlobsAsync(prefix: $"{prefix}").AsPages();
-            var results = new List<(string Key, DateTimeOffset CreatedOn)>();
+            var results = new List<(string ObjectKey, DateTimeOffset DateTime)>();
+
+            // Fetch blobs with pagination handling
+            var pages = _containerClient.GetBlobsAsync(prefix: prefix).AsPages(default, 5000); // Adjust PageSizeHint if needed
 
             await foreach (var page in pages)
             {
-                results.AddRange(page.Values.Select(blobItem => (blobItem.Name,
-                    new DateTimeOffset(blobItem.Properties.CreatedOn.GetValueOrDefault().UtcDateTime,
-                        TimeSpan.Zero))));
+                results.AddRange(page.Values.Select(blobItem =>
+                (
+                    ObjectKey: blobItem.Name,
+                    DateTime: blobItem.Properties.CreatedOn.HasValue
+                        ? new DateTimeOffset(blobItem.Properties.CreatedOn.Value.UtcDateTime, TimeSpan.Zero)
+                        : DateTimeOffset.MinValue // Handle cases where CreatedOn is null
+                )));
             }
+
             SetHealthy();
-            return results;
-            
+            return results.OrderBy(x => x.ObjectKey).ToList();
         }
         catch (Exception ex)
         {
             SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to list objects from Azure Blob Storage");
-            throw new InvalidOperationException(UnavailableMessage, ex);
+            throw new InvalidOperationException("Azure Blob Storage is unavailable", ex);
         }
     }
+
 
     private void SetHealthy()
     {
