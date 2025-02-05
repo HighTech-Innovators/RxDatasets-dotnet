@@ -29,14 +29,14 @@ public class DatasetWatcher<T>(
         foreach (var entity in deltaIndexParsed.NewEntities)
         {
             var data = await storageReader.ReadDataFromSources(
-                [(ObjectNameTypeEnum.DELTA, deltaVersion, entity.Position)], entity.Length);
+                [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
             await datasetObserver.OnCreate(entity.Name, data);
         }
 
         foreach (var entity in deltaIndexParsed.ChangedEntities)
         {
             var data = await storageReader.ReadDataFromSources(
-                [(ObjectNameTypeEnum.DELTA, deltaVersion, entity.Position)], entity.Length);
+                [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
             await datasetObserver.OnChange(entity.Name, data);
         }
 
@@ -49,7 +49,7 @@ public class DatasetWatcher<T>(
 
     }
 
-    private async Task ReportAllDataToTheObserver(IDatasetObserver<T> datasetObserver, SnapshotIndex snapshotIndex,
+    private static async Task ReportAllDataToTheObserver(IDatasetObserver<T> datasetObserver, SnapshotIndex snapshotIndex,
         ReadOnlyMemory<byte> data)
     {
         var snapshotVersion = snapshotIndex.SnapshotVersion>0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
@@ -74,7 +74,7 @@ public class DatasetWatcher<T>(
                 case ChangeType.None:
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException("We are not sure what this Type is");
+                    throw new ArgumentOutOfRangeException(nameof(latestChangeType), "We are not sure what this Type is");
             }
         }
 
@@ -90,7 +90,7 @@ public class DatasetWatcher<T>(
             var versions = await storageReader.ListVersions();
             if (versions.Snapshots.Count == 0) return;
 
-            var lastSnapshotVersion = versions.Snapshots.MaxBy((s) => s.Version).Version;
+            var lastSnapshotVersion = versions.Snapshots.MaxBy(s => s.Version)!.Version;
             var snapshotIndex = await storageReader.ReadSnapshotIndex(lastSnapshotVersion);
             var snapshotIndexParsed = SnapshotIndex.Parser.ParseFrom(snapshotIndex.Span);
             snapshotIndexParsed.ValidateAgainstVersion(lastSnapshotVersion);

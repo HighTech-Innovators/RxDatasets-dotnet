@@ -359,7 +359,7 @@ namespace RxDatasets.StorageProvider.S3
                     MaxKeys = 1,
                 };
 
-                var response = await _s3Client.ListObjectsV2Async(request);
+                await _s3Client.ListObjectsV2Async(request);
                 SetHealthy();
                 return;
             }
@@ -470,7 +470,7 @@ namespace RxDatasets.StorageProvider.S3
             try
             {
                 var results = new List<(string ObjectKey, DateTimeOffset DateTime)>();
-                string continuationToken = null;
+                string? continuationToken = null;
 
                 do
                 {

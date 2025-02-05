@@ -5,7 +5,7 @@ namespace RxDatasets.Configs;
 public class WriterConfig
 {
     private string _allowedNamesPattern = "";
-    private Regex? _allowedNamesRegex = null;
+    private Regex? _allowedNamesRegex;
 
     public string AllowedNamesPattern
     {

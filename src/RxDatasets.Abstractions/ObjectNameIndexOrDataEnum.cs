@@ -2,6 +2,6 @@
 
 public enum ObjectNameIndexOrDataEnum
 {
-    DATA,
-    INDEX,
+    Data,
+    Index,
 }

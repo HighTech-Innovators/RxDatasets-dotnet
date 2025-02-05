@@ -111,7 +111,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         if (specificSnapshot != null)
         {
             specificSnapshot = availableVersions.Snapshots.Count > 0
-                ? availableVersions.Snapshots.MaxBy((s) => s.Version).Version
+                ? availableVersions.Snapshots.MaxBy((s) => s.Version)!.Version
                 : 0ul;
             return await TryGetSnapshot(specificSnapshot.Value);
         }
@@ -169,19 +169,19 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     public static string GetObjectName<T>(ulong version, ObjectNameIndexOrDataEnum indexOrData,
         ObjectNameTypeEnum deltaOrSnapshot, StorageConfig storageConfig)
     {
-        var extension = indexOrData == ObjectNameIndexOrDataEnum.INDEX ? "pb" : "pbs";
+        var extension = indexOrData == ObjectNameIndexOrDataEnum.Index ? "pb" : "pbs";
 
         var deltaOrSnapshotString = deltaOrSnapshot switch
         {
-            ObjectNameTypeEnum.DELTA => FolderNames.DeltasFolderName,
-            ObjectNameTypeEnum.SNAPSHOT => FolderNames.SnapshotsFolderName,
+            ObjectNameTypeEnum.Delta => FolderNames.DeltasFolderName,
+            ObjectNameTypeEnum.Snapshot => FolderNames.SnapshotsFolderName,
             _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
         };
 
         var indexOrDataString = indexOrData switch
         {
-            ObjectNameIndexOrDataEnum.INDEX => "index",
-            ObjectNameIndexOrDataEnum.DATA => "data",
+            ObjectNameIndexOrDataEnum.Index => "index",
+            ObjectNameIndexOrDataEnum.Data => "data",
             _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameIndexOrDataEnum))
         };
 
@@ -193,8 +193,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         var deltaOrSnapshotString = deltaOrSnapshot switch
         {
-            ObjectNameTypeEnum.DELTA => FolderNames.DeltasFolderName,
-            ObjectNameTypeEnum.SNAPSHOT => FolderNames.SnapshotsFolderName,
+            ObjectNameTypeEnum.Delta => FolderNames.DeltasFolderName,
+            ObjectNameTypeEnum.Snapshot => FolderNames.SnapshotsFolderName,
             _ => throw new ArgumentOutOfRangeException(nameof(ObjectNameTypeEnum))
         };
 

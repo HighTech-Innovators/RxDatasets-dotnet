@@ -16,7 +16,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
     private readonly int _paginationTimeOut = config.GetValue("PaginationCacheDuration", 60);
     private readonly MessageParser<TEntity> _protoParser = new(() => (TEntity)Activator.CreateInstance(typeof(TEntity))!);
-    private readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions()); 
+    private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions()); 
 
     private CancellationTokenSource CombiTokenSource(CancellationToken contextToken)
     {
@@ -67,7 +67,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
             if (isPaging)
             {
-                (names, alreadySkipped, toDatasetVersion) = PullRemainder<string>(pageToken);
+                (names, alreadySkipped, toDatasetVersion) = PullRemainder<string>(pageToken!);
             }
             else
             {
@@ -148,14 +148,14 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         CancellationToken ctsToken)
     {
         var changes = await dataset.GetChangedNames(requestFromDatasetVersion);
-        return (changes.changes, changes.toVersion);
+        return (changes.Changes, changes.ToVersion);
     }
 
     private async Task<(List<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
         var changes = await dataset.WaitChangedNames(requestFromDatasetVersion, ctsToken);
-        return (changes.changes, changes.toVersion);
+        return (changes.Changes, changes.ToVersion);
     }
 
     private (List<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(List<T> allChanges, int requestPageSize, int skipSize, ulong toDatasetVersion)
@@ -189,7 +189,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
     {
         var cacheValueFound = _memoryCache.TryGetValue(key, out (List<T> collection, int alreadySkipped, ulong ToDatasetVersion) cacheValue);
         _memoryCache.Remove(key);
-        if (!cacheValueFound || cacheValue.collection is not List<T> remainder)
+        if (!cacheValueFound || cacheValue.collection is not List<T>)
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not exist or is no longer valid"));
         logger.LogDebug($"Cache hit for {key} in dataset reader");
         return (cacheValue.collection, cacheValue.alreadySkipped , cacheValue.ToDatasetVersion);

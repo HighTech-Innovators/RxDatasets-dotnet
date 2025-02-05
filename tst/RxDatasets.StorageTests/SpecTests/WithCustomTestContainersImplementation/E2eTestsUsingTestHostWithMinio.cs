@@ -69,7 +69,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 
         }
 
-        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(bool WaitForHealthy = true, GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
+        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(bool waitForHealthy = true, GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
         {
             factoryInput ??= new GrpcWebApplicationFactory();
 
@@ -78,7 +78,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             // Create a new factory with custom configuration
             var customFactory = factoryInput.WithWebHostBuilder(builder =>
             {
-                builder.ConfigureAppConfiguration((context, config) =>
+                builder.ConfigureAppConfiguration((_, config) =>
                 {
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
@@ -104,7 +104,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             var healthResponse = await healthClient.GetAsync("/healthz");
             string healthContent = await healthResponse.Content.ReadAsStringAsync();
 
-            while (WaitForHealthy && healthContent != "Healthy" && counter < 100)
+            while (waitForHealthy && healthContent != "Healthy" && counter < 100)
             {
                 healthResponse = await healthClient.GetAsync("/healthz");
                 healthContent = await healthResponse.Content.ReadAsStringAsync();
@@ -113,7 +113,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
                 counter++;
             }
 
-            if (WaitForHealthy && healthContent != "Healthy")
+            if (waitForHealthy && healthContent != "Healthy")
                 throw new InvalidOperationException("Waiting for healthy status is enabled and we are not healthy, sorry, you can set the method not to wait :) ");
 
             return (customFactory, healthClient, channel);
@@ -128,16 +128,16 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
         [Fact]
         public async Task Test_Second_Service_Not_Healthy_While_First_Running()
         {
-            (var factory1, HttpClient healthClient, _) = await CreateWebhostFactoryAsync(); //and wait until healthy
+            var (factory1, _, _) = await CreateWebhostFactoryAsync(); //and wait until healthy
 
             // Start the second host
             (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(false);
-            var healthResponse2 = await healthClient2.GetAsync("/healthz");
+            await healthClient2.GetAsync("/healthz");
             await Task.Delay(TimeSpan.FromSeconds(3));
 
 
             // Check that the second host is not healthy
-            healthResponse2 = await healthClient2.GetAsync("/healthz");
+            var healthResponse2 = await healthClient2.GetAsync("/healthz");
             var content = await healthResponse2.Content.ReadAsStringAsync();
             content.Should().Be("Unhealthy", "Second container should not be healthy while first is running");
 
@@ -174,7 +174,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
         [Fact]
         public async Task Read_Raw_Snapshot_Data_Tests()
         {
-            (var factory1, HttpClient healthClient, var channel) = await CreateWebhostFactoryAsync();
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync();
 
             var writerClient = new WriterService.WriterServiceClient(channel);
 
@@ -218,7 +218,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             using var resultStream = new MemoryStream();
             await _minioClient?.GetObjectAsync(new GetObjectArgs()
                 .WithBucket(_bucketName)
-                .WithObject(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig))
+                .WithObject(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, storageConfig))
                 .WithCallbackStream(x => x.CopyTo(resultStream))
             )!;
 
@@ -309,8 +309,8 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             await factory1.DisposeAsync();
 
             // assert
-            var action = async (int i = 0) => await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = SevenUniqueNames[i] });
-            Func<Task> actionWrapper = async () => await action();
+            async Task<Demodto> Action(int i = 0) => await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = SevenUniqueNames[i] });
+            Func<Task> actionWrapper = async () => await Action();
             await actionWrapper.Should().ThrowAsync<RpcException>();
 
             //more action
@@ -321,7 +321,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             // more assert
             for (var i = 0; i < SevenUniqueNames.Count; i++)
             {
-                var responseDto = await action(i);
+                var responseDto = await Action(i);
                 responseDto.SomeString.Should().Be($"updated_{SevenStrings[i]}");
             }
         }

@@ -30,7 +30,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _writerConfig = writerConfig;
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
-        _retryInitialization = retryInitialization;
         _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
         _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
@@ -56,13 +55,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     public void Dispose()
     {
-        _subscriptions?.Dispose();
+        _subscriptions.Dispose();
     }
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
         if (_indexBasedOnMostRecentSnapshot == null 
-            || (snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion))
+            || snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion)
         {
             _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
         }
@@ -293,11 +292,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             if (includeParents)
             {
-                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletesForParentNames(_index, receivedNames, allParents));
+                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletesForParentNames(_index!, receivedNames, allParents));
             }
             else
             {
-                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletes(_index, receivedNames));
+                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletes(_index!, receivedNames));
             }
         }
 
@@ -311,12 +310,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             File.Delete(tempDataFilePath);
             return new IDatasetWriter<T>.WriteResponse
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index!.LatestVersion
             };
         }
 
         // Apply the delta and store it
-        _index = _index.ApplyDelta(deltaIndex);
+        _index = _index!.ApplyDelta(deltaIndex);
         using var newTempFileStream = File.OpenRead(tempDataFilePath);
         await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), newTempFileStream);
         newTempFileStream.Close();
@@ -335,7 +334,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(ImmutableDatasetState index, IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeParents, Stream stream, CancellationToken ct)
     {
-        var deltaIndex = new DeltaIndex { DeltaVersion = index!.LatestVersion + 1, DeltaVersionLegacy = 0};
+        var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0};
 
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
@@ -388,7 +387,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
     {
-        if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
+        if (!_index!.Entities.TryGetValue(name, out var existingEntity) ||
             existingEntity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return ChangeType.New;
@@ -425,7 +424,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
             var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
-            sources.Add((ObjectNameTypeEnum.SNAPSHOT, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
+            sources.Add((ObjectNameTypeEnum.Snapshot, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
 
@@ -434,11 +433,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
             // Double check that we 
             if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
-                sources.Add((ObjectNameTypeEnum.SNAPSHOT, _index.SnapshotVersion, entityInMainIndex.Position));
+                sources.Add((ObjectNameTypeEnum.Snapshot, _index.SnapshotVersion, entityInMainIndex.Position));
         }
         else
         {
-            sources.Add((ObjectNameTypeEnum.DELTA, entityVersion, entityInMainIndex.Position));
+            sources.Add((ObjectNameTypeEnum.Delta, entityVersion, entityInMainIndex.Position));
         }
 
         return await _storageProvider.ReadDataFromSources(sources, entityInMainIndex.Length);
@@ -478,7 +477,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     deltaIndex.ChangedEntities.Add(new DeltaEntity()
                     {
                         Position = targetPosition,
-                        Length = entityBytes!.Length,
+                        Length = entityBytes.Length,
                         Name = name,
                         Crc32 = crc32
                     }); 
@@ -512,7 +511,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<HealthCheckResult> GetHealthCheckResult()
     {
-        if (!InitializationTask.IsCompletedSuccessfully)
+        if (!InitializationTask!.IsCompletedSuccessfully)
             return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not completed");
 
         try
@@ -535,12 +534,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         
         return await GetHealthCheckResult();
-    }
-
-    private async Task<IDisposable> Lock()
-    {
-        await _semaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
     }
 
     private async Task<IDisposable> Lock(CancellationToken cancellationToken)
@@ -579,6 +572,4 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             DatasetVersion = this.DatasetVersion;
         }
     }
-
-    private readonly bool _retryInitialization;
 }

@@ -106,9 +106,9 @@ public class ReadOnlyObjectStorageProvider<T>(
         {
             switch (source.type)
             {
-                case ObjectNameTypeEnum.SNAPSHOT
+                case ObjectNameTypeEnum.Snapshot
                     when Snapshots.All(s => s.Version != source.version):
-                case ObjectNameTypeEnum.DELTA when source.version < DeltaInfo.EarliestDeltaVersion:
+                case ObjectNameTypeEnum.Delta when source.version < DeltaInfo.EarliestDeltaVersion:
                     // Skip, we don't think we can handle this version request
                     return false;
                 default:
@@ -192,7 +192,7 @@ public class ReadOnlyObjectStorageProvider<T>(
     
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
+        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         return storage.GetObjectContentLength(objectName);
     }

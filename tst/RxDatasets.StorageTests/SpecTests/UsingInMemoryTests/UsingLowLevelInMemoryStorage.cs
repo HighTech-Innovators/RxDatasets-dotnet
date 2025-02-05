@@ -87,7 +87,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
 
         // Assert
-        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig());
+        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
         var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
         actualSnapshotLength.Should().Be(1);
 
@@ -104,7 +104,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Act
         await SnapshotCreationPluginTests.CreateNumberDeltas(10, datasetWriter);
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
 
         // Assert
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
@@ -121,7 +121,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
 
         // Act
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
 
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
@@ -129,7 +129,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
         var changes = await toTestReader.GetChangedNames(0);
-        changes.changes.Where(ch => ch.changeType == ChangeType.New).Should().HaveCount(11, "We should observe all 11 insertions, so there is no possibility of lying about versions based on assumptions from the published snapshot version");
+        changes.Changes.Where(ch => ch.ChangeType == ChangeType.New).Should().HaveCount(11, "We should observe all 11 insertions, so there is no possibility of lying about versions based on assumptions from the published snapshot version");
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
         
         // Act
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
         
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
@@ -150,7 +150,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
         var changes = await toTestReader.GetChangedNames(0);
-        changes.changes.Where(ch => ch.changeType == ChangeType.New).Should().HaveCount(11, "We should observe all 11 insertions, so there is no possibility of lying about versions based on assumptions from the published snapshot version");
+        changes.Changes.Where(ch => ch.ChangeType == ChangeType.New).Should().HaveCount(11, "We should observe all 11 insertions, so there is no possibility of lying about versions based on assumptions from the published snapshot version");
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
         
         // Act
-        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, new StorageConfig());
+        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
         var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
         var wrongBytes = new byte[actualSnapshotLength - 1]; // This should fail since it short
         await _storage.UploadBytes(snapshotObjectName, wrongBytes);
@@ -194,8 +194,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length - 1);
@@ -218,8 +218,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         lowLevelStorageProvider.Setup(m => m.ListObjects(It.IsAny<string>())).ReturnsAsync([]);
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.DoNotVerify, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length - 1);
@@ -242,8 +242,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         lowLevelStorageProvider.Setup(m => m.ListObjects(It.IsAny<string>())).ReturnsAsync([]);
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).Throws(new FileNotFoundException());
@@ -266,8 +266,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         lowLevelStorageProvider.Setup(m => m.ListObjects(It.IsAny<string>())).ReturnsAsync([]);
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyAll, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length);
@@ -290,8 +290,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         lowLevelStorageProvider.Setup(m => m.ListObjects(It.IsAny<string>())).ReturnsAsync([]);
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyLargeDataOnly, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).ReturnsAsync(bytes.Length);
@@ -315,8 +315,8 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         var persistentStorageProvider = await SetupProviderAsync(UploadVerificationMode.VerifyLargeDataOnly, lowLevelStorageProvider.Object);
 
-        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, StorageConfig.Value);
-        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA, StorageConfig.Value);
+        var snapshotDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, StorageConfig.Value);
+        var deltaDataObjectName = DatasetHelper.GetObjectName<object>(1, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta, StorageConfig.Value);
         var bytes = new byte[5];
 
         lowLevelStorageProvider.Setup(m => m.GetObjectContentLength(snapshotDataObjectName)).Throws(new FileNotFoundException());

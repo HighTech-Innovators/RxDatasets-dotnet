@@ -2,6 +2,6 @@
 
 public enum ObjectNameTypeEnum
 {
-    DELTA,
-    SNAPSHOT
+    Delta,
+    Snapshot
 }

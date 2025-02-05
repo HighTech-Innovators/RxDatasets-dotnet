@@ -29,19 +29,23 @@ public class ObjectStorageProvider<T>(
     private readonly SemaphoreSlim _snapshotSemaphore = new(1);
     private readonly SemaphoreSlim _processedVersionsSemaphore = new(1);
     private Task? _initTask;
-    private IDisposable _disposableSubscription;
+    private IDisposable? _disposableSubscription;
     private ProcessedVersionsInfo _processedVersionsInfo = new();
+    private readonly IOptions<StorageConfig> _storageConfig = storageConfig;
+    private readonly IDiskStorage<T> _storage = storage;
+    private readonly INotificationsHub<T> _notificationsHub = notificationsHub;
+    private readonly bool _startIfInitFails = startIfInitFails;
 
     public new async Task StartAsync(CancellationToken cancellationToken)
     {
         if (lockService is null)
         {
-            _initTask = startIfInitFails ? InitLoop(cancellationToken) : Initialize(cancellationToken);
+            _initTask = _startIfInitFails ? InitLoop(cancellationToken) : Initialize(cancellationToken);
             await _initTask;
         }
     
 
-        _disposableSubscription = notificationsHub.Subscribe<DistributedLockNotification>(async (notification) =>
+        _disposableSubscription = _notificationsHub.Subscribe<DistributedLockNotification>(async (notification) =>
         {
             if (notification.LockStatus == DistirbutedLockStatus.Acquried)
             {
@@ -51,7 +55,7 @@ public class ObjectStorageProvider<T>(
             }
 
             _initTask = null;
-            await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
+            await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
         });
     
     }
@@ -60,7 +64,7 @@ public class ObjectStorageProvider<T>(
     {
         _disposableSubscription?.Dispose();
         await base.StopAsync(cancellationToken);
-        await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
+        await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
     }
 
     public async Task DeleteOlderThan(ulong version, bool keepAllDeltas)
@@ -76,9 +80,9 @@ public class ObjectStorageProvider<T>(
 
         foreach (var snapshot in Snapshots.Where(k => k.Version < version).ToList())
         {
-            var folderKey = DatasetHelper.GetObjectFolder<T>(snapshot.Version, ObjectNameTypeEnum.SNAPSHOT,
-                storageConfig.Value);
-            await storage.DeleteFolder(folderKey);
+            var folderKey = DatasetHelper.GetObjectFolder<T>(snapshot.Version, ObjectNameTypeEnum.Snapshot,
+                _storageConfig.Value);
+            await _storage.DeleteFolder(folderKey);
             Snapshots.Remove(snapshot);
             await SaveSnapshotInfo();
         }
@@ -91,8 +95,8 @@ public class ObjectStorageProvider<T>(
                  deltaToDelete <= version;
                  deltaToDelete++)
             {
-                var folderKey = DatasetHelper.GetObjectFolder<T>(deltaToDelete, ObjectNameTypeEnum.DELTA, storageConfig.Value);
-                await storage.DeleteFolder(folderKey);
+                var folderKey = DatasetHelper.GetObjectFolder<T>(deltaToDelete, ObjectNameTypeEnum.Delta, _storageConfig.Value);
+                await _storage.DeleteFolder(folderKey);
             }
 
             DeltaInfo.EarliestDeltaVersion = version + 1;
@@ -105,22 +109,22 @@ public class ObjectStorageProvider<T>(
         ThrowIfNoLockIsAcquired();
 
         using var slot = await DeltaLock();
-        var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
-        var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
+        var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
+            _storageConfig.Value);
+        var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
+            _storageConfig.Value);
 
         //Only upload the data file in case it is not empty (which can be the case in case the delta only contains deletes)
         if (data.Length > 0)
         {
             await Task.WhenAll(
-                storage.UploadBytes(indexObjectName, index),
-                storage.UploadBytes(dataObjectName, data)
+                _storage.UploadBytes(indexObjectName, index),
+                _storage.UploadBytes(dataObjectName, data)
             );
             await VerifyArrayUploadIfConfigured(dataObjectName, data.Length);
         }
         else
-            await storage.UploadBytes(indexObjectName, index);
+            await _storage.UploadBytes(indexObjectName, index);
 
         if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
         {
@@ -138,28 +142,28 @@ public class ObjectStorageProvider<T>(
         }
         
         await SaveDeltaInfo();
-        await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
         ThrowIfNoLockIsAcquired();
         
         using var slot = await DeltaLock();
-        var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
-        var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.DELTA,
-            storageConfig.Value);
+        var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
+            _storageConfig.Value);
+        var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
+            _storageConfig.Value);
 
         if (data.Length > 0)
         {
             await Task.WhenAll(
-                storage.UploadBytes(indexObjectName, index),
-                storage.UploadFileStream(dataObjectName, data)
+                _storage.UploadBytes(indexObjectName, index),
+                _storage.UploadFileStream(dataObjectName, data)
             );
             await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
         }
         else // Deleted Delta data
-            await storage.UploadBytes(indexObjectName, index);
+            await _storage.UploadBytes(indexObjectName, index);
         
        
         if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
@@ -178,11 +182,11 @@ public class ObjectStorageProvider<T>(
         }
         
         await SaveDeltaInfo();
-        await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
     private async Task VerifyArrayUploadIfConfigured(string dataObjectName, int expectedDataLength)
     {
-        if (storageConfig.Value.UploadVerificationMode == UploadVerificationMode.VerifyAll)
+        if (_storageConfig.Value.UploadVerificationMode == UploadVerificationMode.VerifyAll)
         {
             await VerifyDataUpload(dataObjectName, expectedDataLength);
         }
@@ -192,7 +196,7 @@ public class ObjectStorageProvider<T>(
     {
         try
         {
-            var actualUploadedDataLength = await storage.GetObjectContentLength(dataObjectName);
+            var actualUploadedDataLength = await _storage.GetObjectContentLength(dataObjectName);
             if (actualUploadedDataLength != expectedDataLength)
                 throw new ExternalException(
                     $"Delta {dataObjectName}: Expected uploaded data length to be {expectedDataLength}, but actual length is {actualUploadedDataLength}");
@@ -214,22 +218,22 @@ public class ObjectStorageProvider<T>(
     {
         ThrowIfNoLockIsAcquired();
         using var slot = await SnapshotLock();
-        var indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX,
-            ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
-        var dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT,
-            storageConfig.Value);
+        var indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Index,
+            ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
+        var dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
+            _storageConfig.Value);
         if (data.Length > 0)
         {
             await Task.WhenAll(
-                storage.UploadBytes(indexObjectName, index),
-                storage.UploadFileStream(dataObjectName, data)
+                _storage.UploadBytes(indexObjectName, index),
+                _storage.UploadFileStream(dataObjectName, data)
             );
             await VerifyStreamUploadIfConfigured(dataObjectName, data.Length);
 
         }
         else
         {
-            await storage.UploadBytes(indexObjectName, index);
+            await _storage.UploadBytes(indexObjectName, index);
         }
 
         if (Snapshots.All(s => s.Version != snapshotVersion))
@@ -243,13 +247,13 @@ public class ObjectStorageProvider<T>(
             await SaveSnapshotInfo();
         }
 
-        await notificationsHub.Notify(
+        await _notificationsHub.Notify(
             new SnapshotCreatedNotification(Snapshots.Max(sv => sv.Version)));
     }
 
     private async Task VerifyStreamUploadIfConfigured(string dataObjectName, long expectedDataLength)
     {
-        if (storageConfig.Value.UploadVerificationMode is UploadVerificationMode.VerifyAll or UploadVerificationMode.VerifyLargeDataOnly)
+        if (_storageConfig.Value.UploadVerificationMode is UploadVerificationMode.VerifyAll or UploadVerificationMode.VerifyLargeDataOnly)
         {
             await VerifyDataUpload(dataObjectName, expectedDataLength);
         }    
@@ -260,21 +264,21 @@ public class ObjectStorageProvider<T>(
         ThrowIfNoLockIsAcquired();
 
         using var slot = await SnapshotLock();
-        string indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.INDEX, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
-        string dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig.Value);
+        string indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
+        string dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
 
         //Only upload the data file in case it is not empty (which can be the case in case the delta only contains deletes)
         if (data.Length > 0)
         {
             await Task.WhenAll(
-                storage.UploadBytes(indexObjectName, index),
-                storage.UploadBytes(dataObjectName, data)
+                _storage.UploadBytes(indexObjectName, index),
+                _storage.UploadBytes(dataObjectName, data)
             );
             await VerifyArrayUploadIfConfigured(dataObjectName, data.Length);
         }
         else
         {
-            await storage.UploadBytes(indexObjectName, index);
+            await _storage.UploadBytes(indexObjectName, index);
         }
 
         if (Snapshots.All((s) => s.Version != snapshotVersion))
@@ -288,7 +292,7 @@ public class ObjectStorageProvider<T>(
             await SaveSnapshotInfo();
         }
 
-        await notificationsHub.Notify(
+        await _notificationsHub.Notify(
             new SnapshotCreatedNotification(Snapshots.Max(sv => sv.Version)));
     }
     
@@ -306,7 +310,7 @@ public class ObjectStorageProvider<T>(
                 _processedVersionsInfo.ProcessedVersions.TryAdd(who, version);
 
             await SaveProcessedVersionsInfo();
-            await notificationsHub.Notify(new VersionProcessedNotification(who, version));
+            await _notificationsHub.Notify(new VersionProcessedNotification(who, version));
 
         }
         finally
@@ -335,17 +339,17 @@ public class ObjectStorageProvider<T>(
     
     private string GetProcessedVersionsFilename()
     {
-        return DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "ProcessedVersions.pb";
+        return DatasetHelper.GetObjectNamePrefix<T>(_storageConfig.Value) + "ProcessedVersions.pb";
     }
 
     private string GetDeltaInfoFilename()
     {
-        return DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "DeltaInfo.pb";
+        return DatasetHelper.GetObjectNamePrefix<T>(_storageConfig.Value) + "DeltaInfo.pb";
     }
 
     private string GetSnapshotInfoFilename()
     {
-        return DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "SnapshotInfo.pb";
+        return DatasetHelper.GetObjectNamePrefix<T>(_storageConfig.Value) + "SnapshotInfo.pb";
     }
 
     private async Task SaveDeltaInfo()
@@ -356,7 +360,7 @@ public class ObjectStorageProvider<T>(
 
         var filename = GetDeltaInfoFilename();
         var data = DeltaInfo.ToByteArray();
-        await storage.UploadBytes(filename, data);
+        await _storage.UploadBytes(filename, data);
     }
 
     private async Task SaveSnapshotInfo()
@@ -368,7 +372,7 @@ public class ObjectStorageProvider<T>(
         var snapshotInfo = new SnapshotInfo();
         snapshotInfo.SnapshotVersions.AddRange(Snapshots.Select(s=> new SnapshotInfo.Types.snapshotVersion(){Timestamp = s.DateTime?.ToTimestamp(), Version = s.Version}));
         var data = snapshotInfo.ToByteArray();
-        await storage.UploadBytes(filename, data);
+        await _storage.UploadBytes(filename, data);
     }
 
     private async Task SaveProcessedVersionsInfo()
@@ -378,7 +382,7 @@ public class ObjectStorageProvider<T>(
 
         var filename = GetProcessedVersionsFilename();
         var data = _processedVersionsInfo.ToByteArray();
-        await storage.UploadBytes(filename, data);
+        await _storage.UploadBytes(filename, data);
        
     }
     
@@ -407,7 +411,7 @@ public class ObjectStorageProvider<T>(
     {
         logger.LogInformation($"Downloading and parsing file: {filename}");
 
-        var fileBytes = await storage.DownloadBytes(filename);
+        var fileBytes = await _storage.DownloadBytes(filename);
         return parser.ParseFrom(fileBytes.Span);
     }
 
@@ -472,9 +476,9 @@ public class ObjectStorageProvider<T>(
     protected override async Task Initialize(CancellationToken cancellationToken)
     {
         await base.Initialize(cancellationToken);
-        if (storage == null) throw new InvalidOperationException("Storage Provider was not initialized");
+        if (_storage == null) throw new InvalidOperationException("Storage Provider was not initialized");
         await TryLoadProcessedVersionsInfo();
-        await notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
+        await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
 
     private async Task<IDisposable> DeltaLock(CancellationToken cancellationToken = default)

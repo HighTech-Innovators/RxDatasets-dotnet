@@ -12,7 +12,7 @@ public static class DI
     public static void ConfigureServices(IServiceCollection builderServices)
     { 
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock(ReadinessTags).WithCache().WithSnapshot().WithCleanup().Build(ReadinessTags);
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build(ReadinessTags);
 
         //new testdto
         //RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);

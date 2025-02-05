@@ -177,7 +177,7 @@ namespace RxDatasets.StorageTests
 
             MessageParser<Demodto> protoParser = new(() => (Demodto)Activator.CreateInstance(typeof(Demodto))!);
             using var resultStream = new MemoryStream();
-            await storageProvider.DownloadWithCallBack(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.DATA, ObjectNameTypeEnum.SNAPSHOT, storageConfig), x => x.CopyTo(resultStream));
+            await storageProvider.DownloadWithCallBack(DatasetHelper.GetObjectName<Demodto>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, storageConfig), x => x.CopyTo(resultStream));
 
             resultStream.Position = 0;
 

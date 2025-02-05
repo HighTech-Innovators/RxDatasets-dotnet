@@ -2,7 +2,7 @@
 
 namespace RxDatasets.StorageProvider.S3;
 
-[RegionOrEndpointRequiredAttribute]
+[RegionOrEndpointRequired]
 public class S3Config
 {
     [Required]

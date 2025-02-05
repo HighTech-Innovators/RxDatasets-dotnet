@@ -90,7 +90,7 @@ namespace RxDatasets.BackgroundServices
             {
                 logger.LogInformation("Lock acquired.");
                 TimeSpan renewAfterTime = _renewalInterval - TimeSpan.FromSeconds(30);
-                _renewalTimer = new Timer(async _ => await RenewLockAsync(), null, renewAfterTime, renewAfterTime);
+                _renewalTimer = new Timer(_ => RenewLockAsync().Wait(), null, renewAfterTime, renewAfterTime);
             }
             else
             {

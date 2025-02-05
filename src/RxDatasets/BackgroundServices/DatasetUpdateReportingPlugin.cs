@@ -9,9 +9,10 @@ namespace RxDatasets.BackgroundServices
         TReporter reportingImplementation)
         : IDatasetUpdateConsumer<TDto> where TReporter : IDatasetUpdateReporting<TDto>
     {
-        private string ReportingIdentifier => reportingImplementation.ReportingIdentifier;
-        
-        public async Task ProcessAllUnreportedDeltas(CancellationToken stoppingToken)
+        private TReporter _reportingImplementation = reportingImplementation;
+        private string ReportingIdentifier => _reportingImplementation.ReportingIdentifier;
+
+        private async Task ProcessAllUnreportedDeltas(CancellationToken stoppingToken)
         {
             var newestDelta = (await storageProvider.ListVersions()).NewestDelta;
             var lastProcessedDelta = await storageProvider.GetProcessedVersion(ReportingIdentifier);
@@ -52,7 +53,7 @@ namespace RxDatasets.BackgroundServices
             }
 
             logger.LogDebug("Processing delta {Version}", deltaVersion);
-            var optionalState = await reportingImplementation.OpenDeltaTransaction(deltaVersion);
+            var optionalState = await _reportingImplementation.OpenDeltaTransaction(deltaVersion);
             try
             {
                 if(deltaIndexParsed.NewEntities.Count > 0) 
@@ -67,17 +68,17 @@ namespace RxDatasets.BackgroundServices
                 foreach (var newEntity in deltaIndexParsed.NewEntities)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, deltaVersion, newEntity.Position)], newEntity.Length);
-                    await reportingImplementation.OnNewDto(newEntity.Name, data.ToArray(),
+                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, newEntity.Position)], newEntity.Length);
+                    await _reportingImplementation.OnNewDto(newEntity.Name, data.ToArray(),
                         optionalState);
                 }
 
                 foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.DELTA, deltaVersion, updatedEntity.Position)], updatedEntity.Length);
+                    var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, updatedEntity.Position)], updatedEntity.Length);
 
-                    await reportingImplementation.OnChangedDto(updatedEntity.Name, data.ToArray(),
+                    await _reportingImplementation.OnChangedDto(updatedEntity.Name, data.ToArray(),
                         optionalState);
                 }
 
@@ -85,14 +86,14 @@ namespace RxDatasets.BackgroundServices
                 {
                     
                     cancellationToken.ThrowIfCancellationRequested();
-                    await reportingImplementation.OnDeletedDto(deletedEntity,
+                    await _reportingImplementation.OnDeletedDto(deletedEntity,
                         optionalState);
                 }
 
                 if (optionalState != null)
                 {
                     logger.LogDebug("Committing my delta {Version} transaction", deltaVersion);
-                    await reportingImplementation.CommitDeltaTransaction(optionalState);
+                    await _reportingImplementation.CommitDeltaTransaction(optionalState);
                     optionalState = null; // Prevent rollback in finally
                 }
             }
@@ -106,7 +107,7 @@ namespace RxDatasets.BackgroundServices
                 if (optionalState != null)
                 {
                     logger.LogInformation("Rolling back my delta {Version} transaction", deltaVersion);
-                    await reportingImplementation.RollBackDeltaTransaction(optionalState);
+                    await _reportingImplementation.RollBackDeltaTransaction(optionalState);
                 }
             }
         }
