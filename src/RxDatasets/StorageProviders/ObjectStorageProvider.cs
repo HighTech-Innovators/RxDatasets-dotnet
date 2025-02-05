@@ -122,11 +122,21 @@ public class ObjectStorageProvider<T>(
         else
             await storage.UploadBytes(indexObjectName, index);
 
+        if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
+        {
+            DeltaInfo.EarliestDeltaVersion = deltaVersion;
+            DeltaInfo.LatestDeltaVersion = deltaVersion;
+        }
+        else
+        {
+            DeltaInfo.LatestDeltaVersion++;
+        }
+        
         if (DeltaInfo.EarliestDeltaVersion == 0)
         {
             DeltaInfo.EarliestDeltaVersion = deltaVersion;
         }
-        DeltaInfo.LatestDeltaVersion++;
+        
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
@@ -151,12 +161,22 @@ public class ObjectStorageProvider<T>(
         else // Deleted Delta data
             await storage.UploadBytes(indexObjectName, index);
         
+       
+        if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
+        {
+            DeltaInfo.EarliestDeltaVersion = deltaVersion;
+            DeltaInfo.LatestDeltaVersion = deltaVersion;
+        }
+        else
+        {
+            DeltaInfo.LatestDeltaVersion++;
+        }
+        
         if (DeltaInfo.EarliestDeltaVersion == 0)
         {
             DeltaInfo.EarliestDeltaVersion = deltaVersion;
         }
         
-        DeltaInfo.LatestDeltaVersion++;
         await SaveDeltaInfo();
         await notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }

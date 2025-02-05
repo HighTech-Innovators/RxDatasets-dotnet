@@ -87,6 +87,11 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             logger.LogInformation($"No Snapshot was seen, Applying deltas from v1 util v{version}");
             deltas = await GetChangedDeltas(0, version);
         }
+        else if(version == 0 && snapshotIndex.SnapshotVersion > 0)
+        {
+            logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it without any extra deltas as we dont have any delta");
+            deltas = [];
+        }
         else
         {
             logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it to version {version}");
@@ -197,9 +202,14 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     }
     public async Task<List<DeltaIndex>> GetChangedDeltas(ulong fromVersion, ulong toVersion)
     {
+        if (fromVersion > 0 && toVersion == 0)
+        {
+            return [];
+        }
+        
         if (fromVersion > toVersion)
         {
-            throw new InvalidOperationException("fromVersion is higher than toVersion");
+            throw new InvalidOperationException($"fromVersion {fromVersion} is higher than toVersion {toVersion}");
         }
 
         ulong iterations = (toVersion - fromVersion);
