@@ -306,6 +306,7 @@ public class StorageCleanTaskTests
         await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
         await Task.Delay(TimeSpan.FromSeconds(.1));
+        await storageProvider.StoreProcessedVersion("unittest", 21);
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -351,6 +352,70 @@ public class StorageCleanTaskTests
         oldestDelta.Should().Be(1);
         newestDelta.Should().Be(30);
     }
+
+
+    [Fact]
+    public async Task Should_Not_Delete_Old_Snapshots_After_Some_Time_If_Minimum_Processed_Version_Not_Met()
+    {
+        var cleanupConfigMock = new Mock<CleanupConfig>
+        {
+            Object =
+            {
+                KeepAllDeltas = false
+            }
+        };
+
+        const int minimumTimeToLiveInMinutes = 5;
+        var scheduler = new TestScheduler();
+        cleanupConfigMock.Setup(c => c.GetMinimumAgeToLiveInMinutes()).Returns(TimeSpan.FromMinutes(minimumTimeToLiveInMinutes));
+        _storageCleanupConfig = Options.Create(cleanupConfigMock.Object);
+
+        var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
+
+        scheduler.AdvanceTo(DateTime.UtcNow.Ticks);
+        const int threeSnapshots = 3;
+        var deltasInOneSnapshot = (int)_snapshotsOptions.Value.SnapshotInterval;
+        var howManyDeltasToCreate = deltasInOneSnapshot * threeSnapshots; //3
+        scheduler.Schedule(TimeSpan.FromMinutes(3), () => Create6Deltas(datasetWriter).Wait());
+        scheduler.Schedule(TimeSpan.FromMinutes(6), () => Create6Deltas(datasetWriter).Wait());
+        await Task.Delay(TimeSpan.FromSeconds(.1));
+
+        //create 3 snapshots as a setup with 18 deltas
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(.2));
+
+        await Create6Deltas(datasetWriter);
+        await Task.Delay(TimeSpan.FromSeconds(.2));
+
+        //assert nothing is deleted even tho the threshold for snapshots is met at minimum 2 snapshots
+        var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+
+        snapshots.Count.Should().Be(threeSnapshots);
+        oldestDelta.Should().Be(snapshots[0].Version);
+
+
+        // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
+        scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
+        await Task.Delay(TimeSpan.FromSeconds(.1));
+
+        (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
+        int fourSnapshots = 4;
+        snapshots.Count.Should().Be(fourSnapshots);
+        oldestDelta.Should().Be(snapshots[0].Version);
+
+        //act
+        scheduler.AdvanceBy(TimeSpan.FromMinutes(5).Ticks); //create snapshot 5 here after time interval passes
+        await Task.Delay(TimeSpan.FromSeconds(.1));
+
+        //assert
+        (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+        const int expectedRemainingSnapshots = 5; // 1, 6, 11, 16, 21 -> something like this
+
+        snapshots.Count.Should().Be(expectedRemainingSnapshots); 
+        oldestDelta.Should().Be(1);
+        newestDelta.Should().Be(24);
+    }
+
     private static async Task Create6Deltas(DatasetWriter<object>? datasetWriter)
     {
         await CreateNumberOf1Deltas(datasetWriter, 6);
