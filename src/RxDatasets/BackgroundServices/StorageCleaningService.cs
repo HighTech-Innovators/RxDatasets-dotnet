@@ -56,6 +56,7 @@ namespace RxDatasets.BackgroundServices
                 }
 
                 if (toDeleteSnapshots.Count == 0) return;
+                if(lowestProcessedVersion < versionOfOldestToKeepSnapshot) return;
                 await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot, config.Value.KeepAllDeltas);
             }
 
