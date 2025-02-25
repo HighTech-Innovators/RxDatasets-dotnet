@@ -27,7 +27,7 @@ var grpcChannelOptions = new GrpcChannelOptions()
     HttpHandler = grpcWebOverHttp2
         ? new GrpcWebHandler(GrpcWebMode.GrpcWeb, new HttpClientHandler())
         : grpcWeb
-            ? new GrpcWebHandler(GrpcWebMode.GrpcWeb, new Http11 { InnerHandler = new HttpClientHandler()})
+            ? new GrpcWebHandler(GrpcWebMode.GrpcWeb, new Http11 { InnerHandler = new HttpClientHandler() })
             : new SocketsHttpHandler
             {
                 PooledConnectionIdleTimeout = TimeSpan.FromSeconds(60),
@@ -46,12 +46,12 @@ readerClient.ListChanges(new() { FromDatasetVersion = long.MaxValue }).Log("Firs
 var oldV = readerClient.ListChanges(new() { FromDatasetVersion = long.MaxValue }).Log("GetLatestVersion()").ToDatasetVersion;
 readerClient.ListChanges(new() { FromDatasetVersion = oldV }).Log($"ListChanges({oldV}..)");
 writerClient.Put(CreateDemodto()).Log("Put(Demodto)");
-readerClient.ListChanges(new(){ FromDatasetVersion = oldV}).Log($"ListChanges({oldV}..)");
+readerClient.ListChanges(new() { FromDatasetVersion = oldV }).Log($"ListChanges({oldV}..)");
 int pageSize = 1;
-var pt = readerClient.ListChanges(new(){ PageSize = pageSize}).Log($"ListChanges(0.. | {pageSize})").NextPageToken;
+var pt = readerClient.ListChanges(new() { PageSize = pageSize }).Log($"ListChanges(0.. | {pageSize})").NextPageToken;
 while (pt.Length > 0)
 {
-    pageSize+=pageSize;
+    pageSize += pageSize;
     pt = readerClient.ListChanges(new() { PageSize = pageSize, PageToken = pt }).Log($"ListChanges(0.. | {pageSize})")
         .NextPageToken;
 }

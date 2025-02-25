@@ -16,7 +16,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
     private readonly int _paginationTimeOut = config.GetValue("PaginationCacheDuration", 60);
     private readonly MessageParser<TEntity> _protoParser = new(() => (TEntity)Activator.CreateInstance(typeof(TEntity))!);
-    private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions()); 
+    private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
 
     private CancellationTokenSource CombiTokenSource(CancellationToken contextToken)
     {
@@ -73,11 +73,11 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             {
                 (names, toDatasetVersion) = await dataset.List(parent);
             }
-            
+
             var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion);
 
             var batch = await BatchGet(paginatedNames, parent, cts.Token);
-        
+
 
             return (batch, nextPageToken);
         }
@@ -93,7 +93,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             return (Array.Empty<TEntity>(), null);
         }
     }
-    
+
     public async Task<ListChangesResponse> ListChanges(ListChangesRequest request, CancellationToken cancellationToken)
     {
         using var cts = CombiTokenSource(cancellationToken);
@@ -111,11 +111,11 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             }
             else
             {
-                var allChangesCollection = request.WaitForChanges ? await WaitChanges(request.FromDatasetVersion, cts.Token) 
+                var allChangesCollection = request.WaitForChanges ? await WaitChanges(request.FromDatasetVersion, cts.Token)
                     : await GetChanges(request.FromDatasetVersion, cts.Token);
                 allChanges = allChangesCollection.allChanges;
                 toDatasetVersion = allChangesCollection.toDatasetVersion;
-            } 
+            }
 
             var (changes, nextPageToken, responseToDatasetVersion) = Paginate(allChanges, request.PageSize, alreadySkipped, toDatasetVersion);
             return new ListChangesResponse
@@ -169,12 +169,12 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         if (allChanges.Count <= requestPageSize)
             return (allChanges, string.Empty, toDatasetVersion);
 
-        var toReadSize = skipSize+requestPageSize;
+        var toReadSize = skipSize + requestPageSize;
         var thisPage = allChanges[skipSize..toReadSize];
-        
-        if(toReadSize == allChanges.Count)
+
+        if (toReadSize == allChanges.Count)
             return (thisPage, string.Empty, toDatasetVersion);
-        
+
         var nextPageToken = Guid.NewGuid().ToString().ToLowerInvariant();
         StoreRemainder(nextPageToken, allChanges, toReadSize, toDatasetVersion);
         return (thisPage, nextPageToken, 0);
@@ -192,7 +192,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         if (!cacheValueFound || cacheValue.collection is not List<T>)
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not exist or is no longer valid"));
         logger.LogDebug($"Cache hit for {key} in dataset reader");
-        return (cacheValue.collection, cacheValue.alreadySkipped , cacheValue.ToDatasetVersion);
+        return (cacheValue.collection, cacheValue.alreadySkipped, cacheValue.ToDatasetVersion);
     }
 
     private static int? AsInt(string? config) => config switch

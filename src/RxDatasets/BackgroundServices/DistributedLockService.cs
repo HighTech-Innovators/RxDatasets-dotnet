@@ -40,7 +40,7 @@ namespace RxDatasets.BackgroundServices
                         logger.LogWarning("Lock is currently held by another process. Checking again in 5 seconds");
                         lastLogTime = DateTimeOffset.UtcNow;
                     }
-            
+
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                     await AttemptAcquireLockAsync();
                 }

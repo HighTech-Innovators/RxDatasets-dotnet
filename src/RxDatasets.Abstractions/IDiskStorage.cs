@@ -9,7 +9,7 @@ public interface IDiskStorage<T>
     /// <returns>An array of bytes of the file, from position 0</returns>
     /// <exception cref="InvalidOperationException">In case no connection to the provider can be made or other error</exception>
     /// <exception cref="FileNotFoundException">In case a file does not exist</exception>
-    public Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey);
+    Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey);
 
     /// <summary>
     /// Download a file from storage provider, based on a position and length.
@@ -20,7 +20,7 @@ public interface IDiskStorage<T>
     /// <returns>The bytes of the object from the position and for length</returns>
     /// <exception cref="InvalidOperationException">In case no connection to the provider can be made or other error</exception>
     /// <exception cref="FileNotFoundException">In case a file does not exist</exception>
-    public Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length);
+    Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length);
 
     /// <summary>
     /// Download a file from storage provider.
@@ -30,11 +30,11 @@ public interface IDiskStorage<T>
     /// <returns>Nothing</returns>
     /// <exception cref="InvalidOperationException">In case no connection to the provider can be made or other error</exception>
     /// <exception cref="FileNotFoundException">In case a file does not exist</exception>
-    public Task DownloadWithCallBack(string objectKey, Action<Stream> callback);
-    public Task UploadBytes(string objectKey, byte[] bytes);
-    public Task UploadFileStream(string objectKey, Stream stream);
-    public Task DeleteFile(string objectKey);
-    public Task DeleteFolder(string prefix);
-    public Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix);
+    Task DownloadWithCallBack(string objectKey, Action<Stream> callback);
+    Task UploadBytes(string objectKey, byte[] bytes);
+    Task UploadFileStream(string objectKey, Stream stream);
+    Task DeleteFile(string objectKey);
+    Task DeleteFolder(string prefix);
+    Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix);
     Task<long> GetObjectContentLength(string objectKey);
 }

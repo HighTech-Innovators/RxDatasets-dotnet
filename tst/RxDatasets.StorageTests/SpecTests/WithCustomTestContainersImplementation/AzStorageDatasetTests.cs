@@ -63,14 +63,14 @@ public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixtu
 
         var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
-        
+
         IOptions<WriterConfig> writerConfig = Options.Create(new WriterConfig { });
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, writerConfig, false);
-        
+
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, persistentStorageProvider, SnapshotsOptions, new TestScheduler());
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         _ = datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }

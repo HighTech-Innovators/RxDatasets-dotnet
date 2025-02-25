@@ -290,7 +290,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
                 {
                     var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
-                        .WithPrefix("customRootFolder/Demodto/"+ FolderNames.SnapshotsFolderNameWithSlash)
+                        .WithPrefix("customRootFolder/Demodto/" + FolderNames.SnapshotsFolderNameWithSlash)
                         .WithRecursive(true));
 
                     var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();

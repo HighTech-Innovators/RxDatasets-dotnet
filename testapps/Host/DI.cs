@@ -10,7 +10,7 @@ public static class DI
     private const string ReadinessTags = "readiness";
 
     public static void ConfigureServices(IServiceCollection builderServices)
-    { 
+    {
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
         builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build(ReadinessTags);
 
@@ -44,8 +44,8 @@ public static class DI
         {
             Predicate = check => check.Tags.Contains(ReadinessTags)
         });
-       
-        
+
+
         app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
     }
 }

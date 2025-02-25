@@ -1,10 +1,10 @@
-﻿using Amazon.S3;
+﻿using Amazon;
+using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.Transfer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using Amazon;
 
 namespace RxDatasets.StorageProvider.S3
 {
@@ -90,7 +90,7 @@ namespace RxDatasets.StorageProvider.S3
             catch (Exception ex)
             {
                 SetUnhealthy(ex);
-                
+
                 _logger.LogError($"Could not init S3 {ex.Message}");
                 throw;
             }

@@ -48,7 +48,7 @@ public abstract class StorageTestSpecWithTwoStepInit : StorageTestSpec
         }
         cancallationSource.Dispose();
     }
-    
+
     [Fact]
     public async Task Should_Initialize_Index_Delta()
     {

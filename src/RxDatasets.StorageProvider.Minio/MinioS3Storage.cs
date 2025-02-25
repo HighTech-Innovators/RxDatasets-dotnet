@@ -40,7 +40,10 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         }
         minioClient.Build();
         _s3Client = minioClient;
-        if (retryInitialization) InitializationLoop(); else Initialize();
+        if (retryInitialization)
+            InitializationLoop();
+        else
+            Initialize();
     }
 
     public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
@@ -70,7 +73,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
             _logger.LogError("Could not init s3");
             _logger.LogError(ex.Message);
             throw;
-            
+
         }
     }
     private async void InitializationLoop()
@@ -272,18 +275,18 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         try
         {
             await EnsureInitialized();
-        
+
             var listArgs = new ListObjectsArgs()
                 .WithBucket(_s3Config.Value.BucketName)
                 .WithPrefix(prefix);
-        
+
             await _s3Client.ListObjectsAsync(listArgs).ForEachAsync((async item =>
             {
                 await _s3Client.RemoveObjectAsync(new RemoveObjectArgs()
                     .WithBucket(_s3Config.Value.BucketName)
                     .WithObject(item.Key));
             }));
-        
+
             SetHealthy();
         }
         catch (ConnectionException ex)

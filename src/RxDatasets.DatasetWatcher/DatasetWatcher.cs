@@ -1,4 +1,4 @@
-﻿﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 
@@ -25,7 +25,7 @@ public class DatasetWatcher<T>(
         var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
         deltaIndexParsed.ValidateAgainstVersion(nextToReportedVersion);
 
-        var deltaVersion = deltaIndexParsed.DeltaVersion>0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
+        var deltaVersion = deltaIndexParsed.DeltaVersion > 0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
         foreach (var entity in deltaIndexParsed.NewEntities)
         {
             var data = await storageReader.ReadDataFromSources(
@@ -52,7 +52,7 @@ public class DatasetWatcher<T>(
     private static async Task ReportAllDataToTheObserver(IDatasetObserver<T> datasetObserver, SnapshotIndex snapshotIndex,
         ReadOnlyMemory<byte> data)
     {
-        var snapshotVersion = snapshotIndex.SnapshotVersion>0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
+        var snapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         await datasetObserver.OnDatasetVersionStart(snapshotVersion);
 
         foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
@@ -88,7 +88,8 @@ public class DatasetWatcher<T>(
         try
         {
             var versions = await storageReader.ListVersions();
-            if (versions.Snapshots.Count == 0) return;
+            if (versions.Snapshots.Count == 0)
+                return;
 
             var lastSnapshotVersion = versions.Snapshots.MaxBy(s => s.Version)!.Version;
             var snapshotIndex = await storageReader.ReadSnapshotIndex(lastSnapshotVersion);
@@ -133,7 +134,7 @@ public class DatasetWatcher<T>(
                     await ReportADeltaToTheObserver(datasetObserver, version);
                     lastReportedVersion = version;
                 }
-            
+
                 var updatedVersionsMaybe = await storageReader.ListVersions();
                 if (updatedVersionsMaybe.NewestDelta == lastReportedVersion)
                 {

@@ -8,7 +8,7 @@ namespace ReadOnlyHost;
 public static class DI
 {
     public static void ConfigureServices(IServiceCollection builderServices)
-    { 
+    {
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
         builderServices.AddReadOnlyDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithCache().Build();
 

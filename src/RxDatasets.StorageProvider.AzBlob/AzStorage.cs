@@ -22,19 +22,23 @@ public class AzStorage<T> : IDiskStorage<T>
     {
         _logger = logger;
         _containerClient = new BlobServiceClient(
-            azStorageConfig.Value.ConnectionString, 
+            azStorageConfig.Value.ConnectionString,
             new BlobClientOptions
             {
                 RetryPolicy = new RetryPolicy(2)
             }).GetBlobContainerClient(azStorageConfig.Value.ContainerName);
-        if (retryInitialization) InitializationLoop(); else Initialize();
+        if (retryInitialization)
+            InitializationLoop();
+        else
+            Initialize();
     }
 
     public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
 
     private void Initialize()
     {
-        try{
+        try
+        {
             EnsureBucketExistsAsync().Wait();
             _initialized = true;
             SetHealthy();
@@ -75,7 +79,7 @@ public class AzStorage<T> : IDiskStorage<T>
         }
     }
 
-    
+
     public async Task DeleteFile(string objectKey)
     {
         try
@@ -122,7 +126,8 @@ public class AzStorage<T> : IDiskStorage<T>
             SetUnhealthy(ex);
             _logger.LogError(ex, UnavailableMessage);
             throw new InvalidOperationException(UnavailableMessage, ex);
-        }    }
+        }
+    }
 
 
     /// <summary>
@@ -144,7 +149,8 @@ public class AzStorage<T> : IDiskStorage<T>
             await blobClient.DownloadToAsync(memoryStream);
             memoryStream.Position = 0;
 
-            if (memoryStream.Length > int.MaxValue) throw new InvalidOperationException("File size is too large");
+            if (memoryStream.Length > int.MaxValue)
+                throw new InvalidOperationException("File size is too large");
 
             // Create a ReadOnlyMemory<byte> directly from the MemoryStream's buffer to avoid copying data
             var readOnlyMemory = new ReadOnlyMemory<byte>(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
@@ -208,11 +214,11 @@ public class AzStorage<T> : IDiskStorage<T>
             var blobClient = _containerClient.GetBlobClient(objectKey);
 
             var response = await blobClient.DownloadStreamingAsync();
-            
+
             callback(response.Value.Content);
             SetHealthy();
         }
-        catch (RequestFailedException ex) when (ex.Status==404)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
             SetHealthy();
             throw new FileNotFoundException(File404Message, objectKey);
@@ -235,7 +241,7 @@ public class AzStorage<T> : IDiskStorage<T>
         {
             _logger.LogError(ex, "Failed to connect to blob storage");
             throw new InvalidOperationException("Failed to connect to blob storage");
-        } 
+        }
         catch (Exception ex)
         {
             SetUnhealthy(ex);
@@ -262,7 +268,7 @@ public class AzStorage<T> : IDiskStorage<T>
     }
 
     public async Task UploadFileStream(string objectKey, Stream stream)
-    { 
+    {
         try
         {
             await EnsureInitialized();

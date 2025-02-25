@@ -11,7 +11,7 @@ public static class DI
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
         builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithDistributedLock().WithSnapshot().WithCleanup().Build();
         //builderServices.AddReadOnlyDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithCache().Build();
-		builderServices.AddSingleton<IDiskStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>,LowLevelInMemoryStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>>();
+        builderServices.AddSingleton<IDiskStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>, LowLevelInMemoryStorage<Hightechinnovators.Dtos.DemodtoV1.Demodto>>();
 
         builderServices.AddGrpc();
         builderServices.AddGrpcReflection();

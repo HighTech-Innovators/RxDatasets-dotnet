@@ -1,12 +1,12 @@
-﻿using Google.Protobuf;
+﻿using System.Buffers;
+using System.Collections.Immutable;
+using System.Reactive.Concurrency;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.Models;
-using System.Buffers;
-using System.Collections.Immutable;
-using System.Reactive.Concurrency;
 
 namespace RxDatasets.BackgroundServices;
 
@@ -51,13 +51,13 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     private bool AreSnapshotCreationConditionsMet(ulong newestDelta,
         List<SnapshotType> snapshots)
     {
-       var snapshot  =
-            snapshots.Count > 0 
-                ? snapshots.MaxBy(s => s.Version)
-                : new SnapshotType(0, null);
+        var snapshot =
+             snapshots.Count > 0
+                 ? snapshots.MaxBy(s => s.Version)
+                 : new SnapshotType(0, null);
 
         ulong lastSnapshotVersion = snapshot!.Version;
-       DateTimeOffset? lastSnapshotTime = snapshot.DateTime;
+        DateTimeOffset? lastSnapshotTime = snapshot.DateTime;
         // Don't do or schedule anything if there is no delta since the last snapshot (or no data at all)
         if (newestDelta <= lastSnapshotVersion)
             return false;
@@ -229,7 +229,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
                     ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
                     {
-                        Position = targetEntityPosition, Length = entityLength
+                        Position = targetEntityPosition,
+                        Length = entityLength
                     };
                     newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
                 }
@@ -309,7 +310,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     {
         await CreateSnapshotIfNecessary(stoppingToken);
     }
-    
+
     private async Task<IDisposable> Lock(CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);

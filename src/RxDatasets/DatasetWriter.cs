@@ -1,4 +1,5 @@
 
+using System.Reactive.Disposables;
 using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -8,7 +9,6 @@ using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
 using RxDatasets.Notifications;
-using System.Reactive.Disposables;
 
 namespace RxDatasets;
 
@@ -42,7 +42,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             InitializationTask = InitializationLoop();
             await InitializationTask;
         }));
-        
+
 
     }
 
@@ -60,7 +60,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
-        if (_indexBasedOnMostRecentSnapshot == null 
+        if (_indexBasedOnMostRecentSnapshot == null
             || snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion)
         {
             _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
@@ -188,16 +188,16 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
 
-        var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
+        var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (splitAncestor.Length  == 0 || splitAncestor.Length % 2 != 0)
+        if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
             throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
-        
+
         var deletedNames = new List<string>(_index!.Entities.Count);
 
-        foreach (var (name,entity) in _index!.Entities)
+        foreach (var (name, entity) in _index!.Entities)
         {
-            if (!name.StartsWith(prefix))
+            if (!name.StartsWith(prefix, StringComparison.Ordinal))
                 continue;
 
             if (entity.GetLatestChangeType() == ChangeType.Deleted)
@@ -226,8 +226,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private void EnsureNameIsValid(string entityName)
     {
         if (_writerConfig.Value.AllowedNamesRegex is null)
-           return;
-        
+            return;
+
         var result = _writerConfig.Value.AllowedNamesRegex.Match(entityName);
         if (result.Success)
             return;
@@ -248,10 +248,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         else if (await IsByteArrayUpdated(name, entityBytes))
             delta = new Delta([(name, entityBytes, ChangeType.Changed)], _index.LatestVersion + 1);
 
-        else return new IDatasetWriter<T>.WriteResponse()
-        {
-            NewDatasetVersion = _index.LatestVersion
-        };
+        else
+            return new IDatasetWriter<T>.WriteResponse()
+            {
+                NewDatasetVersion = _index.LatestVersion
+            };
 
         await ApplyDelta(delta);
 
@@ -334,7 +335,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(ImmutableDatasetState index, IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeParents, Stream stream, CancellationToken ct)
     {
-        var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0};
+        var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0 };
 
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
@@ -343,7 +344,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
         {
-            try { EnsureNameIsValid(name); }
+            try
+            { EnsureNameIsValid(name); }
             catch (ArgumentOutOfRangeException ex)
             {
                 _logger.LogWarning(ex, "Skipping entity");
@@ -353,14 +355,17 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             if (includeParents)
             {
                 var parent = DatasetHelper.FindParentOfEntity(name);
-                if (string.IsNullOrEmpty(parent)) continue;
-                if (!allParents.Contains(parent)) allParents.Add(parent);
+                if (string.IsNullOrEmpty(parent))
+                    continue;
+                if (!allParents.Contains(parent))
+                    allParents.Add(parent);
             }
 
             receivedNames.Add(name);
             var changeType = await DetermineChangeType(name, entityBytes);
 
-            if (changeType == ChangeType.None) continue;
+            if (changeType == ChangeType.None)
+                continue;
 
             var deltaEntity = new DeltaEntity
             {
@@ -451,7 +456,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             DeltaVersion = delta.DatasetVersion
         };
 
-        await using var concatenatedByteStream = new MemoryStream(); 
+        await using var concatenatedByteStream = new MemoryStream();
         long targetPosition = 0;
 
         foreach (var (name, entityBytes, change, crc32) in delta.Changes)
@@ -473,14 +478,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     break;
                 case ChangeType.Changed:
                     lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(concatenatedByteStream, entityBytes!.Length);
-                    targetPosition += lengthOfTheVarPrefix; 
+                    targetPosition += lengthOfTheVarPrefix;
                     deltaIndex.ChangedEntities.Add(new DeltaEntity()
                     {
                         Position = targetPosition,
                         Length = entityBytes.Length,
                         Name = name,
                         Crc32 = crc32
-                    }); 
+                    });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
                     break;
@@ -532,7 +537,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not yet started");
         }
-        
+
         return await GetHealthCheckResult();
     }
 

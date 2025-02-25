@@ -18,8 +18,8 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
-            return new IDatasetWriter<T>.WriteResponse {NewDatasetVersion = LatestVersion};
-        var delta = new Delta(new[] {(name, (byte[]?) null, ChangeType.Deleted)}, LatestVersion + 1);
+            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+        var delta = new Delta(new[] { (name, (byte[]?)null, ChangeType.Deleted) }, LatestVersion + 1);
         ApplyDelta(delta);
         return WriteResponseFor(delta);
     }
@@ -47,19 +47,19 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(theDelta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)        
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
-        var prefix = ancestor.EndsWith("/") ? ancestor : ancestor + "/";
+        var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (splitAncestor.Length  == 0 || splitAncestor.Length % 2 != 0)
+        if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
             throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
-        
+
         var deletedNames = new List<string>(_currentSnapshot.Count);
 
         foreach (var name in _currentSnapshot.Keys)
         {
-            if (!name.StartsWith(prefix))
+            if (!name.StartsWith(prefix, StringComparison.Ordinal))
                 continue;
 
             deletedNames.Add(name);
@@ -85,14 +85,14 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         Delta delta;
         if (!_currentSnapshot.TryGetValue(name, out var oldEntity))
         {
-            delta = new Delta(new[] { (name, (byte[]?) newEntity, ChangeType.New) }, LatestVersion + 1);
+            delta = new Delta(new[] { (name, (byte[]?)newEntity, ChangeType.New) }, LatestVersion + 1);
         }
         else
         {
             if (newEntity?.Length == oldEntity.Length && newEntity.SequenceEqual(oldEntity))
-                return new IDatasetWriter<T>.WriteResponse {NewDatasetVersion = LatestVersion};
+                return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
 
-            delta = new Delta(new[] {(name, newEntity, ChangeType.Changed)}, LatestVersion + 1);
+            delta = new Delta(new[] { (name, newEntity, ChangeType.Changed) }, LatestVersion + 1);
         }
 
         ApplyDelta(delta);
@@ -130,7 +130,8 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
             if (includeParents)
             {
                 var parent = DatasetHelper.FindParentOfEntity(name);
-                if (string.IsNullOrEmpty(parent)) continue;
+                if (string.IsNullOrEmpty(parent))
+                    continue;
                 allParents.Add(parent);
             }
 
@@ -190,7 +191,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private IEnumerable<string> HandleParentDeletes(HashSet<string> receivedNames, string parent)
     {
         return _currentSnapshot
-            .Where(kvp => kvp.Key.StartsWith(parent) && !_currentSnapshot[kvp.Key].SequenceEqual(Array.Empty<byte>()))
+            .Where(kvp => kvp.Key.StartsWith(parent, StringComparison.Ordinal) && !_currentSnapshot[kvp.Key].SequenceEqual(Array.Empty<byte>()))
             .Select(kvp => kvp.Key)
             .Except(receivedNames);
     }
@@ -211,7 +212,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
             delta = MergeDeltas(_deltas.Where(d => d.DatasetVersion > fromVersion && d.DatasetVersion <= toVersion));
         }
 
-        return new ChangeSet(toVersion, delta.Changes.Select(d=>(d.Name, d.Change)).ToList());
+        return new ChangeSet(toVersion, delta.Changes.Select(d => (d.Name, d.Change)).ToList());
 
     }
 
@@ -318,7 +319,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         (string name, ReadOnlyMemory<byte>? entityBytes)[] entities;
         using (await Lock())
         {
-            entities = names.Select(name => ((string name, ReadOnlyMemory<byte>? entityBytes)) (_currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : (name, null))).ToArray();
+            entities = names.Select(name => ((string name, ReadOnlyMemory<byte>? entityBytes))(_currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : (name, null))).ToArray();
         }
 
         return entities;
@@ -327,10 +328,10 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
     {
         var prefix = parent + "/";
-       var names = GetAll(ulong.MaxValue, CancellationToken.None)
-           .Where(ent => ent.name.StartsWith(prefix))
-           .Select(s=>s.name).ToList();
-       
+        var names = GetAll(ulong.MaxValue, CancellationToken.None)
+            .Where(ent => ent.name.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(s => s.name).ToList();
+
         return Task.FromResult<(List<string> Names, ulong LatestVersion)>((names, 0));
     }
 
@@ -365,9 +366,9 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         new()
         {
             NewDatasetVersion = delta.DatasetVersion,
-            NumAddedEntities = (uint) delta.Changes.Count(ch => ch.Change == ChangeType.New),
-            NumUpdatedEntities = (uint) delta.Changes.Count(ch => ch.Change == ChangeType.Changed),
-            NumDeletedEntities = (uint) delta.Changes.Count(ch => ch.Change == ChangeType.Deleted),
+            NumAddedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.New),
+            NumUpdatedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.Changed),
+            NumDeletedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.Deleted),
         };
 
     private void ApplyDelta(Delta delta)

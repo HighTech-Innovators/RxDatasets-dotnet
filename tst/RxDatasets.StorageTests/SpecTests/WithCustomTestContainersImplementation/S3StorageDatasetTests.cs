@@ -52,10 +52,10 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
 
         _s3Storage = new S3Storage<object>(storageLogger.Object, _s3Config!, false);
         IStorageReader<object> storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, _s3Storage);
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _s3Storage, notificationsHub,  storageReader,false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, _s3Storage, notificationsHub, storageReader, false);
 
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-        
+
 
         var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
@@ -64,7 +64,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, persistentStorageProvider, SnapshotsOptions, new TestScheduler());
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }
@@ -95,8 +95,8 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
-    
-    
+
+
     [Fact(Skip = "Takes too long")]
     public async Task Should_retrieve_more_than_1000_items()
     {
@@ -109,11 +109,11 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
             await datasetWriter.Put(nameof(Should_retrieve_more_than_1000_items), bytes);
         }
 
-        
-        (await _s3Storage!.ListObjects("Object/" + FolderNames.DeltasFolderNameWithSlash)).Select(d=>SharedMethods.ExtractNumber(d.ObjectKey)).Max().Should().Be(expectedMax);
+
+        (await _s3Storage!.ListObjects("Object/" + FolderNames.DeltasFolderNameWithSlash)).Select(d => SharedMethods.ExtractNumber(d.ObjectKey)).Max().Should().Be(expectedMax);
     }
 
-    
+
     [Fact]
     public async Task Should_Delete_Files()
     {
@@ -125,9 +125,9 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         IDiskStorage<object> s3Storage = new S3Storage<object>(storageLogger.Object, _s3Config!, false);
         IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, s3Storage);
 
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub,  readOnlyStorage, false);
+        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, s3Storage, notificationsHub, readOnlyStorage, false);
         await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-        
+
         await persistentStorageProvider.StoreDelta(1, [1], [1]);
         await persistentStorageProvider.StoreSnapshot(1, [1], [1]);
         await persistentStorageProvider.StoreDelta(2, [2], [2]);
@@ -142,18 +142,18 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
         var versions = await persistentStorageProvider.ListVersions();
         versions.OldestDelta.Should().Be(1);
         versions.NewestDelta.Should().Be(6);
-        versions.Snapshots.MinBy(s=>s.Version)?.Version.Should().Be(1);
-        
+        versions.Snapshots.MinBy(s => s.Version)?.Version.Should().Be(1);
+
         // act
         await persistentStorageProvider.DeleteOlderThan(3, false);
-        
-        
+
+
         // Assert
 
         versions = await persistentStorageProvider.ListVersions();
         versions.OldestDelta.Should().Be(4);
         versions.NewestDelta.Should().Be(6);
-        versions.Snapshots.Select(s=>s.Version).Min().Should().Be(3);
+        versions.Snapshots.Select(s => s.Version).Min().Should().Be(3);
         var snapshotsListFromLowLevelStorage = (await s3Storage.ListObjects("Object/" + FolderNames.SnapshotsFolderNameWithSlash))
             .GroupBy(s => SharedMethods.ExtractNumber(s.ObjectKey))
             .Select(g => g.Key);

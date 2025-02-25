@@ -32,13 +32,13 @@ public class InMemoryDatasetTests : StorageTestSpec
 
         var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), _storageProvider, _notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
-        
+
         var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, _storageProvider, Options.Create(new WriterConfig { }), false);
 
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, _storageProvider, SnapshotsOptions, new TestScheduler());
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
         _ = datasetUpdateConsumingService.StartAsync(ct);
         return (datasetReader, datasetWriter);
     }

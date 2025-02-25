@@ -22,7 +22,7 @@ public class SnapshotCreationPluginTests
     {
         IStorageProvider<object> inMemoryStorage = new InMemoryStorageProvider<object>(
             new Mock<ILogger<InMemoryStorageProvider<object>>>().Object, _notificationsHub);
-        
+
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
@@ -34,7 +34,7 @@ public class SnapshotCreationPluginTests
         var datasetWriter = new DatasetWriter<object>(_notificationsHub, writerLogger.Object, inMemoryStorage, Options.Create(new WriterConfig { }), false);
 
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, inMemoryStorage, _snapshotCreationConfig, ts);
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, _notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
 
         return (inMemoryStorage, datasetReader, datasetWriter);
@@ -52,7 +52,7 @@ public class SnapshotCreationPluginTests
     [Fact]
     public async Task Should_Create_A_Snapshot_After_One_Hour()
     {
-        
+
         _snapshotCreationConfig = Options.Create(new SnapshotCreationConfig()
         {
             PeriodInHours = 1,

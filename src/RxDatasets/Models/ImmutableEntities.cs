@@ -19,8 +19,8 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
 
     public static ImmutableSnapshotEntity FromProto(SnapshotEntity snapshotEntity)
     {
-        return new ImmutableSnapshotEntity([..snapshotEntity.LastDeletedVersion],
-            [..snapshotEntity.LastInsertedVersion],
+        return new ImmutableSnapshotEntity([.. snapshotEntity.LastDeletedVersion],
+            [.. snapshotEntity.LastInsertedVersion],
             snapshotEntity.LastUpdatedVersion,
             snapshotEntity.Position,
             snapshotEntity.Length,
@@ -34,7 +34,7 @@ public record ImmutableDeltaEntity(string Name, long Position, int Length, uint 
     {
         return new DeltaEntity
         {
-            Name =  Name ,
+            Name = Name,
             Position = Position,
             Length = Length,
             Crc32 = Crc32

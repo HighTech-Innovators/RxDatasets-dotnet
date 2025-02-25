@@ -10,11 +10,11 @@ namespace RxDatasets.StorageTests.Common;
 public abstract class StorageTestSpec
 {
     protected IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig());
-    protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig(){SnapshotInterval = 10});
+    protected IOptions<SnapshotCreationConfig> SnapshotsOptions = Options.Create(new SnapshotCreationConfig() { SnapshotInterval = 10 });
     protected const ulong UNIT_KB = 1024;
     protected abstract Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(CancellationToken ct,
         [CallerMemberName] string memberName = "");
-    
+
     [Fact]
     public async Task Should_Put_New_DTO()
     {
@@ -100,7 +100,7 @@ public abstract class StorageTestSpec
         res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
 
 
-        var readRes = (await azBlobStorageDatasetReader.BatchGet(changes.Select(c=>c.name).ToList(), null)).ToList();
+        var readRes = (await azBlobStorageDatasetReader.BatchGet(changes.Select(c => c.name).ToList(), null)).ToList();
         for (var i = 0; i < changes.Count; i++)
         {
             readRes[i].name.Should().Be(changes[i].name);
@@ -155,8 +155,8 @@ public abstract class StorageTestSpec
         newRes.NewDatasetVersion.Should().Be(initialDatasetVersion + 2);
 
     }
-    
-    [Fact(Skip="Performance test that take around 2 min to load data into storage")]
+
+    [Fact(Skip = "Performance test that take around 2 min to load data into storage")]
     public async Task Should_Put_All_Children_DTOs_ShouldBeFast()
     {
         var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
@@ -182,19 +182,19 @@ public abstract class StorageTestSpec
         for (var eventId = 1000000000; eventId <= 1000000024; eventId++)
         {
             newChanges.Add(($"ParentEntity/100077/Should_Put_All_Children_DTOs/20240122/event/{eventId}",
-                GenerateRandomData(UNIT_KB * 10, 1))); 
+                GenerateRandomData(UNIT_KB * 10, 1)));
             newChanges.Add(($"ParentEntity/100077/Should_Put_All_Children_DTOs/20240105/event/{eventId}",
-                GenerateRandomData(UNIT_KB * 10, 1))); 
+                GenerateRandomData(UNIT_KB * 10, 1)));
             newChanges.Add(($"ParentEntity/100075/Should_Put_All_Children_DTOs/20240121/event/{eventId}",
-                GenerateRandomData(UNIT_KB * 10, 1))); 
+                GenerateRandomData(UNIT_KB * 10, 1)));
             newChanges.Add(($"ParentEntity/100078/Should_Put_All_Children_DTOs/20240112/event/{eventId}",
-                GenerateRandomData(UNIT_KB * 10, 1))); 
+                GenerateRandomData(UNIT_KB * 10, 1)));
         }
 
         var sw = Stopwatch.StartNew();
         var newRes = await storageDatasetWriter.PutAllChildren(newChanges.ToAsyncEnumerable());
         sw.Stop();
-        
+
         sw.ElapsedMilliseconds.Should().BeCloseTo(200, 50);
     }
 
@@ -311,7 +311,7 @@ public abstract class StorageTestSpec
         deleteResult.NumUpdatedEntities.Should().Be(0);
         deleteResult.NewDatasetVersion.Should().Be(initialDatasetVersion);
     }
-    
+
     [Fact]
     public async Task Should_DeleteChildren_DTOs_With_Valid_Ancestor()
     {
@@ -323,7 +323,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("providers/90/asset/1232", randomBytes);
         await azBlobStorageDatasetWriter.Put("providers/91/asset/12321", randomBytes);
         await azBlobStorageDatasetWriter.Put("providers/91/asset/12322", randomBytes);
-        
+
         var initialDatasetVersion = azBlobStorageDatasetReader.GetLatestVersion();
 
         var res = await azBlobStorageDatasetWriter.DeleteChildren(key);
@@ -334,8 +334,8 @@ public abstract class StorageTestSpec
         res.NumUpdatedEntities.Should().Be(0);
         res.NewDatasetVersion.Should().Be(initialDatasetVersion + 1);
     }
-    
-      [Fact]
+
+    [Fact]
     public async Task Should_Not_DeleteChildren_DTOs_With_Invalid_Ancestor()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
@@ -421,8 +421,8 @@ public abstract class StorageTestSpec
             bytes.Value.entityBytes.ToArray().Should().BeEquivalentTo(GenerateRandomData(UNIT_KB, i));
         }
     }
-    
- 
+
+
     [Fact]
     public async Task Should_Get_Entity()
     {
@@ -653,7 +653,7 @@ public abstract class StorageTestSpec
         resultList.Names.Should().BeEmpty();
     }
 
-    
+
 
     [Fact]
     public async Task Should_Get_Changed_Names_Updates()
@@ -704,7 +704,7 @@ public abstract class StorageTestSpec
 
         var key1 = "Should_Get_Changed_Names_Updates_1";
         await azBlobStorageDatasetWriter.Put(key1, GenerateRandomData(UNIT_KB, 1));
-        var changedNames01 =( await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
+        var changedNames01 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion)).Changes.ToList();
 
         await azBlobStorageDatasetWriter.Delete(key1);
         var changedNames02 = (await azBlobStorageDatasetReader.GetChangedNames(initialVersion + 1)).Changes.ToList();
@@ -856,7 +856,7 @@ public abstract class StorageTestSpec
 
         // Given
         var bytes = GenerateRandomData(UNIT_KB);
-  
+
         Func<Task<ChangeSet>> action = async () => await azBlobStorageDatasetReader.WaitChangedNames(0, cancellationToken);
         var waitChangedListTask = action.Invoke();
 
@@ -865,7 +865,7 @@ public abstract class StorageTestSpec
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         }
         waitChangedListTask.Status.Should().Be(TaskStatus.WaitingForActivation);
-       
+
         var putResult = await azBlobStorageDatasetWriter.Put("AddingOneShouldLeadToListOfOneNewEntity", bytes, cancellationToken);
 
         await waitChangedListTask.WaitAsync(TimeSpan.FromMilliseconds(1000), cancellationToken);
@@ -881,7 +881,7 @@ public abstract class StorageTestSpec
         result.Where(x => x.ChangeType == ChangeType.Changed).Should().BeEmpty();
         result.Where(x => x.ChangeType == ChangeType.Deleted).Should().BeEmpty();
     }
-    
+
     [Fact]
     public async Task Should_Return_No_New_Entity_After_Canceling()
     {
@@ -895,7 +895,7 @@ public abstract class StorageTestSpec
         var waitChangedListTask = action.Invoke();
 
         await Task.Delay(TimeSpan.FromSeconds(0.3), cancellationTokenSource.Token);
-       
+
         waitChangedListTask.Status.Should().Be(TaskStatus.WaitingForActivation);
         await cancellationTokenSource.CancelAsync();
 
@@ -1180,8 +1180,8 @@ public abstract class StorageTestSpec
         result.Should().ContainSingle();
         result.Should().Contain((name, ChangeType.Changed));
     }
-    
-    
-    
-    
+
+
+
+
 }

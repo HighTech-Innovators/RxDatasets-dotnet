@@ -3,18 +3,18 @@ using FluentAssertions;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Grpc.Net.Client.Web;
 using Hightechinnovators.Dtos.DemodtoV1;
 using Hightechinnovators.Dtos.Type;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProviders;
-using Microsoft.Extensions.Configuration;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Grpc.Net.Client.Web;
-using Moq;
-using Microsoft.Extensions.Logging;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.StorageTests
@@ -37,7 +37,7 @@ namespace RxDatasets.StorageTests
             return Task.CompletedTask;
         }
 
-        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IDiskStorage<Demodto> storage, bool waitForHealthy = true,  GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
+        private async Task<(WebApplicationFactory<Program> factory, HttpClient healthClient, GrpcChannel channel)> CreateWebhostFactoryAsync(IDiskStorage<Demodto> storage, bool waitForHealthy = true, GrpcWebApplicationFactory? factoryInput = null, [CallerMemberName] string memberName = "")
         {
             factoryInput ??= new GrpcWebApplicationFactory();
             _customPrefix = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
@@ -55,7 +55,7 @@ namespace RxDatasets.StorageTests
 
                 builder.ConfigureTestServices(services =>
                 {
-                   services.AddSingleton(storage);
+                    services.AddSingleton(storage);
                 });
             });
 
@@ -259,14 +259,14 @@ namespace RxDatasets.StorageTests
                             .GroupBy(g => SharedMethods.ExtractNumber(g.ObjectKey)).Select(g => g.First());
                         return snapshotVersions.Count();
                     }
-                
+
 
 
                     // Prevent an absolute racing thread
                     await Task.Delay(10);
                 }
             });
-            
+
             var snapshotCount = await fetchSnapshots.WaitAsync(TimeSpan.FromSeconds(15));
             snapshotCount.Should().BeInRange(1, 3, "Ideally we get 1, 6, 11; but also valid is just 14 on the other end of the spectrum. More than 3 is never good as the interval should be 5 at least");
 

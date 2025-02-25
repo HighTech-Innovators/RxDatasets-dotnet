@@ -8,7 +8,7 @@ using RxDatasets.StorageProviders.ReadOnly;
 
 namespace RxDatasets.StorageProviders;
 
-public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProvider<T, TStorageProvider>, IStorageProvider<T> where TStorageProvider: IStorageProvider<T>
+public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStorageProvider<T, TStorageProvider>, IStorageProvider<T> where TStorageProvider : IStorageProvider<T>
 {
     private const int MB_BYTES = 1024 * 1024;
 
@@ -51,7 +51,7 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
     {
         var indexCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
         var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta);
-       
+
         try
         {
             SetCache(dataCacheKey, new ReadOnlyMemory<byte>(index));
@@ -67,7 +67,7 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
             throw;
         }
     }
-   
+
 
     private void SetCache(string cacheKey, ReadOnlyMemory<byte> data)
     {
@@ -77,7 +77,7 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
             Priority = CacheItemPriority.Low,
         });
     }
-    
+
     public Task DeleteOlderThan(ulong version, bool keepAllDeltas = false)
     {
         return _storageProvider.DeleteOlderThan(version, keepAllDeltas);
@@ -144,7 +144,7 @@ public class CacheStorageProvider<T,TStorageProvider> : ReadOnlyCacheStorageProv
     public async Task StoreProcessedVersion(string who, ulong version)
     {
         await _storageProvider.StoreProcessedVersion(who, version);
-   }
+    }
 
     public Task<ulong> GetProcessedVersion(string who)
     {

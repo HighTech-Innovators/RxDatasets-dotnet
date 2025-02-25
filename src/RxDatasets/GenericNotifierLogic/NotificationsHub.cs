@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
-using System.Threading.Channels;
 using System.Reactive.Disposables;
+using System.Threading.Channels;
 
 namespace RxDatasets.GenericNotifierLogic
 {

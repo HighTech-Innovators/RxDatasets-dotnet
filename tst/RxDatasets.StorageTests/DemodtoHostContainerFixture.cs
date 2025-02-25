@@ -9,7 +9,7 @@ namespace RxDatasets.StorageTests;
 
 public class DemodtoHostContainerFixture : IAsyncLifetime
 {
-    public IContainer? DemoDtoHostContainerInstance  { get; private set; }
+    public IContainer? DemoDtoHostContainerInstance { get; private set; }
     private string _hostImageName = "";
 
     public async Task InitializeAsync()
@@ -83,7 +83,8 @@ public class DemodtoHostContainerFixture : IAsyncLifetime
     {
         Console.WriteLine("start container!");
 
-        if (_hostImageName==string.Empty) throw new Exception("Docker image sha was not found after building without errors");
+        if (_hostImageName == string.Empty)
+            throw new Exception("Docker image sha was not found after building without errors");
 
         ContainerBuilder containerBuilder = new ContainerBuilder()
                     .WithImage(_hostImageName)
