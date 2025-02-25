@@ -32,17 +32,17 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
     {
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
-        var snapshotCreationConfig = Options.Create(new SnapshotCreationConfig {SnapshotInterval = 5});
+        var snapshotCreationConfig = Options.Create(new SnapshotCreationConfig { SnapshotInterval = 5 });
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, storageProvider, snapshotCreationConfig, new TestScheduler());
-        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>> (datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
+        var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         return datasetUpdateConsumingService;
     }
-    
+
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
         CancellationToken ct,
         [CallerMemberName] string memberName = "")
     {
-        
+
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
@@ -67,10 +67,10 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
     {
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
-        
+
         // Act
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
-        
+
         // Assert
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
@@ -140,10 +140,10 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
         datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
-        
+
         // Act
         await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
-        
+
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we removed the last snapshot version 11 data");
@@ -159,19 +159,19 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
         await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
-        
+
         // Act
         var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
         var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
         var wrongBytes = new byte[actualSnapshotLength - 1]; // This should fail since it short
         await _storage.UploadBytes(snapshotObjectName, wrongBytes);
-        
+
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
         toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we corrupted the last snapshot version 11");
     }
-    
-    private async Task<IStorageProvider<object>> SetupProviderAsync(UploadVerificationMode verificationMode, 
+
+    private async Task<IStorageProvider<object>> SetupProviderAsync(UploadVerificationMode verificationMode,
                                                                     IDiskStorage<object> lowLevelStorageProvider)
     {
         var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
@@ -180,7 +180,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         StorageConfig.Value.UploadVerificationMode = verificationMode;
         IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, lowLevelStorageProvider);
 
-        var persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, lowLevelStorageProvider, notificationsHub,  readOnlyStorage,false);
+        var persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, lowLevelStorageProvider, notificationsHub, readOnlyStorage, false);
         await persistentStorageProvider.StartAsync(CancellationToken.None);
 
         return persistentStorageProvider;

@@ -1,9 +1,9 @@
 using Google.Protobuf;
 using Grpc.Core;
+using Hightechinnovators.Dtos.DemodtoV1;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Hightechinnovators.Dtos.DemodtoV1;
 using RxDatasets.InMemoryDataset;
 
 namespace RxDatasets.Tests;
@@ -12,7 +12,7 @@ public class DataReaderTests
 {
     private const string SomeName = "one";
     private static readonly Demodto SomePackage = new() { Name = SomeName };
-    private static readonly Demodto ChangedPackage = new() { Name = SomeName, SomeString = SomeName};
+    private static readonly Demodto ChangedPackage = new() { Name = SomeName, SomeString = SomeName };
 
     private const string OtherName = "two";
     private static readonly Demodto OtherPackage = new() { Name = OtherName };
@@ -33,7 +33,7 @@ public class DataReaderTests
         configuration.GetSection("PaginationCacheDuration").Returns(configurationSection);
         _sut = new GrpcReaderServiceImpl<Demodto>(Substitute.For<ILogger<GrpcReaderServiceImpl<Demodto>>>(),
             Substitute.For<IHostApplicationLifetime>(), configuration, _dataset);
-        
+
     }
 
     [Fact]
@@ -164,9 +164,9 @@ public class DataReaderTests
         // Given
         _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
         _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
-        
+
         // When
-        var result = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1}, default);
+        var result = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
 
         // Then
         result.NextPageToken.Should().NotBeNullOrEmpty();
@@ -230,11 +230,11 @@ public class DataReaderTests
         // Given
         _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
         var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
-        var firstPage = await _sut.ListChanges(new() {FromDatasetVersion = 0, PageSize = 1}, default);
+        var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
         await Task.Delay(TimeSpan.FromSeconds(.3));
 
         // When
-        var result = await _sut.ListChanges(new() {PageToken = firstPage.NextPageToken, PageSize = 1}, default);
+        var result = await _sut.ListChanges(new() { PageToken = firstPage.NextPageToken, PageSize = 1 }, default);
         // Then
         result.NextPageToken.Should().BeNullOrEmpty();
         result.ToDatasetVersion.Should().Be(putResult.NewDatasetVersion);
@@ -308,8 +308,8 @@ public class DataReaderTests
     public async Task PutAllIncreasesVersionByOnly1()
     {
         // Given
-        var packages = new[]{SomePackage, OtherPackage}.ToAsyncEnumerable();
-        
+        var packages = new[] { SomePackage, OtherPackage }.ToAsyncEnumerable();
+
         // When
         var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
 
@@ -375,7 +375,7 @@ public class DataReaderTests
     public async Task PutAllWithDuplicateAddsOnlyOne()
     {
         // Given
-        var packages = new[] { SomePackage,ChangedPackage }.ToAsyncEnumerable();
+        var packages = new[] { SomePackage, ChangedPackage }.ToAsyncEnumerable();
 
         // When
         var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));

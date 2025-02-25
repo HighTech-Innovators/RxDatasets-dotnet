@@ -1,13 +1,13 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Reactive.Concurrency;
+using Google.Protobuf;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
-using RxDatasets.StorageProviders;
-using System.Reactive.Concurrency;
-using Google.Protobuf;
 using RxDatasets.GenericNotifierLogic;
+using RxDatasets.StorageProviders;
 using RxDatasets.StorageProviders.ReadOnly;
-using Microsoft.Extensions.Hosting;
 
 namespace RxDatasets
 {
@@ -19,7 +19,7 @@ namespace RxDatasets
             // Initialize the DtoServerBuilder with the provided IServiceCollection
             return new DtoServerBuilder<TEntity>(services);
         }
-        
+
         public static DtoServerBuilder<TEntity> AddReadOnlyDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
         {
             services.AddSingleton(serviceProvider => serviceProvider);
@@ -99,13 +99,13 @@ namespace RxDatasets
             _withCleanup = true;
             return this;
         }
-        
+
         public DtoServerBuilder<TEntity> WithDistributedLock()
         {
             _withDistributedLock = true;
             return this;
         }
-        
+
         public void Build(params string[] readinessTags)
         {
             AddStorageProvider();
@@ -145,7 +145,7 @@ namespace RxDatasets
                 return;
 
             }
-           
+
             services.AddHealthChecks()
                 .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
                 .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");

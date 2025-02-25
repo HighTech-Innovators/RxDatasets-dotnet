@@ -21,7 +21,7 @@ public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapsho
             SnapshotVersion = this.SnapshotVersion
         };
 
-        foreach(var entity in Entities)
+        foreach (var entity in Entities)
         {
             snapshotIndex.Entities.Add(entity.Key, entity.Value.ToProto());
         }

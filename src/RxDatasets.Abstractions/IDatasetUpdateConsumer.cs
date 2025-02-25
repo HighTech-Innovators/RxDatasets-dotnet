@@ -1,6 +1,6 @@
 ﻿namespace RxDatasets.Abstractions;
 
-public interface IDatasetUpdateConsumer<T> 
+public interface IDatasetUpdateConsumer<T>
 {
     Task HandleNewDeltas(CancellationToken stoppingToken);
 

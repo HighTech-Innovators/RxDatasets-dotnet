@@ -25,10 +25,10 @@ public class MinioS3HealthCheck<T>(IServiceProvider serviceProvider) : IHealthCh
         }
         catch (Exception)
         {
-           //ignored
+            //ignored
         }
         return provider.LastResult.Exception != null ? HealthCheckResult.Unhealthy() : HealthCheckResult.Healthy();
     }
 
-    
+
 }

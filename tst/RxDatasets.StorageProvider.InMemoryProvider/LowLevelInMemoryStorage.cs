@@ -99,7 +99,7 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
 
         public async Task DeleteFolder(string prefix)
         {
-            var keysToDelete = _storage.Keys.Where(key => key.StartsWith(prefix)).ToList();
+            var keysToDelete = _storage.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToList();
 
             foreach (var key in keysToDelete)
             {
@@ -119,7 +119,7 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
         public async Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix)
         {
             var results = _storage
-                .Where(kv => kv.Key.StartsWith(prefix))
+                .Where(kv => kv.Key.StartsWith(prefix, StringComparison.Ordinal))
                 .Select(kv => (kv.Key, kv.Value.CreatedAt))
                 .ToList();
 
@@ -136,6 +136,7 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
             {
                 _logger.LogError($"Error downloading file: {objectKey} not found in storage.");
                 throw new FileNotFoundException($"File not found in memory storage: {objectKey}");
-            }        }
+            }
+        }
     }
 }

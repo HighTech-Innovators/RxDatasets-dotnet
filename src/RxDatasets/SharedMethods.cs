@@ -8,7 +8,7 @@ public static partial class SharedMethods
     public static int ExtractNumber(string path)
     {
         // The number is assumed to be the version number in the key    
-        var match = LastNumberInPathRegex.Match(path);  
+        var match = LastNumberInPathRegex.Match(path);
         return match.Success ? int.Parse(match.Groups[1].Value) : 0;
     }
 

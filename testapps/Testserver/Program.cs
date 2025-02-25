@@ -24,18 +24,18 @@ public class Program
         Host.Testserver.DI.ConfigureApp(app);
 
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-/*
-        lifetime.ApplicationStarted.Register(() =>
-        {
-            // Run a health check here to allow to app to instantiate before other calls
-            Task.Run(async () =>
-            {
-                using var client = new HttpClient();
-                await client.GetAsync("http://localhost:18080/healthz");
-                await Task.Delay(TimeSpan.FromSeconds(5));
-                await client.GetAsync("http://localhost:18080/healthz");
-            });
-        });*/
+        /*
+                lifetime.ApplicationStarted.Register(() =>
+                {
+                    // Run a health check here to allow to app to instantiate before other calls
+                    Task.Run(async () =>
+                    {
+                        using var client = new HttpClient();
+                        await client.GetAsync("http://localhost:18080/healthz");
+                        await Task.Delay(TimeSpan.FromSeconds(5));
+                        await client.GetAsync("http://localhost:18080/healthz");
+                    });
+                });*/
 
         app.Run();
     }

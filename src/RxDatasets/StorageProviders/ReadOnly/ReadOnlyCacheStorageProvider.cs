@@ -27,12 +27,12 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if(notificationsHub == null) 
+        if (notificationsHub == null)
             return InitLoop(cancellationToken);
-        
+
         _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {
-            if(notification.ServiceStatus == ServiceStatus.NotReady)
+            if (notification.ServiceStatus == ServiceStatus.NotReady)
                 return;
 
             await InitCache(cancellationToken);
@@ -49,10 +49,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             await InitCache(cancellationToken);
 
         }));
-        
+
         return Task.CompletedTask;
     }
-    
+
     private async Task InitLoop(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -76,14 +76,14 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     }
 
     private readonly SemaphoreSlim _initSemaphore = new(1);
-    private TStorageProvider _readOnlyStorageProvider = readOnlyStorageProvider;
+    private readonly TStorageProvider _readOnlyStorageProvider = readOnlyStorageProvider;
 
     private async Task InitCache(CancellationToken ct)
     {
         using var initLock = await Lock(_initSemaphore);
 
         var (_, _, snapshots) = await ListVersions();
-        foreach (var version in snapshots.Select(s => s.Version).Where( v => v > _currentlyCachedSnapshot).OrderDescending())
+        foreach (var version in snapshots.Select(s => s.Version).Where(v => v > _currentlyCachedSnapshot).OrderDescending())
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -111,7 +111,8 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     private void InvalidateSnapshotCache(ulong oldSnapshotVersion)
     {
-        if (oldSnapshotVersion <= 0) return;
+        if (oldSnapshotVersion <= 0)
+            return;
         var cacheKey = GetCacheKey(oldSnapshotVersion, ObjectNameIndexOrDataEnum.Data,
             ObjectNameTypeEnum.Snapshot);
         MemoryCache.Remove(cacheKey);
@@ -164,7 +165,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
         {
             var data = await _readOnlyStorageProvider.ReadSnapshotIndex(version);
-            entry.Size= data.Length;
+            entry.Size = data.Length;
             return data;
         });
         return value;
@@ -181,7 +182,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         {
             var cacheKeyWhole = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, type);
             var cacheKeySpecificRange = GetPositionedCacheKey(version, ObjectNameIndexOrDataEnum.Data, type, position, length);
-            
+
             if (MemoryCache.TryGetValue(cacheKeySpecificRange, out ReadOnlyMemory<byte> data))
             {
                 return data;
@@ -221,10 +222,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     {
 
         var cacheKeyWholeSnapshot = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
-        
+
         if (!MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
             return _readOnlyStorageProvider.ReadSnapshotData(version, callback);
-       
+
         var memoryStream = new MemoryStream(data.ToArray());
         using (memoryStream)
         {

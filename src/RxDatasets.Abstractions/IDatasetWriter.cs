@@ -2,7 +2,7 @@
 
 public interface IDatasetWriter<T>
 {
-    public record struct WriteResponse(ulong NewDatasetVersion, uint NumAddedEntities, uint NumUpdatedEntities, uint NumDeletedEntities);
+    record struct WriteResponse(ulong NewDatasetVersion, uint NumAddedEntities, uint NumUpdatedEntities, uint NumDeletedEntities);
     Task<WriteResponse> Delete(string name, CancellationToken ct = default);
     Task<WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default);
     Task<WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default);

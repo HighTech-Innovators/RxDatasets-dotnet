@@ -26,7 +26,8 @@ namespace RxDatasets.BackgroundServices
             try
             {
                 var (_, _, allSnapshots) = await storageProvider.ListVersions();
-                if (allSnapshots.Count == 0) return;
+                if (allSnapshots.Count == 0)
+                    return;
 
                 var minimumSnapshotsToKeep = config.Value.MinimumSnapshotsToKeep;
                 var minimumAgeToLiveInMinutes = config.Value.GetMinimumAgeToLiveInMinutes();
@@ -55,8 +56,10 @@ namespace RxDatasets.BackgroundServices
                     ScheduleItemsToBeDeletedAt(snapshotsThatHasToWait.Last().DateTime?.UtcDateTime);
                 }
 
-                if (toDeleteSnapshots.Count == 0) return;
-                if(lowestProcessedVersion < versionOfOldestToKeepSnapshot) return;
+                if (toDeleteSnapshots.Count == 0)
+                    return;
+                if (lowestProcessedVersion < versionOfOldestToKeepSnapshot)
+                    return;
                 await storageProvider.DeleteOlderThan(versionOfOldestToKeepSnapshot, config.Value.KeepAllDeltas);
             }
 
@@ -69,8 +72,9 @@ namespace RxDatasets.BackgroundServices
 
         private void ScheduleItemsToBeDeletedAt(DateTime? earliestSnapshotTime)
         {
-            if(_listOfSnapshotsDatesScheduledForDeleting.Any(s=>s <= earliestSnapshotTime)) return;
-            
+            if (_listOfSnapshotsDatesScheduledForDeleting.Any(s => s <= earliestSnapshotTime))
+                return;
+
             var currentTime = scheduler.Now.UtcDateTime;
 
             // Calculate when you want the cleaning to occur
@@ -92,7 +96,7 @@ namespace RxDatasets.BackgroundServices
                 return Task.CompletedTask;
 
             _disposableSnapshotNotificationSubscription = notificationsHub
-                .Subscribe<SnapshotCreatedNotification>( _ => SearchForOutdatedData());
+                .Subscribe<SnapshotCreatedNotification>(_ => SearchForOutdatedData());
 
             if (!config.Value.KeepAllDeltas)
             {

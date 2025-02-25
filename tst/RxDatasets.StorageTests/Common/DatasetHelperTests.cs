@@ -1,9 +1,9 @@
-﻿using FluentAssertions;
+﻿using System.Collections.Immutable;
+using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.Models;
-using System.Collections.Immutable;
 
 namespace RxDatasets.StorageTests.Common;
 

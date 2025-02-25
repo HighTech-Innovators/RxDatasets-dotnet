@@ -24,5 +24,5 @@ public class SharedMethodsTest
     {
         SharedMethods.ExtractNumber("customRootFolder/Demodto/snapshots/14/").Should().Be(14);
     }
-    
+
 }

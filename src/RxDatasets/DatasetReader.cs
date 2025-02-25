@@ -45,15 +45,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
             _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
             await _initializationTask;
-        })); 
-    }    
-    
+        }));
+    }
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         // this is only started in ReadOnly Mode
         _initializationTask = _retryInitialization ? InitializationLoop() : Initialize();
         await _initializationTask;
-        
+
         _ = Task.Run(async () =>
             {
                 while (!_cts.Token.IsCancellationRequested)
@@ -72,7 +72,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 }
             }, cancellationToken);
     }
-    
+
     private async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
     {
         using var updateSlot = await Lock(_writerSemaphore);
@@ -85,11 +85,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             tcs.SetResult();
         }
         catch (InvalidOperationException)
-        { 
+        {
             // we are not ready
         }
     }
-    
+
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
     {
@@ -99,7 +99,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
         }
     }
-    
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         await _cts.CancelAsync();
@@ -154,7 +154,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         _index = null;
         _mostRecentSnapshotIndex = null;
     }
-    
+
     private ImmutableDatasetState ThrowIfNotInitialized()
     {
         if (_initializationTask == null)
@@ -181,7 +181,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public async Task<ICollection<(string name, ReadOnlyMemory<byte>? entityBytes)>> BatchGet(IEnumerable<string> names, string? parent)
     {
         var indexRef = ThrowIfNotInitialized();
-        var tasks = names.Select(async name => {
+        var tasks = names.Select(async name =>
+        {
             if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
@@ -262,7 +263,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
         if (fromVersion == toVersion)
         {
-            return Task.FromResult(new ChangeSet(toVersion, [])); 
+            return Task.FromResult(new ChangeSet(toVersion, []));
         }
 
         var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
@@ -294,7 +295,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                             _ => next,
                         };
                     });
-                
+
                 if (relativeChangeType != ChangeType.None)
                 {
                     changedNames.Add((x.Key, relativeChangeType));
@@ -302,24 +303,24 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             });
         return changedNames;
     }
-    
+
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
     {
         var indexRef = ThrowIfNotInitialized();
         var prefix = parent + "/";
 
         return Task.FromResult((indexRef.Entities
-            .Where(x => x.Key.StartsWith(prefix))
+            .Where(x => x.Key.StartsWith(prefix, StringComparison.Ordinal))
             .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
             .Select(entity => entity.Key).ToList(), indexRef.LatestVersion));
-       
+
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
     {
         var tempState = datasetState;
 
-        if(latestDelta > tempState.LatestVersion)
+        if (latestDelta > tempState.LatestVersion)
         {
             var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
             tempState = tempState.ApplyDeltas(deltas);
@@ -328,7 +329,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
         return tempState;
     }
-    
+
     public ulong GetLatestVersion()
     {
         var indexRef = ThrowIfNotInitialized();
@@ -339,13 +340,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         ThrowIfNotInitialized();
         return _mostRecentSnapshotIndex?.SnapshotVersion ?? 0;
     }
-    
+
     public ulong GetMainIndexSnapshotVersion()
     {
         var indexRef = ThrowIfNotInitialized();
         return indexRef?.SnapshotVersion ?? 0;
     }
-    
+
     public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
     {
         if (_initializationTask == null)
@@ -379,7 +380,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not yet started");
         }
-        
+
         return await GetHealthCheckResult();
     }
 

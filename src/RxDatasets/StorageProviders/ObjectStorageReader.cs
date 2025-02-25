@@ -26,7 +26,7 @@ public class ObjectStorageReader<T>(
             storageConfig.Value);
         return diskStorage.DownloadBytes(objectName);
     }
-    
+
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
     {
         var objectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
@@ -60,7 +60,7 @@ public class ObjectStorageReader<T>(
         return (deltaInfo.EarliestDeltaVersion,
             deltaInfo.LatestDeltaVersion, snapshots);
     }
-    
+
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
@@ -76,8 +76,8 @@ public class ObjectStorageReader<T>(
 
         throw new ArgumentException("None of the sources is available");
     }
-    
-  
+
+
     private string GetDeltaInfoFilename()
     {
         return DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + "DeltaInfo.pb";
@@ -104,15 +104,15 @@ public class ObjectStorageReader<T>(
             var deltaInfo = await deltaTask;
             var snapshotInfo = await snapshotTask;
 
-            if (VersionsAreCorrupted(deltaInfo, snapshotInfo)) 
+            if (VersionsAreCorrupted(deltaInfo, snapshotInfo))
                 (deltaInfo, snapshotInfo) = await CreateLatestVersionFromObjectLists();
-            
-                
+
+
             logger.LogDebug($"loaded DeltaInfo " +
                             $"(oldest v = {deltaInfo.EarliestDeltaVersion}, latest v = {deltaInfo.LatestDeltaVersion} )" +
-                            $" and SnapshotInfo [{string.Join(",", snapshotInfo.SnapshotVersions.Select(s=>s.Version))}] " +
+                            $" and SnapshotInfo [{string.Join(",", snapshotInfo.SnapshotVersions.Select(s => s.Version))}] " +
                             $"files for {typeof(T).Name}.");
-            
+
             return (deltaInfo, snapshotInfo);
         }
         catch (FileNotFoundException ex)
@@ -126,7 +126,7 @@ public class ObjectStorageReader<T>(
     {
         return (deltaInfo.EarliestDeltaVersion == 0 || (snapshotInfo.SnapshotVersions.Count > 0 &&
                                                         deltaInfo.EarliestDeltaVersion >
-                                                        snapshotInfo.SnapshotVersions.Max(s => s.Version)+1));
+                                                        snapshotInfo.SnapshotVersions.Max(s => s.Version) + 1));
 
     }
 
@@ -139,7 +139,7 @@ public class ObjectStorageReader<T>(
         {
             logger.LogInformation($"Successfully retrieved version from VersionIndexV2 for {typeof(T).Name}.");
             return ReadVersionFromV2Data(versionV2);
-            
+
         }
 
         logger.LogInformation("VersionIndexV2 not found, attempting to retrieve version from VersionIndexV1.");
@@ -174,7 +174,7 @@ public class ObjectStorageReader<T>(
     private (DeltaInfo deltaInfo, SnapshotInfo snapshotInfo) ReadVersionFromV2Data(ObsoleteV2VersionInfo versionIndexDataV2)
     {
         logger.LogInformation("Creating version from VersionIndexV2 data.");
-        
+
 
         var deltaInfo = new DeltaInfo
         {
@@ -183,14 +183,14 @@ public class ObjectStorageReader<T>(
         };
 
         var snapshotInfo = new SnapshotInfo
-            {
-                SnapshotVersions =
+        {
+            SnapshotVersions =
                 {
                     versionIndexDataV2.SnapshotVersions.Select(s => new SnapshotInfo.Types.snapshotVersion
                         { Timestamp = s.Timestamp, Version = s.Version })
                 }
-            };
-        
+        };
+
         logger.LogInformation("Version created successfully from VersionIndexV2.");
         return (deltaInfo, snapshotInfo);
     }
@@ -215,9 +215,9 @@ public class ObjectStorageReader<T>(
                 }
             }
         };
-        
+
         logger.LogInformation("Version created successfully from VersionIndexV1.");
-        return (deltaInfo, snapshotInfo);   
+        return (deltaInfo, snapshotInfo);
     }
 
     private async Task<TMessage> DownloadAndParseProtobufFileAsync<TMessage>(string filename, MessageParser<TMessage> parser)
@@ -233,12 +233,12 @@ public class ObjectStorageReader<T>(
         var listObjects = await diskStorage.ListObjects(objectNamePrefix);
         var deltas = listObjects.Select(d => SharedMethods.ExtractNumber(d.ObjectKey))
             .Order()
-            .GroupBy(v=>v)
+            .GroupBy(v => v)
             .Select(g => g.First())
             .ToList();
 
         var listOfSnapshots = await diskStorage.ListObjects(DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.SnapshotsFolderNameWithSlash);
-        var snapshots = listOfSnapshots.Select(s=> (Version: (ulong)SharedMethods.ExtractNumber(s.ObjectKey), s.DateTime))
+        var snapshots = listOfSnapshots.Select(s => (Version: (ulong)SharedMethods.ExtractNumber(s.ObjectKey), s.DateTime))
             .OrderBy(d => d.Version)
             .GroupBy(g => g.Version)
             .Select(g => g.First())
@@ -247,8 +247,8 @@ public class ObjectStorageReader<T>(
         var deltaInfo = new DeltaInfo();
         var snapshotInfo = new SnapshotInfo();
 
-        deltaInfo.EarliestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.First(): 0ul;
-        deltaInfo.LatestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.Last(): 0ul;
+        deltaInfo.EarliestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.First() : 0ul;
+        deltaInfo.LatestDeltaVersion = deltas.Count > 0 ? (ulong)deltas.Last() : 0ul;
 
         snapshotInfo.SnapshotVersions.AddRange(snapshots.Select(s =>
            new SnapshotInfo.Types.snapshotVersion
@@ -261,8 +261,8 @@ public class ObjectStorageReader<T>(
                               $" and {deltas.Count} deltas, v({deltaInfo.EarliestDeltaVersion}, {deltaInfo.LatestDeltaVersion}))");
         return (deltaInfo, snapshotInfo);
     }
-    
-    
+
+
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,

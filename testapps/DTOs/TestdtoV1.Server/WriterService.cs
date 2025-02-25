@@ -1,7 +1,7 @@
-using Grpc.Core;
-using Hightechinnovators.Dtos.Type;
-using Hightechinnovators.Dtos.TestdtoV1;
 using Google.Protobuf;
+using Grpc.Core;
+using Hightechinnovators.Dtos.TestdtoV1;
+using Hightechinnovators.Dtos.Type;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.TestdtoV1.Server;
@@ -47,12 +47,12 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
 
     private WriteResponse Map(IDatasetWriter<Testdto>.WriteResponse response)
     {
-            return new ()
-            {
-                NewDatasetVersion = response.NewDatasetVersion,
-                NumAddedEntities = response.NumAddedEntities,
-                NumUpdatedEntities = response.NumUpdatedEntities,
-                NumDeletedEntities = response.NumDeletedEntities,
-            };
+        return new()
+        {
+            NewDatasetVersion = response.NewDatasetVersion,
+            NumAddedEntities = response.NumAddedEntities,
+            NumUpdatedEntities = response.NumUpdatedEntities,
+            NumDeletedEntities = response.NumDeletedEntities,
+        };
     }
 }

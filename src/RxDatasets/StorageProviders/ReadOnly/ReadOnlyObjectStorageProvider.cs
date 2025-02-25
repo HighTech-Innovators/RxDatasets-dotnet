@@ -19,11 +19,11 @@ public class ReadOnlyObjectStorageProvider<T>(
     : IReadOnlyStorageProvider<T>, IHostedService
 {
     private Task? _initTask;
-    
+
     protected readonly DeltaInfo DeltaInfo = new();
     protected List<SnapshotType> Snapshots = [];
     private readonly CancellationTokenSource _cts = new();
-    
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         // Note that this code is NOT run when using the R/W version (derived class).
@@ -46,14 +46,14 @@ public class ReadOnlyObjectStorageProvider<T>(
         {
             await notificationsHub.Notify(new DatasetUpdatedNotification(DeltaInfo.LatestDeltaVersion));
         }
-        
+
         switch (oldSnapshots.Count)
         {
             case 0 when Snapshots.Count > 0:
-                await notificationsHub.Notify(new SnapshotCreatedNotification(Snapshots.Max(s=>s.Version)));
+                await notificationsHub.Notify(new SnapshotCreatedNotification(Snapshots.Max(s => s.Version)));
                 break;
             case > 0 when !oldSnapshots.Max(s => s.Version).Equals(Snapshots.Max(s => s.Version)):
-                await notificationsHub.Notify(new SnapshotCreatedNotification(Snapshots.Max(s=>s.Version)));
+                await notificationsHub.Notify(new SnapshotCreatedNotification(Snapshots.Max(s => s.Version)));
                 break;
         }
     }
@@ -77,7 +77,7 @@ public class ReadOnlyObjectStorageProvider<T>(
     {
         return storageReader.ReadSnapshotData(version, callback);
     }
-    
+
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
         return storageReader.ReadDeltaIndex(version);
@@ -91,12 +91,12 @@ public class ReadOnlyObjectStorageProvider<T>(
     public async Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
         await EnsureProviderIsInitialized();
-        
+
         return (DeltaInfo.EarliestDeltaVersion,
             DeltaInfo.LatestDeltaVersion, Snapshots);
     }
 
-   
+
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
@@ -115,7 +115,7 @@ public class ReadOnlyObjectStorageProvider<T>(
                     return true;
             }
         }).ToList();
-       return await storageReader.ReadDataFromSources(sources, length);
+        return await storageReader.ReadDataFromSources(sources, length);
     }
 
     private async Task EnsureProviderIsInitialized()
@@ -182,19 +182,20 @@ public class ReadOnlyObjectStorageProvider<T>(
 
     private async Task DoInitialize(CancellationToken cancellationToken)
     {
-        if (storage == null) throw new InvalidOperationException("Disk Storage was not initialized");
-        
+        if (storage == null)
+            throw new InvalidOperationException("Disk Storage was not initialized");
+
         var versions = await storageReader.ListVersions();
         DeltaInfo.EarliestDeltaVersion = versions.OldestDelta;
         DeltaInfo.LatestDeltaVersion = versions.NewestDelta;
         Snapshots = versions.Snapshots;
     }
-    
+
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
             storageConfig.Value);
         return storage.GetObjectContentLength(objectName);
     }
-    
+
 }

@@ -62,7 +62,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
                 await Task.Delay(10, stoppingToken);
                 continue;
             }
-            
+
             try
             {
                 // Process each consumer

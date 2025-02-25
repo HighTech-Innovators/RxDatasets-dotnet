@@ -9,7 +9,7 @@ namespace RxDatasets.BackgroundServices
         TReporter reportingImplementation)
         : IDatasetUpdateConsumer<TDto> where TReporter : IDatasetUpdateReporting<TDto>
     {
-        private TReporter _reportingImplementation = reportingImplementation;
+        private readonly TReporter _reportingImplementation = reportingImplementation;
         private string ReportingIdentifier => _reportingImplementation.ReportingIdentifier;
 
         private async Task ProcessAllUnreportedDeltas(CancellationToken stoppingToken)
@@ -56,7 +56,7 @@ namespace RxDatasets.BackgroundServices
             var optionalState = await _reportingImplementation.OpenDeltaTransaction(deltaVersion);
             try
             {
-                if(deltaIndexParsed.NewEntities.Count > 0) 
+                if (deltaIndexParsed.NewEntities.Count > 0)
                     logger.LogDebug("Processing {NewCount} new entities", deltaIndexParsed.NewEntities.Count);
 
                 if (deltaIndexParsed.ChangedEntities.Count > 0)
@@ -84,7 +84,7 @@ namespace RxDatasets.BackgroundServices
 
                 foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
                 {
-                    
+
                     cancellationToken.ThrowIfCancellationRequested();
                     await _reportingImplementation.OnDeletedDto(deletedEntity,
                         optionalState);

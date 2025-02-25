@@ -11,12 +11,12 @@ namespace RxDatasets;
 
 public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvider)
 {
-    private const string  TypeAndId = "[^/]+/[^/]+";
+    private const string TypeAndId = "[^/]+/[^/]+";
 
     private static readonly Regex ParentRegex = new(
         $"^({TypeAndId}(/{TypeAndId})*)/[^/]+(/[^/]+)?$",
         RegexOptions.Compiled);
-    
+
     public async Task<ImmutableDatasetState> GetLatestIndex()
     {
         var availableVersion = await storageProvider.ListVersions();
@@ -46,7 +46,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         return index.Entities
             .Where(entity => entity.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Where(entity => allParents.Contains(FindParentOfEntity(entity.Key)??String.Empty))
+            .Where(entity => allParents.Contains(FindParentOfEntity(entity.Key) ?? string.Empty))
             .Select(x => x.Key)
             .Except(receivedNames);
     }
@@ -87,7 +87,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             logger.LogInformation($"No Snapshot was seen, Applying deltas from v1 util v{version}");
             deltas = await GetChangedDeltas(0, version);
         }
-        else if(version == 0 && snapshotIndex.SnapshotVersion > 0)
+        else if (version == 0 && snapshotIndex.SnapshotVersion > 0)
         {
             logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it without any extra deltas as we dont have any delta");
             deltas = [];
@@ -98,7 +98,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             deltas = await GetChangedDeltas(snapshotIndex.SnapshotVersion, version);
         }
 
-        logger.LogInformation($"Applying {(deltas.Count > 0 ? $"deltas from {deltas.Min(d=>d.DeltaVersion)}/(legacy){deltas.Min(d=>d.DeltaVersionLegacy)} - {deltas.Max(d=>d.DeltaVersion)}/(legacy){deltas.Max(d=>d.DeltaVersionLegacy)}" : " no deltas")} to the main index");
+        logger.LogInformation($"Applying {(deltas.Count > 0 ? $"deltas from {deltas.Min(d => d.DeltaVersion)}/(legacy){deltas.Min(d => d.DeltaVersionLegacy)} - {deltas.Max(d => d.DeltaVersion)}/(legacy){deltas.Max(d => d.DeltaVersionLegacy)}" : " no deltas")} to the main index");
         snapshotIndex = snapshotIndex.ApplyDeltas(deltas);
 
         return snapshotIndex;
@@ -206,7 +206,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         {
             return [];
         }
-        
+
         if (fromVersion > toVersion)
         {
             throw new InvalidOperationException($"fromVersion {fromVersion} is higher than toVersion {toVersion}");
@@ -247,7 +247,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         return Path.Combine(GetTempFileDirectory(), Path.GetRandomFileName());
     }
-    
+
     public static string GetTempFileDirectory()
     {
         string? tempFolderPath = Environment.GetEnvironmentVariable("TEMP_FILE_DIRECTORY");

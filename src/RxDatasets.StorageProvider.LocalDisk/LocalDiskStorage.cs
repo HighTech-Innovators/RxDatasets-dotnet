@@ -72,7 +72,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
                 return await File.ReadAllBytesAsync(filePath);
             }
-            catch (Exception ex) when ( ex is not FileNotFoundException)            
+            catch (Exception ex) when (ex is not FileNotFoundException)
             {
                 _logger.LogError(ex, $"Error downloading file: {key}");
                 throw;
@@ -103,7 +103,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
                 return buffer;
             }
-            catch (Exception ex) when ( ex is not FileNotFoundException)            
+            catch (Exception ex) when (ex is not FileNotFoundException)
             {
                 _logger.LogError(ex, $"Error downloading file with offset and length: {key}");
                 throw;
@@ -124,7 +124,8 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 await using var fileStream = File.OpenRead(filePath);
                 callback(fileStream);
             }
-            catch (Exception ex) when ( ex is not FileNotFoundException)            {
+            catch (Exception ex) when (ex is not FileNotFoundException)
+            {
                 _logger.LogError(ex, $"Error downloading file with callback: {key}");
                 throw;
             }
@@ -300,8 +301,8 @@ namespace RxDatasets.StorageProvider.LocalDisk
                     throw new FileNotFoundException($"File not found: {filePath}");
                 }
 
-               FileInfo fileInfo = new FileInfo(filePath);
-               return Task.FromResult(fileInfo.Length);
+                FileInfo fileInfo = new FileInfo(filePath);
+                return Task.FromResult(fileInfo.Length);
 
             }
             catch (Exception ex)

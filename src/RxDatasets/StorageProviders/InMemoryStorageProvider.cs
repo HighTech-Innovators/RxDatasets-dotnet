@@ -46,7 +46,7 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
                 _deltas.Remove(key, out _);
             }
         }
-    
+
 
         foreach (var key in _snapshots.Keys.Where(k => k < version))
         {
@@ -146,7 +146,8 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         else
         {
             _processedVersions.TryAdd(who, version);
-        };
+        }
+        ;
 
         await _notificationsHub.Notify(new VersionProcessedNotification(NewVersion: version, Who: who));
     }
@@ -175,11 +176,13 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<ulong> GetProcessedVersion(string who)
     {
         var versionFound = _processedVersions.TryGetValue(who, out var version);
-        if (versionFound) {
+        if (versionFound)
+        {
             _logger.LogInformation($"we found version {versionFound} for {who}");
-            return Task.FromResult(version); 
+            return Task.FromResult(version);
         }
-        else return Task.FromResult(0ul);
+        else
+            return Task.FromResult(0ul);
     }
 
     public Task<ulong> GetLowestProcessedVersion()
