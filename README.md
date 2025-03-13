@@ -21,7 +21,7 @@ For more details, you can also refer to the full license text at the [SPDX websi
 
   
 
-Reactive Datasets is a project which provides an efficient way to managing status updates of entities in protobuf format. It persisantly stores entities in a disk format (On Azure Blob, S3, or in memory). And it allows for the retrieval of entities in a reactive way, allowing clients to get a list of all changed entities since the last time they checked.
+Reactive Datasets is a project which provides an efficient way to managing status updates of entities in protobuf format. It persistently stores entities in a disk format (On Azure Blob, S3, or in memory). And it allows for the retrieval of entities in a reactive way, allowing clients to get a list of all changed entities since the last time they checked.
 
   
 
