@@ -154,18 +154,12 @@ namespace RxDatasets.BackgroundServices
                 {
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
                     logger.LogWarning("Cannot renew lock not owned by this instance.");
-                    _renewalTimer?.Change(Timeout.Infinite, 0);
-                    _renewalTimer?.Dispose();
-                    _renewalTimer = null;
                 }
             }
             catch (Exception ex)
             {
                 await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
-                logger.LogError(ex, "Error renewing lock.");
-                _renewalTimer?.Change(Timeout.Infinite, 0);
-                _renewalTimer?.Dispose();
-                _renewalTimer = null;
+                logger.LogError(ex, "Error renewing lock. Will try again later");
             }
         }
 
