@@ -1,11 +1,8 @@
-using Grpc.Core;
-using HTI.RxDatasets.Abstractions;
-using Hightechinnovators.Dtos.Type;
-using Hightechinnovators.Dtos.DemodtoV1;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 using Google.Protobuf;
-using System.Data;
+using Grpc.Core;
+using Hightechinnovators.Dtos.DemodtoV1;
+using Hightechinnovators.Dtos.Type;
+using RxDatasets.Abstractions;
 
 namespace RxDatasets.DemodtoV1.Server;
 
@@ -47,15 +44,38 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
             throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
         }
     }
-
+    public override async Task<WriteResponse> PutAllChildren(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
+    {
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        try
+        {
+            return Map(await dataset.PutAllChildren(stream, context.CancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+        }
+    }
+    public override async Task<WriteResponse> PutMany(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
+    {
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        try
+        {
+            return Map(await dataset.PutMany(stream, context.CancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+        }
+    }
     private WriteResponse Map(IDatasetWriter<Demodto>.WriteResponse response)
     {
-            return new ()
-            {
-                NewDatasetVersion = response.NewDatasetVersion,
-                NumAddedEntities = response.NumAddedEntities,
-                NumUpdatedEntities = response.NumUpdatedEntities,
-                NumDeletedEntities = response.NumDeletedEntities,
-            };
+        return new()
+        {
+            NewDatasetVersion = response.NewDatasetVersion,
+            NumAddedEntities = response.NumAddedEntities,
+            NumUpdatedEntities = response.NumUpdatedEntities,
+            NumDeletedEntities = response.NumDeletedEntities,
+        };
     }
 }

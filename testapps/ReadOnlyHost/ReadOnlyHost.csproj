@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsPackable>false</IsPackable>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Version>1.2.0-SNAPSHOT</Version>
+    </PropertyGroup>
+    
+    <ItemGroup>
+      <Reference Include="Microsoft.AspNetCore">
+        <HintPath>C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.11\Microsoft.AspNetCore.dll</HintPath>
+      </Reference>
+      <Reference Include="Microsoft.AspNetCore.Hosting.Abstractions" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Grpc.AspNetCore.Server.Reflection" />
+      <PackageReference Include="Grpc.AspNetCore.Web" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\src\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj" />
+      <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
+      <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
+      <ProjectReference Include="..\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />
+      <ProjectReference Include="..\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
+    </ItemGroup>
+</Project>

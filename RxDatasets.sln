@@ -5,9 +5,9 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "RxDatasets", "RxDatasets", "{DE2AF4BE-1C81-4F21-BC11-39B783E12A63}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets.Abstractions", "src\HTI.RxDatasets.Abstractions\HTI.RxDatasets.Abstractions.csproj", "{2BD991D4-4D03-4300-AE97-F9051133BDD0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.Abstractions", "src\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj", "{2BD991D4-4D03-4300-AE97-F9051133BDD0}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets.InMemoryDataset", "src\HTI.RxDatasets.InMemoryDataset\HTI.RxDatasets.InMemoryDataset.csproj", "{32643E85-9F93-4B9E-B3AA-FFCB32FE20E5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.InMemoryDataset", "src\RxDatasets.InMemoryDataset\RxDatasets.InMemoryDataset.csproj", "{32643E85-9F93-4B9E-B3AA-FFCB32FE20E5}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{28BC0F32-F92A-4809-987A-53705C2B3505}"
 EndProject
@@ -17,15 +17,15 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TestApps", "TestApps", "{DA
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestClient", "testapps\TestClient\TestClient.csproj", "{CEF7E94C-E8D3-41BB-AF6F-7AA1081787CC}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets.Tests", "tst\HTI.RxDatasets.Tests\HTI.RxDatasets.Tests.csproj", "{0CABE41D-5673-49E9-A8B9-33243C24C097}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.StorageTests", "tst\RxDatasets.StorageTests\RxDatasets.StorageTests.csproj", "{0CABE41D-5673-49E9-A8B9-33243C24C097}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets", "src\HTI.RxDatasets\HTI.RxDatasets.csproj", "{464A1C4B-47FE-42FD-BDA6-3CE1A05F2EA1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets", "src\RxDatasets\RxDatasets.csproj", "{464A1C4B-47FE-42FD-BDA6-3CE1A05F2EA1}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasetsBenchmark", "testapps\RxDatasetsBenchmark\RxDatasetsBenchmark.csproj", "{1C1320F6-83B7-4A1C-935B-11D2B7BF56E5}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets.StorageProvider.Minio", "src\HTI.RxDatasets.StorageProvider.Minio\HTI.RxDatasets.StorageProvider.Minio.csproj", "{3DCB1F96-8023-4FA1-B3F3-26A9D4BE87B2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.StorageProvider.Minio", "src\RxDatasets.StorageProvider.Minio\RxDatasets.StorageProvider.Minio.csproj", "{3DCB1F96-8023-4FA1-B3F3-26A9D4BE87B2}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HTI.RxDatasets.StorageProvider.AzBlob", "src\HTI.RxDatasets.StorageProvider.AzBlob\HTI.RxDatasets.StorageProvider.AzBlob.csproj", "{5DBC0700-4EB9-4259-8901-9B53451CBCD0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.StorageProvider.AzBlob", "src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj", "{5DBC0700-4EB9-4259-8901-9B53451CBCD0}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasetsReaderBenchmark", "testapps\RxDatasetsReaderBenchmark\RxDatasetsReaderBenchmark.csproj", "{2FC3C6C6-3FB7-4097-8E59-1747315961DD}"
 EndProject
@@ -38,6 +38,18 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Host.Testserver", "testapps\Testserver\Host.Testserver.csproj", "{6DFFB9A5-5E25-4343-85E5-A839BACCC683}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestdtoV1.Server", "testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj", "{84BE5DB8-97A6-4478-B434-6B2BFE0D3891}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.StorageProvider.S3", "src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj", "{336243B2-1C31-449B-A970-5CECA6A94190}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.Reporting", "src\RxDatasets.Reporting\RxDatasets.Reporting.csproj", "{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RxDatasets.StorageProvider.LocalDisk", "src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj", "{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RxDatasets.StorageProvider.InMemoryProvider", "tst\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj", "{A1D22813-E557-478B-B173-FC7D4B089784}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RxDatasets.DatasetWatcher", "src\RxDatasets.DatasetWatcher\RxDatasets.DatasetWatcher.csproj", "{3FA7EA2D-AED4-45AB-B138-9F0F07207A44}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReadOnlyHost", "testapps\ReadOnlyHost\ReadOnlyHost.csproj", "{927A04B0-3AA5-4322-B106-4CEADE4A3F6C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -105,6 +117,30 @@ Global
 		{84BE5DB8-97A6-4478-B434-6B2BFE0D3891}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{84BE5DB8-97A6-4478-B434-6B2BFE0D3891}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{84BE5DB8-97A6-4478-B434-6B2BFE0D3891}.Release|Any CPU.Build.0 = Release|Any CPU
+		{336243B2-1C31-449B-A970-5CECA6A94190}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{336243B2-1C31-449B-A970-5CECA6A94190}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{336243B2-1C31-449B-A970-5CECA6A94190}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{336243B2-1C31-449B-A970-5CECA6A94190}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D22813-E557-478B-B173-FC7D4B089784}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D22813-E557-478B-B173-FC7D4B089784}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D22813-E557-478B-B173-FC7D4B089784}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D22813-E557-478B-B173-FC7D4B089784}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FA7EA2D-AED4-45AB-B138-9F0F07207A44}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FA7EA2D-AED4-45AB-B138-9F0F07207A44}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FA7EA2D-AED4-45AB-B138-9F0F07207A44}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FA7EA2D-AED4-45AB-B138-9F0F07207A44}.Release|Any CPU.Build.0 = Release|Any CPU
+		{927A04B0-3AA5-4322-B106-4CEADE4A3F6C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{927A04B0-3AA5-4322-B106-4CEADE4A3F6C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{927A04B0-3AA5-4322-B106-4CEADE4A3F6C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{927A04B0-3AA5-4322-B106-4CEADE4A3F6C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -125,6 +161,12 @@ Global
 		{6F9B0D4F-860B-42DF-861B-8278A384A8A6} = {DABDAFFA-74B0-44B3-812B-8217DFDC3CA1}
 		{6DFFB9A5-5E25-4343-85E5-A839BACCC683} = {DABDAFFA-74B0-44B3-812B-8217DFDC3CA1}
 		{84BE5DB8-97A6-4478-B434-6B2BFE0D3891} = {DABDAFFA-74B0-44B3-812B-8217DFDC3CA1}
+		{336243B2-1C31-449B-A970-5CECA6A94190} = {DE2AF4BE-1C81-4F21-BC11-39B783E12A63}
+		{9A1A5D34-AD45-40E1-B83F-8DB8B668E8BF} = {DE2AF4BE-1C81-4F21-BC11-39B783E12A63}
+		{CA07AD80-0CBD-4E7E-8BE9-BCD2681969A7} = {DE2AF4BE-1C81-4F21-BC11-39B783E12A63}
+		{A1D22813-E557-478B-B173-FC7D4B089784} = {28BC0F32-F92A-4809-987A-53705C2B3505}
+		{3FA7EA2D-AED4-45AB-B138-9F0F07207A44} = {DE2AF4BE-1C81-4F21-BC11-39B783E12A63}
+		{927A04B0-3AA5-4322-B106-4CEADE4A3F6C} = {DABDAFFA-74B0-44B3-812B-8217DFDC3CA1}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {967D9BA9-6BAC-4812-AC0A-360E0F1A62BE}

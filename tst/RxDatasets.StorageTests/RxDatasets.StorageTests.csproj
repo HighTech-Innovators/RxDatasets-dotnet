@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Grpc.Net.Client" />
+    <PackageReference Include="Grpc.Net.Client.Web" />
+    <PackageReference Include="Grpc.Reflection" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Reactive.Testing" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="System.Linq.Async" />
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.Azurite" />
+    <PackageReference Include="Testcontainers.Minio" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RxDatasets.DatasetWatcher\RxDatasets.DatasetWatcher.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.Minio\RxDatasets.StorageProvider.Minio.csproj" />
+    <ProjectReference Include="..\..\testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />
+    <ProjectReference Include="..\..\testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
+    <ProjectReference Include="..\..\testapps\Testserver\Host.Testserver.csproj" />
+    <ProjectReference Include="..\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

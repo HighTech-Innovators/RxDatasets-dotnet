@@ -24,12 +24,17 @@ services:
         PRIVATE_NUGET: $PRIVATE_NUGET
         NUGET_PROXY: $NUGET_PROXY
     environment:
-      - DTO__BUCKETNAME=dto-server-generated
-      - DTO__SNAPSHOTINTERVAL=5
+      - Storage__CustomRootFolder=Test/
+      - SnapshotCreation__SNAPSHOTINTERVAL=5
       - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
       - MINIOS3__ACCESSKEY=ROOTUSER
       - MINIOS3__SECRETKEY=MINIOPASSWORD
       - MINIOS3__SERVICEURL=minio:9000
+      - MINIOS3__BUCKETNAME=dto-server-generated
+      - S3__ACCESSKEY=ROOTUSER
+      - S3__SECRETKEY=MINIOPASSWORD
+      - S3__SERVICEURL=minio:9000
+      - S3__BUCKETNAME=dto-server-generated
     depends_on:
       minio:
         condition: service_healthy
@@ -45,12 +50,17 @@ services:
         PRIVATE_NUGET: $PRIVATE_NUGET
         NUGET_PROXY: $NUGET_PROXY
     environment:
-      - DTO__BUCKETNAME=dto-server-expected
-      - DTO__SNAPSHOTINTERVAL=5
+      - Storage__CustomRootFolder=Test/
+      - SnapshotCreation__SNAPSHOTINTERVAL=5
       - CLEANUP__MINIMUMSNAPSHOTSTOKEEP=2
       - MINIOS3__ACCESSKEY=ROOTUSER
       - MINIOS3__SECRETKEY=MINIOPASSWORD
       - MINIOS3__SERVICEURL=minio:9000
+      - MINIOS3__BUCKETNAME=dto-server-expected
+      - S3__ACCESSKEY=ROOTUSER
+      - S3__SECRETKEY=MINIOPASSWORD
+      - S3__SERVICEURL=minio:9000
+      - S3__BUCKETNAME=dto-server-expected
     depends_on:
       minio:
         condition: service_healthy

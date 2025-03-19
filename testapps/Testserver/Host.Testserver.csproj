@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
@@ -8,15 +8,16 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.61.0" />
-        <PackageReference Include="Grpc.AspNetCore.Web" Version="2.61.0" />
+        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" />
+        <PackageReference Include="Grpc.AspNetCore.Web" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\src\HTI.RxDatasets\HTI.RxDatasets.csproj" />
-      <ProjectReference Include="..\..\src\HTI.RxDatasets.InMemoryDataset\HTI.RxDatasets.InMemoryDataset.csproj" />
+      <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
+      <ProjectReference Include="..\..\src\RxDatasets.InMemoryDataset\RxDatasets.InMemoryDataset.csproj" />
       <ProjectReference Include="..\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj" />
       <ProjectReference Include="..\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj" />
+      <ProjectReference Include="..\..\tst\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
     </ItemGroup>
 
 </Project>

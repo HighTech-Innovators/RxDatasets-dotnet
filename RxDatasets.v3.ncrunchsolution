@@ -4,6 +4,32 @@
       <Value>proto\**.*</Value>
     </AdditionalFilesToIncludeForSolution>
     <AllowParallelTestExecution>True</AllowParallelTestExecution>
+    <EnableRDI>False</EnableRDI>
+    <MetricsExclusionList>
+      <Value>tst\RxDatasets.Tests\RxDatasets.Tests.csproj</Value>
+      <Value>tst\RxDatasets.StorageTests\RxDatasets.StorageTests.csproj</Value>
+      <Value>testapps\RxDatasetsBenchmark\RxDatasetsBenchmark.csproj</Value>
+      <Value>testapps\RxDatasetsReaderBenchmark\RxDatasetsReaderBenchmark.csproj</Value>
+      <Value>testapps\TestClient\TestClient.csproj</Value>
+      <Value>testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj</Value>
+      <Value>testapps\Testserver\Host.Testserver.csproj</Value>
+      <Value>testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj</Value>
+      <Value>testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj</Value>
+      <Value>testapps\Host\Host.csproj</Value>
+      <Value>src\RxDatasets.Reporting\RxDatasets.Reporting.csproj</Value>
+    </MetricsExclusionList>
+    <RdiConfigured>True</RdiConfigured>
     <SolutionConfigured>True</SolutionConfigured>
   </Settings>
+  <EngineModes>
+    <EngineMode>
+      <Name>Run impacted tests automatically, others manually</Name>
+      <Settings>
+        <AlignOutOfDateStatusWithImpactStatus>True</AlignOutOfDateStatusWithImpactStatus>
+        <AllowParallelTestExecution>True</AllowParallelTestExecution>
+        <EngineModeColor>a255, r128, g128, b0</EngineModeColor>
+        <TestsToExecuteAutomatically>IsImpacted</TestsToExecuteAutomatically>
+      </Settings>
+    </EngineMode>
+  </EngineModes>
 </SolutionConfiguration>

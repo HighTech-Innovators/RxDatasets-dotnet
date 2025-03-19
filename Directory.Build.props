@@ -1,12 +1,36 @@
 <Project>
 
   <PropertyGroup Condition="'$(CI)' != 'true'">
-    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- This is to disable the creation of Lock.json files locally -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile> 
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(CI)' == 'true'">
     <NuGetAudit>false</NuGetAudit>
-    <RestoreLockedMode>true</RestoreLockedMode>
+    <!-- This is to disable the usage of Lock.json files in the pipeline -->
+    <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    <PackageLicenseExpression>CPAL-1.0</PackageLicenseExpression>
+    <Copyright>HighTech Innovators © 2024</Copyright>
+    <Authors>Bart de Boer,Subhi Hamidi,Teun van Zon</Authors>
+    <Company>HighTech Innovators</Company>
+    <Description>A set of libraries that allow the development of Reactive Dataset-servers, using protobuf files a backing storage. Inspired by Netflix Hollow.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+  
+  <PropertyGroup>
+    <!-- Enable PDB embedding -->
+    <DebugType>embedded</DebugType>
+    <EmbedAllSources>true</EmbedAllSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(SolutionDir)/README.md" Pack="true" PackagePath="/"/>
+    <None Include="$(SolutionDir)/icon.png" Pack="true" PackagePath="/"/>
+  </ItemGroup>
 
 </Project>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>RxDatasets.TestImplementations.InMemoryProvider</AssemblyName>
+    <RootNamespace>RxDatasets.TestImplementations.InMemoryProvider</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
+  </ItemGroup>
+
+</Project>

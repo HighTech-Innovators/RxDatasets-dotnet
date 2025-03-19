@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HighTechInnovators.RxDatasets.StorageProvider.Minio</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Minio" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RxDatasets\RxDatasets.csproj" />
+  </ItemGroup>
+
+</Project>

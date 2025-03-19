@@ -6,6 +6,8 @@ variables:
   TARGET_NUGET: "${TARGET_NUGET:-}"
   TARGET_NUGET_APIKEY: "${TARGET_NUGET_APIKEY:-}"
   DOCKER_BUILD_IMAGE: "${REGISTRY_PREFIX}docker:cli"
+  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+  GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
 
 stages:
   - restore
@@ -13,8 +15,8 @@ stages:
   - test
   - publish
   - push
-  - preprod
-  - production
+  - sonarqube-check
+  - sonarqube-vulnerability-report
 
 .only_tagged:
   rules:
@@ -38,12 +40,41 @@ stages:
       docker build
       --pull
       --build-arg DOCKER_HOST=$DOCKER_HOST
+      --build-arg RunExternalProvidersTests=true
       --build-arg VERSION=$VERSION
       --build-arg REGISTRY_PREFIX=$REGISTRY_PREFIX
       --build-arg PRIVATE_NUGET=$PRIVATE_NUGET
       --build-arg NUGET_PROXY=$NUGET_PROXY
       --build-arg TARGET_NUGET=$TARGET_NUGET
       --build-arg TARGET_NUGET_APIKEY=$TARGET_NUGET_APIKEY
+      --target ${DOCKERFILE_TARGET}
+      -f Dockerfile
+      .
+  image: ${DOCKER_BUILD_IMAGE}
+
+.sonar_docker_build_target:
+  cache: []
+  variables:
+    DOCKER_BUILDKIT: 1
+  script:   
+    - test -n "$DOCKER_HOST" || ( echo "Error in gitlab-ci config - variable DOCKER_HOST is required but is blank" && exit 1 )
+    - test -n "$DOCKERFILE_TARGET" || ( echo "Error in gitlab-ci config - variable DOCKERFILE_TARGET is required but is blank" && exit 1 )
+    - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild }"
+    - >
+      docker build
+      -f sonar.Dockerfile
+      --pull
+      --build-arg DOCKER_HOST=$DOCKER_HOST
+      --build-arg VERSION=$VERSION
+      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
+      --build-arg RunExternalProvidersTests=true
+      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
+      --build-arg SONAR_TOKEN=$SONAR_TOKEN
+      --build-arg SONAR_USER_HOME=$SONAR_USER_HOME
+      --build-arg CI_COMMIT_REF_NAME=$CI_COMMIT_REF_NAME
+      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
+      --build-arg CI_MERGE_REQUEST_TARGET_BRANCH_NAME=$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+      --build-arg CI_PROJECT_ID=$CI_PROJECT_ID
       --target ${DOCKERFILE_TARGET}
       .
   image: ${DOCKER_BUILD_IMAGE}
@@ -124,4 +155,50 @@ dotnet nuget push:
     - dotnet pack
     - dotnet test
     - e2e test
-    
+
+sonarqube-check:
+  extends:
+    - .sonar_docker_build_target
+  variables:
+    DOCKERFILE_TARGET: sonarqube-check
+  stage: sonarqube-check
+  dependencies:
+    - dotnet test
+  allow_failure: false
+  only:
+    - merge_requests
+    - master
+    - main
+    - develop
+
+sonarqube-vulnerability-report:
+  script:   
+    - >
+      docker buildx build
+      --pull
+      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
+      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
+      --build-arg SONAR_TOKEN=$SONAR_TOKEN
+      --build-arg CI_COMMIT_BRANCH=$CI_COMMIT_BRANCH
+      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
+      --target ${DOCKERFILE_TARGET}
+      --output type=local,dest=./
+      -f sonar.Dockerfile
+      .
+  image: ${DOCKER_BUILD_IMAGE}
+  variables:
+    DOCKERFILE_TARGET: sonar-report-downloader
+    DOCKER_BUILDKIT: 1
+  stage: sonarqube-vulnerability-report
+  needs:
+    - sonarqube-check
+  allow_failure: true
+  only:
+    - merge_requests
+    - master
+    - main
+    - develop
+  artifacts:
+    expire_in: 1 day
+    reports:
+      sast: ./gl-sast-sonar-report.json 

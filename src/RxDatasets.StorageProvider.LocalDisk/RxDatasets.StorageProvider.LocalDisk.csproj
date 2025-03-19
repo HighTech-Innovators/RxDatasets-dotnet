@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HighTechInnovators.RxDatasets.StorageProvider.LocalDisk</PackageId>
+    
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RxDatasets.Abstractions\RxDatasets.Abstractions.csproj" />
+    <ProjectReference Include="..\RxDatasets\RxDatasets.csproj" />
+  </ItemGroup>
+
+</Project>

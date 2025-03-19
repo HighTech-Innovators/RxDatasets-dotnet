@@ -1,5 +1,5 @@
-﻿using Grpc.Net.Client;
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using Grpc.Net.Client;
 using Hightechinnovators.Dtos.DemodtoV1;
 using Hightechinnovators.Dtos.Type;
 
@@ -10,7 +10,7 @@ if (!args.Any())
 }
 var gRPCAddress = args.FirstOrDefault(arg => arg.Contains(":")) ?? "http://localhost:10080";
 
-int inputSize = args.Skip(1).Select(arg => int.TryParse(arg, out int size) ? size: 100).FirstOrDefault(100);
+int inputSize = args.Skip(1).Select(arg => int.TryParse(arg, out int size) ? size : 100).FirstOrDefault(100);
 int repeatCount = 5;
 
 var sourceChannel = GrpcChannel.ForAddress(gRPCAddress);
@@ -52,14 +52,15 @@ Func<Task> PutAllDefault = async () =>
 };
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 
-await Benchmark(async () => await Task.WhenAll(newDemodtos.Select(x => writerClient.PutAsync(x).ResponseAsync)), 
+await Benchmark(async () => await Task.WhenAll(newDemodtos.Select(x => writerClient.PutAsync(x).ResponseAsync)),
     "Put new", inputSize, repeatCount, PutAllEmpty);
-await Benchmark(async () => newDemodtos.ForEach(x => writerClient.Put(x)), 
+await Benchmark(async () => newDemodtos.ForEach(x => writerClient.Put(x)),
     "Put unchanged", inputSize, repeatCount, PutAllDefault);
-await Benchmark(async () => ChangedDemodtos.ForEach(x => writerClient.Put(x)), 
+await Benchmark(async () => ChangedDemodtos.ForEach(x => writerClient.Put(x)),
     "Put Changed", inputSize, repeatCount, PutAllDefault);
 
-await Benchmark(async () => {
+await Benchmark(async () =>
+{
     var call = writerClient.PutAll();
     foreach (var subtitlefile in newDemodtos)
     {
@@ -67,7 +68,8 @@ await Benchmark(async () => {
     }
     await call.RequestStream.CompleteAsync();
 }, "Put All new", inputSize, repeatCount, PutAllEmpty);
-await Benchmark(async () => {
+await Benchmark(async () =>
+{
     var call = writerClient.PutAll();
     foreach (var subtitlefile in newDemodtos)
     {
@@ -75,7 +77,8 @@ await Benchmark(async () => {
     }
     await call.RequestStream.CompleteAsync();
 }, "Put All unchanged", inputSize, repeatCount);
-await Benchmark(async () => {
+await Benchmark(async () =>
+{
     var call = writerClient.PutAll();
     foreach (var subtitlefile in ChangedDemodtos)
     {
@@ -88,17 +91,17 @@ var batchGet = new BatchGetDemodtosRequest();
 List<string> names = newDemodtos.Select(x => x.Name).ToList();
 batchGet.Names.AddRange(names);
 
-await Benchmark(async () => names.ForEach(x => readerClient.GetDemodto(new GetDemodtoRequest() { Name = x })), 
+await Benchmark(async () => names.ForEach(x => readerClient.GetDemodto(new GetDemodtoRequest() { Name = x })),
     "Get", inputSize, repeatCount);
-await Benchmark(async () => await readerClient.BatchGetDemodtosAsync(batchGet), 
+await Benchmark(async () => await readerClient.BatchGetDemodtosAsync(batchGet),
     "Batch Get", inputSize, repeatCount);
 
-await Benchmark(async () => readerClient.ListDemodtos(new ListDemodtosRequest() { PageSize = inputSize, Parent = "parent" }), 
+await Benchmark(async () => readerClient.ListDemodtos(new ListDemodtosRequest() { PageSize = inputSize, Parent = "parent" }),
     "List", inputSize, repeatCount);
-await Benchmark(async () => readerClient.ListChanges(new ListChangesRequest() { FromDatasetVersion = 0 }), 
+await Benchmark(async () => readerClient.ListChanges(new ListChangesRequest() { FromDatasetVersion = 0 }),
     "List changes", inputSize, repeatCount);
 
-await Benchmark(async () => names.ForEach(x => writerClient.Delete(new DeleteRequest() { Name = x })), 
+await Benchmark(async () => names.ForEach(x => writerClient.Delete(new DeleteRequest() { Name = x })),
     "delete", inputSize, repeatCount, PutAllDefault);
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
 
@@ -110,7 +113,7 @@ static async Task Benchmark(Func<Task> taskToBenchmark, string actionName, int i
 
     List<long> results = new();
 
-    for(int i = 0; i < repeat; i++)
+    for (int i = 0; i < repeat; i++)
     {
         if (initializeTask != null)
             await initializeTask.Invoke();

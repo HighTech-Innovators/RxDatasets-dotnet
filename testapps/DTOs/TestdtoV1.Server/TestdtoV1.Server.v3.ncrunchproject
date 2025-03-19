@@ -1,0 +1,7 @@
+﻿<ProjectConfiguration>
+  <Settings>
+    <HiddenComponentWarnings>
+      <Value>UnnecessaryFileIncludeWarning</Value>
+    </HiddenComponentWarnings>
+  </Settings>
+</ProjectConfiguration>

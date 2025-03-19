@@ -1,0 +1,12 @@
+﻿*
+
+!src/
+!tst/
+!testapps/
+!*.sln
+!Directory.Build.props
+!Directory.Packages.props
+!.git/
+
+**/[Bb]in/
+**/[Oo]bj/
