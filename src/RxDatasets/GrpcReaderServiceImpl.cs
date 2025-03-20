@@ -159,26 +159,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
     }
 
     private (List<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(List<T> allChanges, int requestPageSize, int skipSize, ulong toDatasetVersion)
-    {
-        if (requestPageSize == 0)
-            requestPageSize = _defaultPageSize;
-
-        if (requestPageSize > _maxPageSize)
-            requestPageSize = _maxPageSize;
-
-        if (allChanges.Count <= requestPageSize)
-            return (allChanges, string.Empty, toDatasetVersion);
-
-        var toReadSize = skipSize + requestPageSize;
-        var thisPage = allChanges[skipSize..toReadSize];
-
-        if (toReadSize == allChanges.Count)
-            return (thisPage, string.Empty, toDatasetVersion);
-
-        var nextPageToken = Guid.NewGuid().ToString().ToLowerInvariant();
-        StoreRemainder(nextPageToken, allChanges, toReadSize, toDatasetVersion);
-        return (thisPage, nextPageToken, 0);
-    }
+        => PaginationHelper.Paginate(allChanges, requestPageSize, skipSize, toDatasetVersion, _defaultPageSize, _maxPageSize, StoreRemainder);
 
     private void StoreRemainder<T>(string key, List<T> collection, int alreadyReadSize, ulong toDatasetVersion)
     {
