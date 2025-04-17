@@ -18,6 +18,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _mostRecentSnapshotIndex;
+    private readonly ParentsIndex _parentsIndex = new();
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -215,7 +216,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         if (entityVersion <= _index.SnapshotVersion)
         {
             // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
-            // Double check that we 
+            // Double check that we
             if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
                 sources.Add((ObjectNameTypeEnum.Snapshot, _index.SnapshotVersion, entityInMainIndex.Position));
         }
@@ -304,15 +305,22 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return changedNames;
     }
 
-    public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
+    public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
-        var prefix = parent + "/";
 
-        return Task.FromResult((indexRef.Entities
-            .Where(x => x.Key.StartsWith(prefix, StringComparison.Ordinal))
+
+        IEnumerable<string> allNamesGetter = indexRef.Entities
             .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key).ToList(), indexRef.LatestVersion));
+            .Select(entity => entity.Key);
+
+        if (string.IsNullOrEmpty(parent) || parent is "/")
+        {
+            return (allNamesGetter.ToList(), indexRef.LatestVersion);
+        }
+
+        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
+        return (childrenIndex.ToList(), indexRef.LatestVersion);
 
     }
 
@@ -324,6 +332,23 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
             tempState = tempState.ApplyDeltas(deltas);
+            var thereIsStillData = await _parentsIndex.CleanIndex();
+            if (thereIsStillData)
+            {
+                foreach (DeltaIndex delta in deltas)
+                {
+                    foreach (var newEntity in delta.NewEntities)
+                    {
+                        await _parentsIndex.OnNew(newEntity.Name);
+                    }
+
+                    foreach (var deletedEntity in delta.DeletedNames)
+                    {
+                        await _parentsIndex.OnDelete(deletedEntity);
+                    }
+                }
+            }
+
             _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
         }
 

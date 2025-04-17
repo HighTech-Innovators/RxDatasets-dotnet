@@ -612,7 +612,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("Parent2/Should_List_With_Parent_3", bytes3);
 
         // List entities with the matching parent
-        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent1")).Names, null);
+        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent1", CancellationToken.None)).Names, null);
 
         resultList.Should().HaveCount(2);
 
@@ -631,12 +631,9 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put("Parent1/Should_Not_List_Without_Parent_1", GenerateRandomData(UNIT_KB));
         await azBlobStorageDatasetWriter.Put("Parent2/Should_Not_List_Without_Parent_2", GenerateRandomData(UNIT_KB));
 
-        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent3")).Names, null);
+        var resultList = await azBlobStorageDatasetReader.BatchGet((await azBlobStorageDatasetReader.List("Parent3", CancellationToken.None)).Names, null);
 
         resultList.Should().BeEmpty();
-
-        var resultList2 = await azBlobStorageDatasetReader.List("");
-        resultList2.Names.Should().BeEmpty();
     }
 
     [Fact]
@@ -649,7 +646,7 @@ public abstract class StorageTestSpec
         await azBlobStorageDatasetWriter.Put(key, GenerateRandomData(UNIT_KB));
 
         await azBlobStorageDatasetWriter.Delete(key);
-        var resultList = await azBlobStorageDatasetReader.List(parent);
+        var resultList = await azBlobStorageDatasetReader.List(parent, CancellationToken.None);
         resultList.Names.Should().BeEmpty();
     }
 
@@ -820,7 +817,7 @@ public abstract class StorageTestSpec
         (await azBlobStorageDatasetReader.BatchGet(entities.Select(x => x.key), null)).ToList();
         (azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
 
-        await azBlobStorageDatasetReader.List("parent");
+        await azBlobStorageDatasetReader.List("parent", CancellationToken.None);
         (azBlobStorageDatasetReader.GetLatestVersion()).Should().Be(initialVersion);
     }
 

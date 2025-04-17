@@ -325,7 +325,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return entities;
     }
 
-    public Task<(List<string> Names, ulong LatestVersion)> List(string parent)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var prefix = parent + "/";
         var names = GetAll(ulong.MaxValue, CancellationToken.None)
