@@ -71,8 +71,8 @@ services:
       target: minio-container
       args:
         REGISTRY_PREFIX: $REGISTRY_PREFIX
-    ports:
-        - 9000:9000
+    expose:
+        - "9000"
     user: "0"
     environment:
       MINIO_ROOT_USER: ROOTUSER
