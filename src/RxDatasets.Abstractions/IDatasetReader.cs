@@ -7,5 +7,5 @@ public interface IDatasetReader<T>
     Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken);
     Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string name);
     Task<ICollection<(string name, ReadOnlyMemory<byte>? entityBytes)>> BatchGet(IEnumerable<string> names, string? parent);
-    Task<(List<string> Names, ulong LatestVersion)> List(string parent);
+    Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct);
 }

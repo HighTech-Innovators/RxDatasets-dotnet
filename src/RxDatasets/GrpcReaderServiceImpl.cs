@@ -41,7 +41,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 // Server is stopping, notify the client
                 throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
             }
-            // For client-initiated cancellations, you don't necessarily need to throw an RpcException 
+            // For client-initiated cancellations, you don't necessarily need to throw an RpcException
             // because the client already knows it cancelled the operation.
             return Array.Empty<TEntity>();
         }
@@ -71,7 +71,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             }
             else
             {
-                (names, toDatasetVersion) = await dataset.List(parent);
+                (names, toDatasetVersion) = await dataset.List(parent, cancellationToken);
             }
 
             var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion);
@@ -88,7 +88,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 // Server is stopping, notify the client
                 throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
             }
-            // For client-initiated cancellations, you don't necessarily need to throw an RpcException 
+            // For client-initiated cancellations, you don't necessarily need to throw an RpcException
             // because the client already knows it cancelled the operation.
             return (Array.Empty<TEntity>(), null);
         }
@@ -138,7 +138,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 // Server is stopping, notify the client
                 throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
             }
-            // For client-initiated cancellations, you don't necessarily need to throw an RpcException 
+            // For client-initiated cancellations, you don't necessarily need to throw an RpcException
             // because the client already knows it cancelled the operation.
             return new ListChangesResponse();
         }
