@@ -23,7 +23,6 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         return await GetIndexOfVersion(availableVersion.NewestDelta);
     }
-
     public static string? FindParentOfEntity(string name)
     {
         // Remove any trailing slashes to handle cases like "parent/child/"
@@ -32,6 +31,29 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         return match.Success ? match.Groups[1].Value : null;
     }
+
+    public static string? FindParentOfEntity(string name, int level)
+    {
+        if (string.IsNullOrEmpty(name) || level <= 0)
+            return null;
+
+        name = name.TrimEnd('/');
+
+        int slashCount = 0;
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (name[i] == '/')
+            {
+                slashCount++;
+                if (slashCount == level)
+                    return name.Substring(0, i);
+            }
+        }
+
+        // If level is greater than the number of segments, return full name
+        return slashCount == level - 1 ? name : null;
+    }
+
 
     public static IEnumerable<string> GetImplicitDeletes(ImmutableDatasetState index, HashSet<string> receivedNames)
     {

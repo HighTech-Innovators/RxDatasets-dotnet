@@ -37,21 +37,45 @@ public class DatasetHelperTests
         result.Should().StartWith(Path.GetTempPath());
     }
 
+
+    // Existing default behavior tests (no level parameter)
     [Theory]
     [InlineData("channels/64090/days/20240923/events/287431128", "channels/64090/days/20240923")]
     [InlineData("bla/A/bla/K", "bla/A")]
     [InlineData("prov/bbc.nl/pack/BBCC1234/video/123/singlechild", "prov/bbc.nl/pack/BBCC1234/video/123")]
     [InlineData("root/child", null)]
-    [InlineData("singleword", null)] // No parent exists, so should return null
-    [InlineData("parent/child/", null)] // Trailing slash case
-    public void FindParentOfEntity_ShouldReturnCorrectParent(string input, string? expected)
+    [InlineData("singleword", null)]
+    [InlineData("parent/child/", null)]
+    public void FindParentOfEntity_Default_ShouldReturnCorrectParent(string input, string? expected)
     {
         // Act
         var result = DatasetHelper.FindParentOfEntity(input);
-
         // Assert
         result.Should().Be(expected);
     }
+
+    // New tests with the level parameter.
+    // The level represents the number of segments from the parent's value (match.Groups[1].Value) to return.
+    // For example, given:
+    // "channels/64090/days/20240923/events/287431128" -> default parent is "channels/64090/days/20240923"
+    // - Level 2 returns "channels/64090" (first 2 segments)
+    // - Level 3 returns "channels/64090/days"
+    // - Level 4 returns "channels/64090/days/20240923"
+    [Theory]
+    [InlineData("channels/64090/days/20240923/events/287431128", 2, "channels/64090")]
+    [InlineData("channels/64090/days/20240923/events/287431128", 3, "channels/64090/days")]
+    [InlineData("channels/64090/days/20240923/events/287431128", 4, "channels/64090/days/20240923")]
+    [InlineData("bla/A/bla/K", 1, "bla")]
+    [InlineData("bla/A/bla/K", 2, "bla/A")]
+    [InlineData("bla/A/bla/K", 3, "bla/A/bla")] // Only two segments available in default parent ("bla/A")
+    public void FindParentOfEntity_WithLevel_ShouldReturnCorrectParent(string input, int level, string? expected)
+    {
+        // Act
+        var result = DatasetHelper.FindParentOfEntity(input, level);
+        // Assert
+        result.Should().Be(expected);
+    }
+
 
     [Fact]
     public void DeleteImplicitly_Should_Return_Entities_Not_In_ReceivedNames_And_Not_Deleted()
