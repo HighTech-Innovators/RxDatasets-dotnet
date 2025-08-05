@@ -132,9 +132,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            var tcs = IndexChangedTaskCompletionSource;
-            IndexChangedTaskCompletionSource = new TaskCompletionSource();
-            tcs.SetResult();
             try
             {
                 _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
