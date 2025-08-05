@@ -8,20 +8,44 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 cleanup_and_exit() {
-    exit_code=$?;
-    local error=${1:-Error};
+    exit_code=${2:-1}  # Use provided exit code or default to 1 (failure)
+    local error=${1:-Error}
     echo -e "\033[0;31m${error} (code ${exit_code})\033[0m"
     # Display logs before shutting down
     echo "Displaying logs before shutting down the services:"
-    docker compose --project-name $CI_JOB_ID logs
+    docker compose --project-name "$CI_JOB_ID" logs
     # Always bring down the Docker Compose setup
-    docker compose --project-name $CI_JOB_ID down -v  --rmi local
-    exit $exit_code
+    docker compose --project-name "$CI_JOB_ID" down -v --rmi local
+    exit "$exit_code"
 }
 
 # Run Docker Compose up with the specified options, capturing the exit code
 docker compose --project-name $CI_JOB_ID build || cleanup_and_exit 'Test BUILD failed'
-docker compose --project-name $CI_JOB_ID up -d || cleanup_and_exit 'Test SETUP failed'
+
+
+# Retry logic for "docker compose up -d"
+max_attempts=30  # 30 attempts => 5 min at 5-second intervals
+attempt=1
+compose_exit_code=1  # Initialize failure
+
+while [ "$attempt" -le "$max_attempts" ]; do
+  docker compose --project-name "$CI_JOB_ID" up -d
+  compose_exit_code=$?
+
+  if [ "$compose_exit_code" -eq 0 ]; then
+    echo "Docker compose started successfully."
+    break
+  else
+    echo "Port in use or unknown error (attempt $attempt/$max_attempts). Retrying in 5 seconds..."
+    attempt=$(( attempt + 1 ))
+    sleep 5
+  fi
+done
+
+# If we reached the max attempts, fail the job
+if [ "$attempt" -gt "$max_attempts" ] || [ "$compose_exit_code" -ne 0 ]; then
+  cleanup_and_exit 'Test SETUP failed after repeated retries' 1
+fi
 
 SERVICE=tests
 docker compose --project-name $CI_JOB_ID up --exit-code-from $SERVICE --scale $SERVICE=1 $SERVICE
