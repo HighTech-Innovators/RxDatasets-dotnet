@@ -230,7 +230,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
     {
-        if (fromVersion == _index!.LatestVersion)
+        while (_index == null || fromVersion == _index.LatestVersion)
         {
             await IndexChangedTaskCompletionSource.Task.WaitAsync(cancellationToken);
         }
