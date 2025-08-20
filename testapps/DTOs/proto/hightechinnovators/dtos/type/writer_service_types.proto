@@ -17,3 +17,10 @@ message WriteResponse {
 message DeleteRequest {
     string name = 1;
 }
+
+// Represents either a put (entity_bytes set) or a delete (entity_bytes omitted) in a mixed stream.
+message PutOrDelete {
+    string name = 1; // Required key
+    bytes entity_bytes = 2; // If absent or zero-length with is_delete = true this represents a delete
+    bool is_delete = 3; // Explicit flag to mark delete; if true entity_bytes is ignored
+}

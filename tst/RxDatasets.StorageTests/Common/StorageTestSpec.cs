@@ -1178,6 +1178,40 @@ public abstract class StorageTestSpec
         result.Should().Contain((name, ChangeType.Changed));
     }
 
+    [Fact]
+    public async Task Should_Mix_Puts_And_Deletes_In_PutOrDeleteMany()
+    {
+        var (reader, writer) = await SetupStorageAsync(CancellationToken.None);
+        // Seed some entities
+        await writer.Put("Mix/1", GenerateRandomData(UNIT_KB, 1));
+        await writer.Put("Mix/2", GenerateRandomData(UNIT_KB, 2));
+        await writer.Put("Mix/3", GenerateRandomData(UNIT_KB, 3));
+        var initialVersion = reader.GetLatestVersion();
+
+        var randomNew = GenerateRandomData(UNIT_KB, 10);
+        var randomUpdate = GenerateRandomData(UNIT_KB, 20);
+
+        var mixed = new List<(string name, byte[]? entityBytes)>
+        {
+            ("Mix/2", randomUpdate), // update existing
+            ("Mix/3", null), // delete existing
+            ("Mix/4", randomNew), // new entity
+            ("Mix/DoesNotExist", null) // delete non-existing ignored
+        };
+
+        var res = await writer.PutOrDeleteMany(mixed.ToAsyncEnumerable());
+
+        res.NewDatasetVersion.Should().Be(initialVersion + 1);
+        res.NumAddedEntities.Should().Be(1);
+        res.NumUpdatedEntities.Should().Be(1);
+        res.NumDeletedEntities.Should().Be(1);
+
+        // Validate state
+        (await reader.Get("Mix/2")).Value.entityBytes.ToArray().Should().BeEquivalentTo(randomUpdate);
+        (await reader.Get("Mix/3")).Should().BeNull();
+        (await reader.Get("Mix/4")).Value.entityBytes.ToArray().Should().BeEquivalentTo(randomNew);
+    }
+
 
 
 

@@ -1,15 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Pipelines;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Google.Apis.Storage.v1.Data;
 using Google.Cloud.Storage.V1;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using Google.Apis.Storage.v1.Data;
-using System.Net.Http.Headers;
-using System.IO.Pipelines;
 
 namespace RxDatasets.StorageProvider.GoogleCloud
 {
@@ -139,7 +139,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 try
                 {
                     var projectId = Environment.GetEnvironmentVariable("GOOGLE_PROJECT_ID");
-                    if(string.IsNullOrEmpty(projectId))
+                    if (string.IsNullOrEmpty(projectId))
                     {
                         _logger.LogError("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
                         throw new InvalidOperationException("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
@@ -149,9 +149,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 }
                 catch (Exception ex)
                 {
-                     _logger.LogError(ex, "Failed to create bucket");
-                     SetUnhealthy(ex);
-                     throw;
+                    _logger.LogError(ex, "Failed to create bucket");
+                    SetUnhealthy(ex);
+                    throw;
                 }
             }
             catch (Exception ex)
@@ -214,7 +214,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         {
             await EnsureInitialized();
             var pipe = new Pipe();
-            
+
             async Task Produce()
             {
                 try
