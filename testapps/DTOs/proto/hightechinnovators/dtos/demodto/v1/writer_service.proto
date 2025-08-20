@@ -14,6 +14,9 @@ service WriterService {
     rpc PutAll(stream Demodto) returns (hightechinnovators.dtos.type.WriteResponse);
     rpc PutAllChildren(stream Demodto) returns (hightechinnovators.dtos.type.WriteResponse);
     rpc PutMany(stream Demodto) returns (hightechinnovators.dtos.type.WriteResponse);
+    // Mixed stream that can contain both puts and deletes (delete signaled by empty payload?) -> here only puts; deletes are separate Delete RPC for demo
     rpc Put(Demodto) returns (hightechinnovators.dtos.type.WriteResponse);
     rpc Delete(hightechinnovators.dtos.type.DeleteRequest) returns (hightechinnovators.dtos.type.WriteResponse);
+    // New mixed operation accepting a stream of PutOrDelete messages
+    rpc PutOrDeleteMany(stream hightechinnovators.dtos.type.PutOrDelete) returns (hightechinnovators.dtos.type.WriteResponse);
 }
