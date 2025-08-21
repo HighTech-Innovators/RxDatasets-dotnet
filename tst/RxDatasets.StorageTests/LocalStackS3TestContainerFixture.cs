@@ -1,8 +1,8 @@
+using System.Net;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Images;
 using DotNet.Testcontainers.Networks;
-using System.Net;
 
 namespace RxDatasets.StorageTests;
 

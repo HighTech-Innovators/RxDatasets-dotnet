@@ -60,7 +60,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         {
             SetUnhealthy(ex);
             _logger.LogError(ex, "Failed to connect to S3");
-            if (ex.InnerException is ConnectionException)
+            if (ex.InnerException is MinioException minioEx && MinioExceptionExt.IsTransient(minioEx))
             {
                 throw new InvalidOperationException($"S3 is unavailable", ex);
             }
@@ -115,7 +115,12 @@ public class MinioS3Storage<T> : IDiskStorage<T>
             SetHealthy();
 
         }
-        catch (MinioException ex) when (ex is ConnectionException or ObjectNotFoundException or InvalidObjectNameException)
+        catch (MinioException ex) when (ex.IsTransient())
+        {
+            SetUnhealthy(ex);
+            throw new InvalidOperationException("S3 is unavailable", ex);
+        }
+        catch (MinioException ex) when (ex is ObjectNotFoundException or InvalidObjectNameException)
         {
             if (ex is ObjectNotFoundException)
             {
@@ -126,7 +131,6 @@ public class MinioS3Storage<T> : IDiskStorage<T>
             SetUnhealthy(ex);
             throw ex switch
             {
-                ConnectionException => new InvalidOperationException("S3 is unavailable", ex),
                 InvalidObjectNameException => new InvalidOperationException("Some S3 error happened but we don't know it, it's hidden in the response", ex),
                 _ => ex
             };
@@ -162,7 +166,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                 .WithCallbackStream(x => x.CopyTo(resultStream)));
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to download from S3");
             var invalidOperationException = new InvalidOperationException("S3 is unavailable", ex);
@@ -207,7 +211,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                .WithCallbackStream(callback));
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to download from S3");
             throw new InvalidOperationException($"S3 is unavailable", ex);
@@ -244,7 +248,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                 .WithObjectSize(bytes.Length));
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to upload to S3");
             SetUnhealthy(ex);
@@ -262,7 +266,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                 .WithObject(objectKey));
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to delete from S3");
             SetUnhealthy(ex);
@@ -280,24 +284,23 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                 .WithBucket(_s3Config.Value.BucketName)
                 .WithPrefix(prefix);
 
-            await _s3Client.ListObjectsAsync(listArgs).ForEachAsync((async item =>
+            await foreach (var item in _s3Client.ListObjectsEnumAsync(listArgs))
             {
                 await _s3Client.RemoveObjectAsync(new RemoveObjectArgs()
                     .WithBucket(_s3Config.Value.BucketName)
                     .WithObject(item.Key));
-            }));
+            }
+            ;
 
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to delete folder from S3");
             SetUnhealthy(ex);
             throw new InvalidOperationException("S3 is unavailable", ex);
         }
     }
-
-
 
     public async Task UploadFileStream(string objectKey, Stream stream)
     {
@@ -312,7 +315,7 @@ public class MinioS3Storage<T> : IDiskStorage<T>
                 .WithObjectSize(stream.Length));
             SetHealthy();
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to upload to S3");
             SetUnhealthy(ex);
@@ -325,21 +328,21 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         try
         {
             await EnsureInitialized();
-            var observable = _s3Client.ListObjectsAsync(new ListObjectsArgs()
+
+            var asyncEnum = _s3Client.ListObjectsEnumAsync(new ListObjectsArgs()
                 .WithBucket(_s3Config.Value.BucketName)
                 .WithPrefix($"{prefix}")
                 .WithRecursive(true));
 
-            SetHealthy();
-            return (await observable
+            var result = await asyncEnum
                 .Select(obj => (obj.Key, new DateTimeOffset(obj.LastModifiedDateTime!.Value.ToUniversalTime(), TimeSpan.Zero)))
-                .ToList()
-                .ToTask()
-                )
                 .OrderBy(x => x.Key)
-                .ToList();
+                .ToListAsync();
+
+            SetHealthy();
+            return result;
         }
-        catch (ConnectionException ex)
+        catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed connection to get objects from S3");
             SetUnhealthy(ex);
@@ -388,7 +391,12 @@ public class MinioS3Storage<T> : IDiskStorage<T>
             return size;
 
         }
-        catch (MinioException ex) when (ex is ConnectionException or ObjectNotFoundException or InvalidObjectNameException)
+        catch (MinioException ex) when (ex.IsTransient())
+        {
+            SetUnhealthy(ex);
+            throw new InvalidOperationException("S3 is unavailable", ex);
+        }
+        catch (MinioException ex) when (ex is ObjectNotFoundException or InvalidObjectNameException)
         {
             if (ex is ObjectNotFoundException)
             {
@@ -399,10 +407,18 @@ public class MinioS3Storage<T> : IDiskStorage<T>
             SetUnhealthy(ex);
             throw ex switch
             {
-                ConnectionException => new InvalidOperationException("S3 is unavailable", ex),
                 InvalidObjectNameException => new InvalidOperationException("Some S3 error happened but we don't know it, it's hidden in the response", ex),
                 _ => ex
             };
         }
     }
+}
+
+internal static class MinioExceptionExt
+{
+    public static bool IsTransient(this MinioException ex) =>
+    ex is InternalClientException
+    || ex is ConnectionException
+    || ex.InnerException is HttpRequestException
+    || (ex.Message?.Contains("Unsuccessful response from server", StringComparison.OrdinalIgnoreCase) ?? false);
 }
