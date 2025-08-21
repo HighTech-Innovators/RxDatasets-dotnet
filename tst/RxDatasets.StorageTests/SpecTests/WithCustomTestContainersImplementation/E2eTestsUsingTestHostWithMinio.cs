@@ -193,11 +193,10 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             ulong latestSnapshotVersion;
             while (true)
             {
-                var listOfSnapshots = await _minioClient!.ListObjectsAsync(new ListObjectsArgs()
+                var listOfSnapshots = await _minioClient!.ListObjectsEnumAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
                         .WithPrefix(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash))
-                    .ToList()
-                    .ToTask();
+                    .ToListAsync();
 
                 if (listOfSnapshots.Any())
                 {
@@ -287,12 +286,12 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             {
                 while (true)
                 {
-                    var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
+                    var asyncEnum = _minioClient?.ListObjectsEnumAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
                         .WithPrefix("customRootFolder/Demodto/" + FolderNames.SnapshotsFolderNameWithSlash)
                         .WithRecursive(true));
 
-                    var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();
+                    var snapshots = (await asyncEnum!.Select(s => s.Key).ToListAsync()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();
 
                     if (snapshots.Any())
                         return snapshots.Count;

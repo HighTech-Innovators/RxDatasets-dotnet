@@ -1,4 +1,5 @@
 ﻿using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Images;
 using DotNet.Testcontainers.Networks;
 using Testcontainers.Minio;
 
@@ -14,7 +15,12 @@ namespace RxDatasets.StorageTests
                 .WithName(Guid.NewGuid().ToString("D"))
                 .Build();
             Network.CreateAsync().Wait();
-            Container = new MinioBuilder().WithNetwork(Network).WithNetworkAliases("minio").Build();
+            Container = new MinioBuilder()
+                .WithImage("minio/minio:latest")
+                .WithImagePullPolicy(PullPolicy.Always)
+                .WithNetwork(Network)
+                .WithNetworkAliases("minio")
+                .Build();
         }
         public Task DisposeAsync()
         {

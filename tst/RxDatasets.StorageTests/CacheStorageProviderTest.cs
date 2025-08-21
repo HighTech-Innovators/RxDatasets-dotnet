@@ -158,7 +158,7 @@ namespace RxDatasets.StorageTests
             await cacheStorageProvider.ReadSnapshotData(version, (stream) =>
             {
                 var returnedBytes = new byte[stream.Length];
-                stream.Read(returnedBytes, 0, returnedBytes.Length);
+                stream.ReadExactly(returnedBytes);
             });
 
             //Assert
