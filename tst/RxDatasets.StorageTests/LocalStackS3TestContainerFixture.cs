@@ -1,5 +1,6 @@
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
+using DotNet.Testcontainers.Images;
 using DotNet.Testcontainers.Networks;
 using System.Net;
 
@@ -21,6 +22,7 @@ public class LocalStackS3TestContainerFixture : IAsyncLifetime
 
         Container = new ContainerBuilder()
             .WithImage("localstack/localstack:s3-latest")
+            .WithImagePullPolicy(PullPolicy.Always)
             .WithNetwork(Network)
             .WithNetworkAliases("localstack")
             .WithEnvironment("SERVICES", "s3")
