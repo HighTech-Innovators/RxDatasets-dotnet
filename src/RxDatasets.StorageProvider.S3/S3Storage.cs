@@ -168,7 +168,7 @@ namespace RxDatasets.StorageProvider.S3
                     listResponse = await _s3Client.ListObjectsV2Async(listObjectsRequest);
                     objects.AddRange(listResponse.S3Objects);
                     listObjectsRequest.ContinuationToken = listResponse.NextContinuationToken;
-                } while (listResponse.IsTruncated);
+                } while (listResponse.IsTruncated == true); // AWS SDK v4: IsTruncated is now nullable
 
                 var deleteTasks = objects.Select(o =>
                     _s3Client.DeleteObjectAsync(new DeleteObjectRequest
@@ -482,8 +482,15 @@ namespace RxDatasets.StorageProvider.S3
                     };
 
                     var response = await _s3Client.ListObjectsV2Async(request);
-                    results.AddRange(response.S3Objects.Select(s3Object =>
-                        (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(s3Object.LastModified))));
+                    if (response.S3Objects != null)
+                    {
+                        results.AddRange(response.S3Objects.Select(s3Object =>
+                        {
+                            // AWS SDK v4: LastModified may be nullable
+                            var lastModified = s3Object.LastModified ?? DateTime.MinValue;
+                            return (ObjectKey: s3Object.Key, DateTime: new DateTimeOffset(lastModified));
+                        }));
+                    }
 
                     continuationToken = response.NextContinuationToken;
 

@@ -19,7 +19,6 @@ using Minio.DataModel.Args;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProvider.Minio;
-using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation
@@ -89,9 +88,9 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 
                 builder.ConfigureTestServices(services =>
                 {
-                    services.AddValidatedConfigSection<S3Config>();
-                    services.AddSingleton<IDiskStorage<Demodto>, S3Storage<Demodto>>();
-                    services.AddHealthChecks().AddCheck<S3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
+                    services.AddValidatedConfigSection<MinioS3Config>();
+                    services.AddSingleton<IDiskStorage<Demodto>, MinioS3Storage<Demodto>>();
+                    services.AddHealthChecks().AddCheck<MinioS3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
                 });
             });
 
@@ -194,11 +193,10 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             ulong latestSnapshotVersion;
             while (true)
             {
-                var listOfSnapshots = await _minioClient!.ListObjectsAsync(new ListObjectsArgs()
+                var listOfSnapshots = await _minioClient!.ListObjectsEnumAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
                         .WithPrefix(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash))
-                    .ToList()
-                    .ToTask();
+                    .ToListAsync();
 
                 if (listOfSnapshots.Any())
                 {
@@ -288,12 +286,12 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
             {
                 while (true)
                 {
-                    var observable = _minioClient?.ListObjectsAsync(new ListObjectsArgs()
+                    var asyncEnum = _minioClient?.ListObjectsEnumAsync(new ListObjectsArgs()
                         .WithBucket(_bucketName)
                         .WithPrefix("customRootFolder/Demodto/" + FolderNames.SnapshotsFolderNameWithSlash)
                         .WithRecursive(true));
 
-                    var snapshots = (await observable!.Select(s => s.Key).ToList().ToTask()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();
+                    var snapshots = (await asyncEnum!.Select(s => s.Key).ToListAsync()).GroupBy(SharedMethods.ExtractNumber).Select(g => g.Key).ToList();
 
                     if (snapshots.Any())
                         return snapshots.Count;

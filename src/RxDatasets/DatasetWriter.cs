@@ -261,24 +261,21 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     }
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-    {
-        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: true, ct);
-    }
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: true, ct);
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-    {
-        return await PutEntitiesAsync(entities, includeParents: true, performDeletes: true, ct);
-    }
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct);
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-    {
-        return await PutEntitiesAsync(entities, includeParents: false, performDeletes: false, ct);
-    }
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct);
+
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
+        => await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
-        IAsyncEnumerable<(string name, byte[] entityBytes)> entities,
+        IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
         bool includeParents,
-        bool performDeletes,
+        bool performImplicitDeletes,
         CancellationToken ct)
     {
         using var slot = await Lock(ct);
@@ -289,7 +286,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var (deltaIndex, receivedNames, allParents) = await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, ct);
 
         // Handle deletes based on parent inclusion and only if deletes are allowed
-        if (performDeletes)
+        if (performImplicitDeletes)
         {
             if (includeParents)
             {
@@ -300,10 +297,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletes(_index!, receivedNames));
             }
         }
-
-        // Finalize write (directly in main method)
-        await fileStream.WriteAsync(new byte[1], ct); // Write a trailing byte for the snapshot
-        await fileStream.FlushAsync(ct);
+        var hasEntityData = deltaIndex.NewEntities.Count > 0 || deltaIndex.ChangedEntities.Count > 0;
+        if (hasEntityData)
+        {
+            await fileStream.WriteAsync(new byte[1], ct); // trailing byte sentinel only when data exists
+            await fileStream.FlushAsync(ct);
+        }
         fileStream.Close();
 
         if (deltaIndex.NewEntities.Count == 0 && deltaIndex.ChangedEntities.Count == 0 && deltaIndex.DeletedNames.Count == 0)
@@ -317,12 +316,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         // Apply the delta and store it
         _index = _index!.ApplyDelta(deltaIndex);
-        using var newTempFileStream = File.OpenRead(tempDataFilePath);
-        await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), newTempFileStream);
-        newTempFileStream.Close();
-        File.Delete(tempDataFilePath);
+        using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
+        {
+            await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), deltaDataStream);
+        }
+        File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
-        _logger.LogInformation($"Put many entities with version {_index.LatestVersion}, changed {deltaIndex.ChangedEntities.Count} entities of which {deltaIndex.DeletedNames.Count} were implicit deletes");
+        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedNames.Count);
 
         return new IDatasetWriter<T>.WriteResponse
         {
@@ -333,19 +333,24 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         };
     }
 
-    private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(ImmutableDatasetState index, IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeParents, Stream stream, CancellationToken ct)
+    private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(
+        ImmutableDatasetState index,
+        IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
+        bool includeParents,
+        Stream stream,
+        CancellationToken ct)
     {
         var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0 };
-
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
-
         long byteArrayPosition = 0;
 
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
         {
             try
-            { EnsureNameIsValid(name); }
+            {
+                EnsureNameIsValid(name);
+            }
             catch (ArgumentOutOfRangeException ex)
             {
                 _logger.LogWarning(ex, "Skipping entity");
@@ -357,13 +362,19 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 var parent = DatasetHelper.FindParentOfEntity(name);
                 if (string.IsNullOrEmpty(parent))
                     continue;
-                if (!allParents.Contains(parent))
-                    allParents.Add(parent);
+                allParents.Add(parent);
             }
 
             receivedNames.Add(name);
-            var changeType = await DetermineChangeType(name, entityBytes);
 
+            if (entityBytes == null)
+            {
+                if (index.Entities.TryGetValue(name, out var existing) && existing.GetLatestChangeType() != ChangeType.Deleted)
+                    deltaIndex.DeletedNames.Add(name);
+                continue; // explicit delete
+            }
+
+            var changeType = await DetermineChangeType(name, entityBytes);
             if (changeType == ChangeType.None)
                 continue;
 
@@ -375,18 +386,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
 
             if (changeType == ChangeType.New)
-            {
                 deltaIndex.NewEntities.Add(deltaEntity);
-            }
             else
-            {
                 deltaIndex.ChangedEntities.Add(deltaEntity);
-            }
-
             await stream.WriteAsync(entityBytes, ct);
             byteArrayPosition += entityBytes.Length;
         }
-
         return (deltaIndex, receivedNames, allParents);
     }
 

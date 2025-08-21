@@ -1,10 +1,10 @@
-# REFS
+﻿# REFS
 # Optional support for using a private 'proxy' registry
 ARG REGISTRY_PREFIX=
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:8.0 AS sdk8
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/aspnet:8.0 AS aspnet8
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/runtime:8.0 AS runtime8
-FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.13.0 AS curl
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:9.0 AS sdk8
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/aspnet:9.0 AS aspnet8
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/runtime:9.0 AS runtime8
+FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.15.0 AS curl
 
 #
 #  Nuget config image
