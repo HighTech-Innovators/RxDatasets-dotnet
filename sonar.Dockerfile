@@ -1,7 +1,7 @@
 # REFS
 # Optional support for using a private 'proxy' registry
 ARG REGISTRY_PREFIX=
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:8.0 AS sdk8
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:9.0 AS sdk8
 
 FROM sdk8 AS sonarqube-prepare
 
