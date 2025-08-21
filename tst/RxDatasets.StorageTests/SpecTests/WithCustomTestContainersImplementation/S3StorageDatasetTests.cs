@@ -14,27 +14,28 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
-    : StorageTestSpecWithTwoStepInit, IClassFixture<MinioTestContainerFixture>, IAsyncLifetime
+public class S3StorageDatasetTests(LocalStackS3TestContainerFixture localstack)
+    : StorageTestSpecWithTwoStepInit, IClassFixture<LocalStackS3TestContainerFixture>, IAsyncLifetime
 {
     private IOptions<S3Config>? _s3Config;
     private IDiskStorage<object>? _s3Storage;
 
     public async Task InitializeAsync()
     {
-        if (minioContainer.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
-            await minioContainer.Container.StartAsync();
-        _s3Config = Options.Create<S3Config>(new()
+        if (localstack.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
+            await localstack.Container.StartAsync();
+        var edgePort = localstack.Container.GetMappedPublicPort(4566);
+        _s3Config = Options.Create(new S3Config
         {
-            AccessKey = minioContainer.Container.GetAccessKey(),
-            SecretKey = minioContainer.Container.GetSecretKey(),
-            ServiceUrl = $"http://{minioContainer.Container.Hostname}:{minioContainer.Container.GetMappedPublicPort(9000)}/"
+            AccessKey = localstack.AccessKey,
+            SecretKey = localstack.SecretKey,
+            ServiceUrl = $"http://{localstack.Container.Hostname}:{edgePort}",
         });
     }
 
     public async Task DisposeAsync()
     {
-        await minioContainer.DisposeAsync();
+        // LocalStack container disposed by fixture infrastructure if needed
     }
 
 
@@ -77,7 +78,7 @@ public class S3StorageDatasetTests(MinioTestContainerFixture minioContainer)
             nameof(Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_After_Initialization).ToLower().Replace("_", "").TakeLast(63).ToArray()
         );
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
-        await minioContainer.Container.StopAsync(CancellationToken.None);
+        await localstack.Container.StopAsync(CancellationToken.None);
 
         var bytes = GenerateRandomData();
 
