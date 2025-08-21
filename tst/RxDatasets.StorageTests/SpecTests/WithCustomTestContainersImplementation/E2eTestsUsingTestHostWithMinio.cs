@@ -19,7 +19,6 @@ using Minio.DataModel.Args;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.StorageProvider.Minio;
-using RxDatasets.StorageProvider.S3;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation
@@ -89,9 +88,9 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 
                 builder.ConfigureTestServices(services =>
                 {
-                    services.AddValidatedConfigSection<S3Config>();
-                    services.AddSingleton<IDiskStorage<Demodto>, S3Storage<Demodto>>();
-                    services.AddHealthChecks().AddCheck<S3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
+                    services.AddValidatedConfigSection<MinioS3Config>();
+                    services.AddSingleton<IDiskStorage<Demodto>, MinioS3Storage<Demodto>>();
+                    services.AddHealthChecks().AddCheck<MinioS3HealthCheck<Demodto>>($"storage.s3.{typeof(Demodto).Name}");
                 });
             });
 
