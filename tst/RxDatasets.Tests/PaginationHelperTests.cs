@@ -11,7 +11,7 @@ public class PaginationHelperTests
         int maxPageSize = 100;
 
         var (pageOfChanges, _, endVersion) = PaginationHelper.Paginate(allChanges, 0, 0, 1, defaultPageSize, maxPageSize,
-            (key, collection, alreadyReadSize, toDatasetVersion) => { skipped = alreadyReadSize; });
+            (_, _, alreadyReadSize, _) => { skipped = alreadyReadSize; });
 
         pageOfChanges.Should().HaveCount(defaultPageSize);
         pageOfChanges[0].Should().Be(0);
@@ -20,7 +20,7 @@ public class PaginationHelperTests
 
         int? skipped2 = null;
         var (page2OfChanges, _, endVersion2) = PaginationHelper.Paginate(allChanges, 0, skipped, 1, defaultPageSize, maxPageSize,
-            (key, collection, alreadyReadSize, toDatasetVersion) => { skipped2 = alreadyReadSize; });
+            (_, _, alreadyReadSize, _) => { skipped2 = alreadyReadSize; });
 
         page2OfChanges.Should().HaveCount(50);
         page2OfChanges[0].Should().Be(50);
@@ -37,7 +37,7 @@ public class PaginationHelperTests
         int maxPageSize = 100;
 
         var (pageOfChanges, _, endVersion) = PaginationHelper.Paginate(allChanges, 0, 0, 1, defaultPageSize, maxPageSize,
-            (key, collection, alreadyReadSize, toDatasetVersion) => { skipped = alreadyReadSize; });
+            (_, _, alreadyReadSize, _) => { skipped = alreadyReadSize; });
 
         pageOfChanges.Should().HaveCount(defaultPageSize);
         skipped.Should().Be(defaultPageSize);
@@ -45,7 +45,7 @@ public class PaginationHelperTests
 
         int? skipped2 = null;
         var (page2OfChanges, _, endVersion2) = PaginationHelper.Paginate(allChanges, 0, skipped, 1, defaultPageSize, maxPageSize,
-            (key, collection, alreadyReadSize, toDatasetVersion) => { skipped2 = alreadyReadSize; });
+            (_, _, alreadyReadSize, _) => { skipped2 = alreadyReadSize; });
 
         page2OfChanges.Should().HaveCount(25);
         page2OfChanges[0].Should().Be(50);
@@ -62,7 +62,7 @@ public class PaginationHelperTests
         int maxPageSize = 100;
 
         var (pageOfChanges, _, endVersion) = PaginationHelper.Paginate(allChanges, 0, 0, 1, defaultPageSize, maxPageSize,
-            (key, collection, alreadyReadSize, toDatasetVersion) => { skipped = alreadyReadSize; });
+            (_, _, alreadyReadSize, _) => { skipped = alreadyReadSize; });
 
         pageOfChanges.Should().HaveCount(25);
         skipped.Should().BeNull();
