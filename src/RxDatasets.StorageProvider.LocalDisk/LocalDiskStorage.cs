@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using System.IO;
 namespace RxDatasets.StorageProvider.LocalDisk
 {
     public class LocalDiskStorage<T> : IDiskStorage<T>
@@ -144,7 +145,16 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 // Atomically replace the original file if it exists, or move if it doesn’t
                 if (File.Exists(filePath))
                 {
-                    File.Replace(tempFilePath, filePath, null);
+                    try
+                    {
+                        File.Replace(tempFilePath, filePath, null);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Fallback: delete original and move temp file
+                        File.Delete(filePath);
+                        File.Move(tempFilePath, filePath);
+                    }
                 }
                 else
                 {
