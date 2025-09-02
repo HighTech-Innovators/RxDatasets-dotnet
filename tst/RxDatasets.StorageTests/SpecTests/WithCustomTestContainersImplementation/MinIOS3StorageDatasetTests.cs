@@ -105,7 +105,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
 
     [Theory]
     [MemberData(nameof(TestData))]
-    public async Task Should_Throw_ArgumentOutOfRangeException_On_Invalid_Name(
+    public async Task Should_Throw_ArgumentException_On_Invalid_Name(
         string validationRegex, string name, bool shouldSucceed)
     {
         // Arrange
@@ -125,7 +125,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
         }
         else
         {
-            await putAction.Should().ThrowAsync<ArgumentOutOfRangeException>();
+            await putAction.Should().ThrowAsync<ArgumentException>();
         }
     }
 
@@ -140,7 +140,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
           ["^\\d+$", "abc123", false],           // Should fail: contains letters
           ["^[a-z]+$", "lowercase", true],       // Should pass: lowercase letters
           ["^[a-z]+$", "UPPERCASE", false],      // Should fail: uppercase letters
-          ["^$", "", true],                      // Should pass: empty string matches empty pattern
+          ["^$", "", false],                     // Should fail: empty string is never allowed
           ["^$", "nonempty", false],             // Should fail: non-empty string with empty pattern
         ];
     }

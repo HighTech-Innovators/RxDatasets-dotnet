@@ -132,7 +132,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
-        EnsureNameIsValid(name);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
@@ -225,6 +224,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private void EnsureNameIsValid(string entityName)
     {
+        if (string.IsNullOrEmpty(entityName))
+            throw new ArgumentException("Entity name cannot be null or empty", nameof(entityName));
+
         if (_writerConfig.Value.AllowedNamesRegex is null)
             return;
 
@@ -378,11 +380,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             if (changeType == ChangeType.None)
                 continue;
 
+            var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(stream, entityBytes.Length);
+            byteArrayPosition += lengthOfTheVarPrefix;
+
             var deltaEntity = new DeltaEntity
             {
                 Position = byteArrayPosition,
                 Length = entityBytes.Length,
-                Name = name
+                Name = name,
+                Crc32 = DatasetHelper.ComputeCrc32(entityBytes)
             };
 
             if (changeType == ChangeType.New)
