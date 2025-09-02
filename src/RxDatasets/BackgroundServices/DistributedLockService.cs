@@ -12,13 +12,20 @@ namespace RxDatasets.BackgroundServices
         IDiskStorage<TEntity> storage,
         IOptions<StorageConfig> storageConfig,
         ILogger<DistributedLockService<TEntity>> logger,
-        INotificationsHub<TEntity> notificationsHub)
+        INotificationsHub<TEntity> notificationsHub,
+        IOptions<DistributedLockOptions>? lockOptions = null,
+        IClock? clock = null)
         : IHostedService, IDisposable
     {
-        private readonly TimeSpan _renewalInterval = TimeSpan.FromMinutes(5); // Interval to attempt lock renewal
-        private Timer? _renewalTimer;
+        private readonly TimeSpan _renewalInterval = lockOptions?.Value.RenewalInterval ?? TimeSpan.FromMinutes(5);
+        private readonly TimeSpan _pollingInterval = lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5);
+        private readonly TimeSpan _renewalThreshold = lockOptions?.Value.RenewalThreshold ?? TimeSpan.FromSeconds(30);
+        private readonly IClock _clock = clock ?? new SystemClock();
         private string? _lockToken;
         private bool _isDisposed;
+        private DateTimeOffset _lastRenewalTime;
+        private readonly CancellationTokenSource _cts = new();
+        private Task? _loopTask;
         private readonly string _lockName = DatasetHelper.GetObjectNamePrefix<TEntity>(storageConfig.Value) + "lock-file";
 
         public bool HasLock => !string.IsNullOrEmpty(_lockToken);
@@ -27,22 +34,42 @@ namespace RxDatasets.BackgroundServices
         public Task StartAsync(CancellationToken cancellationToken)
         {
             logger.LogInformation("Starting DistributedLockService...");
-            Task.Run(async () =>
+            _loopTask = Task.Run(async () =>
             {
-                await AttemptAcquireLockAsync();
                 var lastLogTime = DateTimeOffset.MinValue;
 
-                while (!HasLock && !cancellationToken.IsCancellationRequested)
+                while (!_cts.Token.IsCancellationRequested)
                 {
-                    // Check if it's time to log (only every 5 minutes)
-                    if ((DateTimeOffset.UtcNow - lastLogTime).TotalMinutes >= 5)
+                    //Console.WriteLine($"Poll @ {_clock.UtcNow}");
+                    if (!HasLock)
                     {
-                        logger.LogWarning("Lock is currently held by another process. Checking again in 5 seconds");
-                        lastLogTime = DateTimeOffset.UtcNow;
+                        await AttemptAcquireLockAsync();
+                        if (!HasLock)
+                        {
+                            // Check if it's time to log (only every 5 minutes)
+                            if ((_clock.UtcNow - lastLogTime).TotalMinutes >= 5)
+                            {
+                                logger.LogWarning("Lock is currently held by another process. Checking again in 5 seconds");
+                                lastLogTime = _clock.UtcNow;
+                            }
+                        }
                     }
-
-                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-                    await AttemptAcquireLockAsync();
+                    else
+                    {
+                        if (_clock.UtcNow - _lastRenewalTime >= _renewalInterval - _renewalThreshold)
+                        {
+                            await RenewLockAsync();
+                        }
+                    }
+                    // Only catching TaskCanceledException from the delay operation to allow graceful shutdown.
+                    try
+                    {
+                        await _clock.Delay(_pollingInterval, _cts.Token);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        // Task was canceled, which is expected during shutdown; just exit the loop
+                    }
                 }
             }, cancellationToken);
 
@@ -53,8 +80,11 @@ namespace RxDatasets.BackgroundServices
         {
             logger.LogInformation("Stopping DistributedLockService...");
 
-            _renewalTimer?.Change(Timeout.Infinite, 0);
-            logger.LogInformation("Application is stopping. Releasing lock...");
+            _cts.Cancel();
+            if (_loopTask != null)
+            {
+                await _loopTask;
+            }
 
             try
             {
@@ -72,7 +102,8 @@ namespace RxDatasets.BackgroundServices
             if (_isDisposed)
                 return;
 
-            _renewalTimer?.Dispose();
+            _cts.Cancel();
+            _cts.Dispose();
             _isDisposed = true;
         }
 
@@ -89,8 +120,7 @@ namespace RxDatasets.BackgroundServices
             if (HasLock)
             {
                 logger.LogInformation("Lock acquired.");
-                TimeSpan renewAfterTime = _renewalInterval - TimeSpan.FromSeconds(30);
-                _renewalTimer = new Timer(_ => RenewLockAsync().Wait(), null, renewAfterTime, renewAfterTime);
+                _lastRenewalTime = _clock.UtcNow;
             }
             else
             {
@@ -111,10 +141,10 @@ namespace RxDatasets.BackgroundServices
             {
                 var existingLock = await TryReadLockFile(lockKey);
 
-                if (existingLock == null || existingLock.Value.Expiry < DateTimeOffset.UtcNow)
+                if (existingLock == null || existingLock.Value.Expiry < _clock.UtcNow)
                 {
                     // No existing lock or the lock has expired, acquire a new lock
-                    DateTimeOffset expiryTime = DateTimeOffset.UtcNow.Add(_renewalInterval);
+                    DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
                     await WriteLockFile(lockKey, lockToken, expiryTime);
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
                     return lockToken;
@@ -139,27 +169,38 @@ namespace RxDatasets.BackgroundServices
             }
 
             string lockKey = _lockName;
+            (string Token, DateTimeOffset Expiry)? existingLock = null;
 
             try
             {
-                var existingLock = await TryReadLockFile(lockKey);
+                existingLock = await TryReadLockFile(lockKey);
 
-                if ((existingLock != null && existingLock.Value.Token == _lockToken) || existingLock?.Expiry < DateTimeOffset.UtcNow)
+                if ((existingLock != null && existingLock.Value.Token == _lockToken) || existingLock?.Expiry < _clock.UtcNow)
                 {
-                    DateTimeOffset expiryTime = DateTimeOffset.UtcNow.Add(_renewalInterval);
+                    DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
                     await WriteLockFile(lockKey, _lockToken!, expiryTime);
                     logger.LogInformation("Lock renewed.");
+                    _lastRenewalTime = _clock.UtcNow;
                 }
                 else
                 {
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
                     logger.LogWarning("Cannot renew lock not owned by this instance.");
+                    _lockToken = null;
                 }
             }
             catch (Exception ex)
             {
-                await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
-                logger.LogError(ex, "Error renewing lock. Will try again later");
+                if (existingLock != null && existingLock.Value.Token == _lockToken && existingLock.Value.Expiry < _clock.UtcNow.Add(_pollingInterval))
+                {
+                    await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
+                    logger.LogError(ex, "Error renewing lock, and lock has expired. Notifying lost.");
+                    _lockToken = null;
+                }
+                else
+                {
+                    logger.LogError(ex, "Error renewing lock. Will try again later");
+                }
             }
         }
 

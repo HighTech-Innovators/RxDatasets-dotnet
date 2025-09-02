@@ -1,4 +1,3 @@
-
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -67,6 +66,8 @@ public class ObjectStorageReader<T>(
     {
         if (sources.Count == 0)
             throw new ArgumentException("at least one source must be filled");
+        if (length == 0)
+            return ReadOnlyMemory<byte>.Empty;
 
         foreach (var (type, version, position) in sources)
         {
