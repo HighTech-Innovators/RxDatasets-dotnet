@@ -10,7 +10,7 @@ public class ParentsIndexTests
     {
         var entities = keys.ToDictionary(
             k => k,
-            k => new ImmutableSnapshotEntity([], [], 0, 0, 0)
+            _ => new ImmutableSnapshotEntity([], [], 0, 0, 0)
         );
         return new ImmutableDatasetState(entities.ToImmutableDictionary(), 0, 0);
     }

@@ -8,7 +8,7 @@ public class GrpcWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseTestServer();
 
-        builder.ConfigureServices(services =>
+        builder.ConfigureServices(_ =>
         {
             builder.UseEnvironment("Testing");
             builder.UseTestServer();
