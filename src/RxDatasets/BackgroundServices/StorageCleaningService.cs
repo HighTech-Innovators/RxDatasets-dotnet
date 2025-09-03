@@ -25,7 +25,8 @@ namespace RxDatasets.BackgroundServices
 
         public async Task SearchForOutdatedData()
         {
-            if (!_isActive) return;
+            if (!_isActive)
+                return;
 
             try
             {

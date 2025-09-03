@@ -1,7 +1,7 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.IO;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using System.IO;
 namespace RxDatasets.StorageProvider.LocalDisk
 {
     public class LocalDiskStorage<T> : IDiskStorage<T>
