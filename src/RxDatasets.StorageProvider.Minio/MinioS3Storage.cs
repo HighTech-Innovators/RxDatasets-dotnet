@@ -277,10 +277,11 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         try
         {
             await EnsureInitialized();
+            var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
 
             var listArgs = new ListObjectsArgs()
                 .WithBucket(_s3Config.Value.BucketName)
-                .WithPrefix(prefix);
+                .WithPrefix(normalizedPrefix);
 
             await foreach (var item in _s3Client.ListObjectsEnumAsync(listArgs))
             {

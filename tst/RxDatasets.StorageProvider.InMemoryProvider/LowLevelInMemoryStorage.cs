@@ -99,7 +99,9 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
 
         public async Task DeleteFolder(string prefix)
         {
-            var keysToDelete = _storage.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+            _logger.LogInformation($"Deleting folder {prefix} from in-memory storage.");
+            var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
+            var keysToDelete = _storage.Keys.Where(key => key.StartsWith(normalizedPrefix, StringComparison.Ordinal)).ToList();
 
             foreach (var key in keysToDelete)
             {
