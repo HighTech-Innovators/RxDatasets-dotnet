@@ -235,6 +235,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 if (File.Exists(filePath))
                 {
                     File.Delete(filePath);
+                    _logger.LogDebug($"Successfully deleted file {key} from disk.");
                 }
                 else
                 {
@@ -260,6 +261,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 if (Directory.Exists(filePath))
                 {
                     Directory.Delete(filePath, true);
+                    _logger.LogDebug($"Successfully deleted folder {prefix} from disk.");
                 }
                 else
                 {
