@@ -148,7 +148,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         }
 
         // Convert protobuf SnapshotIndex to immutable state once
-        var currentIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+        var currentIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex) with { LatestVersion = version };
         logger.LogDebug("Flattened index of {ItemCount} entities", currentIndex.Entities.Count);
         return currentIndex;
     }
