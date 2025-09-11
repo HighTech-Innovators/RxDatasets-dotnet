@@ -188,6 +188,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
                 await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
                 targetSnapshotStreamPosition += entityLength;
+                progress.IncrementByteProgress(entityLength);
+                progress.Report();
 
                 var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
                 newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
@@ -243,6 +245,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
                     sourceStreamPosition += entityLength;
                     targetSnapshotStreamPosition += entityLength;
+                    progress.IncrementByteProgress(entityLength);
+                    progress.Report();
 
                     ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
                     {
