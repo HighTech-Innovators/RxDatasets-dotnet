@@ -161,10 +161,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        var totalDeltaEntities = currentIndex.Entities.Count(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion);
-        using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalDeltaEntities, interval: TimeSpan.FromSeconds(10));
-
-        // First, handle deletions and collect non-deleted entities grouped by the delta file (version) they come from.
+        // First, handle deletions and collect non-deleted entities to fetch.
         var entitiesToFetch = new List<(string Key, ImmutableSnapshotEntity Entity)>();
 
         foreach (var kv in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
@@ -175,10 +172,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 var newSnapshotEntity = kv.Value with { Position = 0, Length = 0 };
                 newSnapshotEntities.Add(kv.Key, newSnapshotEntity);
-                // now that this entity is handled, count it as processed
-                progress.Increment();
-                if (totalDeltaEntities > 0)
-                    progress.Report();
+                // deleted entities are excluded from the progress counter per request
             }
             else
             {
@@ -191,7 +185,13 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         const long MergeGapThreshold = 4 * 1024; // merge ranges separated by <= 4KB
         const int PerDeltaIndividualThreshold = 4; // if <= this many entities for a delta, keep individual reads
 
-        var groups = entitiesToFetch.GroupBy(e => e.Entity.GetLatestEntityVersion()).OrderBy(g => g.Key);
+        var groups = entitiesToFetch.GroupBy(e => e.Entity.GetLatestEntityVersion()).OrderBy(g => g.Key).ToList();
+
+        // Start progress logger after grouping; only count non-deleted entities
+        var totalToFetch = entitiesToFetch.Count;
+        _logger.LogDebug("Grouping {EntityCount} entities from {DeltaCount} deltas for reading", totalToFetch, groups.Count);
+
+        using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalToFetch, interval: TimeSpan.FromSeconds(10));
 
         foreach (var group in groups)
         {
@@ -290,7 +290,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         }
 
         // final progress log
-        progress.Report((ulong)totalDeltaEntities);
+        progress.Report((ulong)totalToFetch);
 
         return targetSnapshotStreamPosition;
     }
