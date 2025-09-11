@@ -162,22 +162,14 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         var totalDeltaEntities = currentIndex.Entities.Count(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion);
-        _logger.LogDebug("Starting copying from deltas: {Total} entities to consider (snapshotVersion={SnapshotVersion})",
-            totalDeltaEntities, currentIndex.SnapshotVersion);
-
-        var lastProgressLog = DateTime.UtcNow - TimeSpan.FromSeconds(11);
-        var processed = 0;
+        using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalDeltaEntities);
 
         foreach (var entity in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
-
-            processed++;
-            if (totalDeltaEntities > 0 && (DateTime.UtcNow - lastProgressLog) >= TimeSpan.FromSeconds(10))
-            {
-                _logger.LogDebug("Copying from deltas progress: {Processed}/{Total}", processed, totalDeltaEntities);
-                lastProgressLog = DateTime.UtcNow;
-            }
+            progress.Increment();
+            if (totalDeltaEntities > 0)
+                progress.Report();
 
             if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
@@ -203,7 +195,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         }
 
         // final progress log
-        _logger.LogDebug("Finished copying from deltas: {Processed}/{Total}", processed, totalDeltaEntities);
+        progress.Report((ulong)totalDeltaEntities);
 
         return targetSnapshotStreamPosition;
     }
@@ -216,8 +208,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         _logger.LogDebug("Starting copying from snapshot version {SnapshotVersion}: {Total} entities to consider",
             currentIndex.SnapshotVersion, totalSnapshotEntities);
 
-        var lastProgressLog = DateTime.UtcNow - TimeSpan.FromSeconds(11);
-        var processed = 0;
+        using var progress = new ProgressLogger(_logger, $"Copying from snapshot v{currentIndex.SnapshotVersion}", (ulong)totalSnapshotEntities);
 
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {
@@ -229,13 +220,9 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 if (stoppingToken.IsCancellationRequested)
                     return;
-
-                processed++;
-                if (totalSnapshotEntities > 0 && (DateTime.UtcNow - lastProgressLog) >= TimeSpan.FromSeconds(10))
-                {
-                    _logger.LogDebug("Copying from snapshot progress: {Processed}/{Total}", processed, totalSnapshotEntities);
-                    lastProgressLog = DateTime.UtcNow;
-                }
+                progress.Increment();
+                if (totalSnapshotEntities > 0)
+                    progress.Report();
 
                 if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
                 {
@@ -267,8 +254,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             }
         });
 
-        _logger.LogDebug("Finished copying from snapshot version {SnapshotVersion}: {Processed}/{Total}",
-            currentIndex.SnapshotVersion, processed, totalSnapshotEntities);
+        _logger.LogDebug("Finished copying from snapshot version {SnapshotVersion}: {Total}",
+            currentIndex.SnapshotVersion, totalSnapshotEntities);
 
         stoppingToken.ThrowIfCancellationRequested();
         return targetSnapshotStreamPosition;

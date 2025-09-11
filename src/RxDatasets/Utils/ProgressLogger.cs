@@ -27,9 +27,9 @@ public sealed class ProgressLogger : IDisposable
         _total = total;
         _interval = interval ?? TimeSpan.FromSeconds(10);
         _level = level;
+
+        // Check early whether logging is enabled to avoid any expensive setup
         _enabled = _logger.IsEnabled(_level);
-        _sw = Stopwatch.StartNew();
-        _lastLog = DateTime.UtcNow - _interval - TimeSpan.FromSeconds(1);
         _processed = 0;
 
         if (_enabled)
@@ -42,6 +42,7 @@ public sealed class ProgressLogger : IDisposable
         {
             // Keep lightweight placeholders when logging is disabled
             _sw = null;
+            _lastLog = DateTime.MinValue;
         }
     }
 
@@ -50,6 +51,34 @@ public sealed class ProgressLogger : IDisposable
     public void Report(ulong processed, object? latestItem = null)
     {
         Interlocked.Exchange(ref _processed, processed);
+        if (!_enabled)
+            return;
+
+        if ((DateTime.UtcNow - _lastLog) >= _interval)
+        {
+            Log(latestItem);
+        }
+    }
+
+    /// <summary>
+    /// Report using the internal processed counter (safer when caller used Increment()).
+    /// </summary>
+    public void Report()
+    {
+        if (!_enabled)
+            return;
+
+        if ((DateTime.UtcNow - _lastLog) >= _interval)
+        {
+            Log(null);
+        }
+    }
+
+    /// <summary>
+    /// Report using the internal processed counter and attach the latest item.
+    /// </summary>
+    public void Report(object? latestItem)
+    {
         if (!_enabled)
             return;
 
