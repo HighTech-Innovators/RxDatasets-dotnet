@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 
@@ -6,10 +7,18 @@ namespace RxDatasets;
 
 /// <summary>
 /// Helper to emit throttled progress logs with percent and ETA.
-/// Usage: using var p = new ProgressLogger(logger, "Applying deltas", total); p.Report(processed, latestVersion);
+/// Tracks both item-count progress and optional byte-count progress.
+/// Usage: using var p = new ProgressLogger(logger, "Applying deltas", total); p.Increment(); p.IncrementByteProgress(n); p.Report();
 /// </summary>
 public sealed class ProgressLogger : IDisposable
 {
+    private static readonly NumberFormatInfo _nfi = new NumberFormatInfo
+    {
+        NumberGroupSeparator = ".",
+        NumberDecimalSeparator = ",",
+        NumberGroupSizes = new[] { 3 }
+    };
+
     private readonly ILogger _logger;
     private readonly string _action;
     private readonly ulong _total;
@@ -41,9 +50,9 @@ public sealed class ProgressLogger : IDisposable
             _sw = Stopwatch.StartNew();
             _lastLog = DateTime.UtcNow - _interval - TimeSpan.FromSeconds(1);
             if (_totalBytes.HasValue)
-                _logger.Log(_level, "{Action} - starting: {Processed}/{Total} ({ProcessedBytes}/{TotalBytes} bytes)", _action, 0L, _total, 0L, _totalBytes.Value);
+                _logger.Log(_level, "{Action} - starting: {ProcessedFmt}/{TotalFmt} ({ProcessedBytesFmt}/{TotalBytesFmt} bytes)", _action, Format(_processed), Format(_total), Format(0L), Format(_totalBytes.Value));
             else
-                _logger.Log(_level, "{Action} - starting: {Processed}/{Total} ({ProcessedBytes} bytes)", _action, 0L, _total, 0L);
+                _logger.Log(_level, "{Action} - starting: {ProcessedFmt}/{TotalFmt} ({ProcessedBytesFmt} bytes)", _action, Format(_processed), Format(_total), Format(0L));
         }
         else
         {
@@ -113,9 +122,10 @@ public sealed class ProgressLogger : IDisposable
 
         // Only compute heavy values when logging is enabled
         var elapsed = _sw?.Elapsed ?? TimeSpan.Zero;
-        double percent = _total <= 0 ? 100.0 : (100.0 * _processed / _total);
-        double rate = elapsed.TotalSeconds <= 0 ? 0 : _processed / elapsed.TotalSeconds;
-        double remaining = Math.Max(0, _total - _processed);
+        var processed = _processed;
+        double percent = _total <= 0 ? 100.0 : (100.0 * processed / _total);
+        double rate = elapsed.TotalSeconds <= 0 ? 0 : processed / elapsed.TotalSeconds;
+        double remaining = Math.Max(0, (double)(_total > processed ? _total - processed : 0));
         var eta = rate > 0 && remaining > 0 ? TimeSpan.FromSeconds(remaining / rate) : TimeSpan.Zero;
 
         // bytes
@@ -126,140 +136,45 @@ public sealed class ProgressLogger : IDisposable
         if (_totalBytes.HasValue)
         {
             bytesPercent = _totalBytes.Value <= 0 ? 100.0 : (100.0 * processedBytes / _totalBytes.Value);
-            var remainingBytes = Math.Max(0, (double)(_totalBytes.Value - (ulong)processedBytes));
+            var remainingBytes = Math.Max(0, (double)(_totalBytes.Value > (ulong)processedBytes ? _totalBytes.Value - (ulong)processedBytes : 0));
             bytesEta = bytesRate > 0 && remainingBytes > 0 ? TimeSpan.FromSeconds(remainingBytes / bytesRate) : TimeSpan.Zero;
         }
 
+        // Pre-format human readable numbers (thousands with '.')
+        string processedFmt = Format(processed);
+        string totalFmt = Format(_total);
+        string processedBytesFmt = Format(processedBytes);
+        string totalBytesFmt = _totalBytes.HasValue ? Format(_totalBytes.Value) : string.Empty;
+        string rateFmt = FormatDouble(rate);
+        string bytesRateFmt = FormatDouble(bytesRate);
+        string percentFmt = percent.ToString("F1", _nfi);
+        string bytesPercentFmt = bytesPercent.HasValue ? bytesPercent.Value.ToString("F1", _nfi) : string.Empty;
+
+        string message;
         if (latestItem is null)
         {
-            if (bytesPercent.HasValue)
-            {
-                var totalBytesLocal = _totalBytes!.Value;
-                var bytesPercentLocal = bytesPercent!.Value;
-                var bytesEtaLocal = bytesEta;
-                _logger.Log(_level, "{Action} progress: {Processed}/{Total} ({Percent:F1}%) rate={Rate:F1}/s ETA={Eta} bytes: {ProcessedBytes}/{TotalBytes} ({BytesPercent:F1}%) rate={BytesRate:F1}B/s ETA={BytesEta}",
-                    _action, _processed, _total, percent, rate, eta, processedBytes, totalBytesLocal, bytesPercentLocal, bytesRate, bytesEtaLocal);
-            }
-            else
-            {
-                _logger.Log(_level, "{Action} progress: {Processed}/{Total} ({Percent:F1}%) rate={Rate:F1}/s ETA={Eta} bytes: {ProcessedBytes} rate={BytesRate:F1}B/s",
-                    _action, _processed, _total, percent, rate, eta, processedBytes, bytesRate);
-            }
-        }
-        else
-        {
-            if (bytesPercent.HasValue)
-            {
-                var totalBytesLocal = _totalBytes!.Value;
-                var bytesPercentLocal = bytesPercent!.Value;
-                var bytesEtaLocal = bytesEta;
-                _logger.Log(_level, "{Action} progress: {Processed}/{Total} ({Percent:F1}%) latest={Latest} rate={Rate:F1}/s ETA={Eta} bytes: {ProcessedBytes}/{TotalBytes} ({BytesPercent:F1}%) rate={BytesRate:F1}B/s ETA={BytesEta}",
-                    _action, _processed, _total, percent, latestItem, rate, eta, processedBytes, totalBytesLocal, bytesPercentLocal, bytesRate, bytesEtaLocal);
-            }
-            else
-            {
-                _logger.Log(_level, "{Action} progress: {Processed}/{Total} ({Percent:F1}%) latest={Latest} rate={Rate:F1}/s ETA={Eta} bytes: {ProcessedBytes} rate={BytesRate:F1}B/s",
-                    _action, _processed, _total, percent, latestItem, rate, eta, processedBytes, bytesRate);
-            }
-        }
-
-        _lastLog = DateTime.UtcNow;
-    }
-
-    public void Done()
-    {
-        if (!_enabled)
-            return;
-
-        _sw?.Stop();
-        var elapsed = _sw?.Elapsed ?? TimeSpan.Zero;
-        _logger.Log(_level, "{Action} finished: {Processed}/{Total} elapsed={Elapsed:g}", _action, _processed, _total, elapsed);
-    }
-
-    public void Dispose()
-    {
-        Done();
-    }
-}
-
-/// <summary>
-/// Tracks byte-level progress and rate. totalBytes is optional; if absent percent/ETA are omitted.
-/// Usage: using var b = new BytesProgressLogger(logger, "Copying bytes", totalBytesOptional); b.AddBytes(n); b.Report();
-/// </summary>
-public sealed class BytesProgressLogger : IDisposable
-{
-    private readonly ILogger _logger;
-    private readonly string _action;
-    private readonly ulong? _totalBytes;
-    private readonly TimeSpan _interval;
-    private long _processedBytes;
-    private DateTime _lastLog;
-    private readonly Stopwatch? _sw;
-    private readonly LogLevel _level;
-    private readonly bool _enabled;
-
-    public BytesProgressLogger(ILogger logger, string action, ulong? totalBytes = null, TimeSpan? interval = null, LogLevel level = LogLevel.Debug)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _action = action ?? throw new ArgumentNullException(nameof(action));
-        _totalBytes = totalBytes;
-        _interval = interval ?? TimeSpan.FromSeconds(10);
-        _level = level;
-
-        _enabled = _logger.IsEnabled(_level);
-        _processedBytes = 0;
-
-        if (_enabled)
-        {
-            _sw = Stopwatch.StartNew();
-            _lastLog = DateTime.UtcNow - _interval - TimeSpan.FromSeconds(1);
             if (_totalBytes.HasValue)
-                _logger.Log(_level, "{Action} - starting: {ProcessedBytes}/{TotalBytes} bytes", _action, 0L, _totalBytes.Value);
+            {
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+            }
             else
-                _logger.Log(_level, "{Action} - starting: {ProcessedBytes} bytes", _action, 0L);
+            {
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
+            }
         }
         else
         {
-            _sw = null;
-            _lastLog = DateTime.MinValue;
+            if (_totalBytes.HasValue)
+            {
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+            }
+            else
+            {
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
+            }
         }
-    }
 
-    public void AddBytes(long bytes) => Interlocked.Add(ref _processedBytes, bytes);
-
-    public void Report()
-    {
-        if (!_enabled)
-            return;
-
-        if ((DateTime.UtcNow - _lastLog) >= _interval)
-        {
-            Log();
-        }
-    }
-
-    private void Log()
-    {
-        if (!_enabled)
-            return;
-
-        var elapsed = _sw?.Elapsed ?? TimeSpan.Zero;
-        var processed = Interlocked.Read(ref _processedBytes);
-        double rate = elapsed.TotalSeconds <= 0 ? 0 : processed / elapsed.TotalSeconds;
-
-        if (_totalBytes.HasValue)
-        {
-            double percent = _totalBytes.Value <= 0 ? 100.0 : (100.0 * processed / _totalBytes.Value);
-            double remaining = Math.Max(0, (double)(_totalBytes.Value - (ulong)processed));
-            var eta = rate > 0 && remaining > 0 ? TimeSpan.FromSeconds(remaining / rate) : TimeSpan.Zero;
-            _logger.Log(_level, "{Action} bytes: {ProcessedBytes}/{TotalBytes} ({Percent:F1}%) rate={Rate:F1}B/s ETA={Eta}",
-                _action, processed, _totalBytes.Value, percent, rate, eta);
-        }
-        else
-        {
-            _logger.Log(_level, "{Action} bytes: {ProcessedBytes} rate={Rate:F1}B/s",
-                _action, processed, rate);
-        }
+        _logger.Log(_level, message);
 
         _lastLog = DateTime.UtcNow;
     }
@@ -271,15 +186,17 @@ public sealed class BytesProgressLogger : IDisposable
 
         _sw?.Stop();
         var elapsed = _sw?.Elapsed ?? TimeSpan.Zero;
-        var processed = Interlocked.Read(ref _processedBytes);
-        if (_totalBytes.HasValue)
-            _logger.Log(_level, "{Action} finished: {ProcessedBytes}/{TotalBytes} bytes elapsed={Elapsed:g}", _action, processed, _totalBytes.Value, elapsed);
-        else
-            _logger.Log(_level, "{Action} finished: {ProcessedBytes} bytes elapsed={Elapsed:g}", _action, processed, elapsed);
+        var processed = _processed;
+        _logger.Log(_level, "{Action} finished: {ProcessedFmt}/{TotalFmt} elapsed={Elapsed:g}", _action, Format(processed), Format(_total), elapsed);
     }
 
     public void Dispose()
     {
         Done();
     }
+
+    private static string Format(ulong value) => value.ToString("N0", _nfi);
+    private static string Format(long value) => value.ToString("N0", _nfi);
+    private static string FormatDouble(double value) => value.ToString("F1", _nfi);
 }
+
