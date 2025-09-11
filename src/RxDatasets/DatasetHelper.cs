@@ -130,15 +130,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         logger.LogInformation($"Applying deltas sequentially from {fromVersion + 1} to {version} to the main index");
 
-        // Read and apply deltas one by one to avoid loading many/large delta indexes into memory.
-        var totalDeltas = (long)(version - fromVersion);
-        logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
-            totalDeltas, fromVersion + 1, version);
-
         // operate on mutableSnapshotIndex (protobuf types)
         var totalDeltasMutable = version - fromVersion;
-        logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
-            totalDeltasMutable, fromVersion + 1, version);
 
         using (var progress = new ProgressLogger(logger, "Applying deltas", totalDeltasMutable, interval: TimeSpan.FromSeconds(10)))
         {

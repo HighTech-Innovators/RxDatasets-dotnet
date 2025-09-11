@@ -164,35 +164,128 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         var totalDeltaEntities = currentIndex.Entities.Count(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion);
         using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalDeltaEntities, interval: TimeSpan.FromSeconds(10));
 
-        foreach (var entity in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        // First, handle deletions and collect non-deleted entities grouped by the delta file (version) they come from.
+        var entitiesToFetch = new List<(string Key, ImmutableSnapshotEntity Entity)>();
+
+        foreach (var kv in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
-            progress.Increment();
-            if (totalDeltaEntities > 0)
-                progress.Report();
 
-            if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+            if (kv.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
-                var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                var newSnapshotEntity = kv.Value with { Position = 0, Length = 0 };
+                newSnapshotEntities.Add(kv.Key, newSnapshotEntity);
+                // now that this entity is handled, count it as processed
+                progress.Increment();
+                if (totalDeltaEntities > 0)
+                    progress.Report();
             }
             else
             {
-                var entityLength = entity.Value.Length;
+                entitiesToFetch.Add((kv.Key, kv.Value));
+            }
+        }
 
-                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                var targetEntityPosition = targetSnapshotStreamPosition;
+        // Group by delta version and process each group sequentially to keep memory bounded.
+        // Merge nearby ranges so we issue fewer, larger reads instead of many tiny reads.
+        const long MergeGapThreshold = 4 * 1024; // merge ranges separated by <= 4KB
+        const int PerDeltaIndividualThreshold = 4; // if <= this many entities for a delta, keep individual reads
 
-                var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
+        var groups = entitiesToFetch.GroupBy(e => e.Entity.GetLatestEntityVersion()).OrderBy(g => g.Key);
 
-                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
-                targetSnapshotStreamPosition += entityLength;
-                progress.IncrementByteProgress(entityLength);
-                progress.Report();
+        foreach (var group in groups)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+            var deltaVersion = group.Key;
 
-                var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+            // Build a sorted list of items for this delta
+            var items = group.Select(e => (Key: e.Key, Entity: e.Entity, Start: e.Entity.Position, End: e.Entity.Position + e.Entity.Length)).OrderBy(x => x.Start).ToList();
+
+            if (items.Count == 0)
+                continue;
+
+            // If there are only a few items, do the simple per-entity read to avoid large allocations.
+            if (items.Count <= PerDeltaIndividualThreshold)
+            {
+                foreach (var it in items)
+                {
+                    var entityLength = it.Entity.Length;
+                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+                    var targetEntityPosition = targetSnapshotStreamPosition;
+
+                    var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, it.Start)], entityLength);
+                    await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
+                    targetSnapshotStreamPosition += entityLength;
+                    progress.IncrementByteProgress(entityLength);
+                    // now mark this entity as processed
+                    progress.Increment();
+                    progress.Report();
+
+                    var newSnapshotEntity = it.Entity with { Position = targetEntityPosition, Length = entityLength };
+                    newSnapshotEntities.Add(it.Key, newSnapshotEntity);
+                }
+
+                continue;
+            }
+
+            // Merge into contiguous/nearby ranges
+            var ranges = new List<(long Start, long End, List<(string Key, ImmutableSnapshotEntity Entity, long Start, long End)> Items)>();
+            long curStart = items[0].Start;
+            long curEnd = items[0].End;
+            var curItems = new List<(string Key, ImmutableSnapshotEntity Entity, long Start, long End)> { items[0] };
+
+            for (int i = 1; i < items.Count; i++)
+            {
+                var it = items[i];
+                if (it.Start <= curEnd + MergeGapThreshold)
+                {
+                    // extend current range
+                    curEnd = Math.Max(curEnd, it.End);
+                    curItems.Add(it);
+                }
+                else
+                {
+                    ranges.Add((curStart, curEnd, curItems));
+                    curStart = it.Start;
+                    curEnd = it.End;
+                    curItems = new List<(string Key, ImmutableSnapshotEntity Entity, long Start, long End)> { it };
+                }
+            }
+
+            // push last
+            ranges.Add((curStart, curEnd, curItems));
+
+            // Read each merged range once and write sub-slices for entities inside it
+            foreach (var range in ranges)
+            {
+                stoppingToken.ThrowIfCancellationRequested();
+
+                var readStart = range.Start;
+                var readLength = (int)(range.End - range.Start);
+
+                var blob = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, readStart)], readLength);
+
+                // For each contained entity, slice from the blob and write out
+                foreach (var it in range.Items)
+                {
+                    var entityLength = it.Entity.Length;
+                    var offset = (int)(it.Start - readStart);
+
+                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+                    var targetEntityPosition = targetSnapshotStreamPosition;
+
+                    var slice = blob.Slice(offset, entityLength);
+                    await targetSnapshotStream.WriteAsync(slice, stoppingToken);
+                    targetSnapshotStreamPosition += entityLength;
+
+                    progress.IncrementByteProgress(entityLength);
+                    // now mark this entity as processed
+                    progress.Increment();
+                    progress.Report();
+
+                    var newSnapshotEntity = it.Entity with { Position = targetEntityPosition, Length = entityLength };
+                    newSnapshotEntities.Add(it.Key, newSnapshotEntity);
+                }
             }
         }
 
