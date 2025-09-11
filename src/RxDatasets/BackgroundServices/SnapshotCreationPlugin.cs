@@ -162,7 +162,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         var totalDeltaEntities = currentIndex.Entities.Count(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion);
-    using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalDeltaEntities, interval: TimeSpan.FromSeconds(10));
+        using var progress = new ProgressLogger(_logger, $"Copying from deltas (snapshot v{currentIndex.SnapshotVersion})", (ulong)totalDeltaEntities, interval: TimeSpan.FromSeconds(10));
 
         foreach (var entity in currentIndex.Entities.Where(x => x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
@@ -210,7 +210,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         _logger.LogDebug("Starting copying from snapshot version {SnapshotVersion}: {Total} entities to consider",
             currentIndex.SnapshotVersion, totalSnapshotEntities);
 
-    using var progress = new ProgressLogger(_logger, $"Copying from snapshot v{currentIndex.SnapshotVersion}", (ulong)totalSnapshotEntities, interval: TimeSpan.FromSeconds(10));
+        using var progress = new ProgressLogger(_logger, $"Copying from snapshot v{currentIndex.SnapshotVersion}", (ulong)totalSnapshotEntities, interval: TimeSpan.FromSeconds(10));
 
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {

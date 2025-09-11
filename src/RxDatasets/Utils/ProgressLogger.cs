@@ -26,7 +26,7 @@ public sealed class ProgressLogger : IDisposable
     private readonly TimeSpan _interval;
     private ulong _processed;
     private long _processedBytes;
-    private DateTime _lastLog;
+    private TimeSpan _lastReportElapsed;
     private readonly Stopwatch? _sw;
     private readonly LogLevel _level;
     private readonly bool _enabled;
@@ -48,25 +48,25 @@ public sealed class ProgressLogger : IDisposable
         if (_enabled)
         {
             _sw = Stopwatch.StartNew();
-            _lastLog = DateTime.UtcNow - _interval - TimeSpan.FromSeconds(1);
+            // Record the last report elapsed as the current stopwatch elapsed so the first
+            // throttled Report() happens only after the configured interval (we still emit
+            // a "starting" message).
+            _lastReportElapsed = _sw.Elapsed;
+            // Only show bytes in the starting message when a total bytes target is provided.
             if (_totalBytes.HasValue)
                 _logger.Log(_level, "{Action} - starting: {ProcessedFmt}/{TotalFmt} ({ProcessedBytesFmt}/{TotalBytesFmt} bytes)", _action, Format(_processed), Format(_total), Format(0L), Format(_totalBytes.Value));
             else
-                _logger.Log(_level, "{Action} - starting: {ProcessedFmt}/{TotalFmt} ({ProcessedBytesFmt} bytes)", _action, Format(_processed), Format(_total), Format(0L));
+                _logger.Log(_level, "{Action} - starting: {ProcessedFmt}/{TotalFmt}", _action, Format(_processed), Format(_total));
         }
         else
         {
             // Keep lightweight placeholders when logging is disabled
             _sw = null;
-            _lastLog = DateTime.MinValue;
+            _lastReportElapsed = TimeSpan.Zero;
         }
     }
 
-    // Compatibility overload: previous signature was (ILogger, string, ulong total, TimeSpan? interval = null, LogLevel level = LogLevel.Debug)
-    public ProgressLogger(ILogger logger, string action, ulong total, TimeSpan interval, LogLevel level = LogLevel.Debug)
-        : this(logger, action, total, null, interval, level)
-    {
-    }
+    // Note: single canonical constructor is used to avoid overload ambiguity when named args are used.
 
     public void Increment() => Interlocked.Increment(ref _processed);
 
@@ -81,7 +81,7 @@ public sealed class ProgressLogger : IDisposable
         if (!_enabled)
             return;
 
-        if ((DateTime.UtcNow - _lastLog) >= _interval)
+        if ((_sw!.Elapsed - _lastReportElapsed) >= _interval)
         {
             Log(latestItem);
         }
@@ -95,7 +95,7 @@ public sealed class ProgressLogger : IDisposable
         if (!_enabled)
             return;
 
-        if ((DateTime.UtcNow - _lastLog) >= _interval)
+        if ((_sw!.Elapsed - _lastReportElapsed) >= _interval)
         {
             Log(null);
         }
@@ -109,7 +109,7 @@ public sealed class ProgressLogger : IDisposable
         if (!_enabled)
             return;
 
-        if ((DateTime.UtcNow - _lastLog) >= _interval)
+        if ((_sw!.Elapsed - _lastReportElapsed) >= _interval)
         {
             Log(latestItem);
         }
@@ -151,32 +151,44 @@ public sealed class ProgressLogger : IDisposable
         string bytesPercentFmt = bytesPercent.HasValue ? bytesPercent.Value.ToString("F1", _nfi) : string.Empty;
 
         string message;
+        // Only show bytes once we've actually seen bytes reported. If no bytes were ever
+        // incremented, hide the bytes section entirely (even if a total bytes target was
+        // supplied) to avoid misleading 0/0 output.
+        bool haveBytes = processedBytes > 0;
+
         if (latestItem is null)
         {
-            if (_totalBytes.HasValue)
+            if (haveBytes)
             {
-                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+                if (_totalBytes.HasValue)
+                    message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+                else
+                    message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
             }
             else
             {
-                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) rate={rateFmt}/s ETA={eta}";
             }
         }
         else
         {
-            if (_totalBytes.HasValue)
+            if (haveBytes)
             {
-                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+                if (_totalBytes.HasValue)
+                    message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt}/{totalBytesFmt} ({bytesPercentFmt}%) rate={bytesRateFmt}B/s ETA={bytesEta}";
+                else
+                    message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
             }
             else
             {
-                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta} bytes: {processedBytesFmt} rate={bytesRateFmt}B/s";
+                message = $"{_action} progress: {processedFmt}/{totalFmt} ({percentFmt}%) latest={latestItem} rate={rateFmt}/s ETA={eta}";
             }
         }
 
         _logger.Log(_level, message);
 
-        _lastLog = DateTime.UtcNow;
+        // Update last report to the current stopwatch elapsed.
+        _lastReportElapsed = _sw?.Elapsed ?? TimeSpan.Zero;
     }
 
     public void Done()
@@ -197,6 +209,6 @@ public sealed class ProgressLogger : IDisposable
 
     private static string Format(ulong value) => value.ToString("N0", _nfi);
     private static string Format(long value) => value.ToString("N0", _nfi);
-    private static string FormatDouble(double value) => value.ToString("F1", _nfi);
+    private static string FormatDouble(double value) => value.ToString("N1", _nfi);
 }
 

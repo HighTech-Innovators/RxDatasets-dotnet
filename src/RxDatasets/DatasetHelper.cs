@@ -140,7 +140,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
             totalDeltasMutable, fromVersion + 1, version);
 
-    using (var progress = new ProgressLogger(logger, "Applying deltas", totalDeltasMutable, interval: TimeSpan.FromSeconds(10)))
+        using (var progress = new ProgressLogger(logger, "Applying deltas", totalDeltasMutable, interval: TimeSpan.FromSeconds(10)))
         {
             for (ulong v = fromVersion + 1; v <= version; v++)
             {
