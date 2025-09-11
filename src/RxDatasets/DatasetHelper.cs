@@ -6,6 +6,7 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.Models;
 using RxDatasets.StorageProviders;
+using System.Diagnostics;
 
 namespace RxDatasets;
 
@@ -90,20 +91,22 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     /// <exception cref="InvalidOperationException">In case the requested version is lower than the latestSnapshot</exception>
     public async Task<ImmutableDatasetState> GetIndexOfVersion(ulong version)
     {
-        ImmutableDatasetState snapshotIndex;
-
+        SnapshotIndex mutableSnapshotIndex;
         try
         {
-            snapshotIndex = await GetLatestSnapshotIndex();
+            mutableSnapshotIndex = await GetLatestSnapshotIndexMutable();
         }
         catch (FileNotFoundException)
         {
-            // There are no snapshots available
-            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableSnapshotEntity>().ToImmutableDictionary(),
-                0, version);
+            // There are no snapshots available -> create a default mutable SnapshotIndex so we can use a single mutable code path
+            mutableSnapshotIndex = new SnapshotIndex
+            {
+                SnapshotVersion = 0,
+                SnapshotVersionLegacy = 0
+            };
         }
 
-        var fromVersion = snapshotIndex.SnapshotVersion;
+        var fromVersion = mutableSnapshotIndex.SnapshotVersion;
 
         if (fromVersion == 0 && version > 0)
         {
@@ -112,7 +115,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         else if (version == 0 && fromVersion > 0)
         {
             logger.LogInformation($"Snapshot {fromVersion} was seen, building index based on it without any extra deltas as we don't have any delta");
-            return snapshotIndex;
+            return ImmutableDatasetState.FromProto(mutableSnapshotIndex);
         }
         else
         {
@@ -122,7 +125,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         if (version <= fromVersion)
         {
             logger.LogInformation($"No deltas to apply (fromVersion={fromVersion}, requested={version})");
-            return snapshotIndex;
+            return ImmutableDatasetState.FromProto(mutableSnapshotIndex);
         }
 
         logger.LogInformation($"Applying deltas sequentially from {fromVersion + 1} to {version} to the main index");
@@ -132,32 +135,114 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
             totalDeltas, fromVersion + 1, version);
 
-        var processed = 0L;
-        var lastProgressLog = DateTime.UtcNow - TimeSpan.FromSeconds(11);
+            // operate on mutableSnapshotIndex (protobuf types)
+                var totalDeltasMutable = (long)(version - fromVersion);
+                logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
+                    totalDeltasMutable, fromVersion + 1, version);
 
-        for (ulong v = fromVersion + 1; v <= version; v++)
-        {
-            var readDeltaIndex = await storageProvider.ReadDeltaIndex(v);
-            var delta = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
-            delta.ValidateAgainstVersion(v);
-            snapshotIndex = snapshotIndex.ApplyDelta(delta);
+                var processedMutable = 0L;
+                var lastProgressLogMutable = DateTime.UtcNow - TimeSpan.FromSeconds(11);
 
-            processed++;
-
-            if ((DateTime.UtcNow - lastProgressLog) >= TimeSpan.FromSeconds(10))
+                for (ulong v = fromVersion + 1; v <= version; v++)
             {
-                logger.LogDebug("Applying deltas progress: {Processed}/{Total} (latestAppliedVersion={Version})",
-                    processed, totalDeltas, v);
-                lastProgressLog = DateTime.UtcNow;
+                var readDeltaIndex = await storageProvider.ReadDeltaIndex(v);
+                var delta = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
+                delta.ValidateAgainstVersion(v);
+                    // Apply delta to the mutable SnapshotIndex (protobuf)
+                    ApplyDeltaToMutableSnapshotIndex(mutableSnapshotIndex, delta);
+
+                    processedMutable++;
+
+                    if ((DateTime.UtcNow - lastProgressLogMutable) >= TimeSpan.FromSeconds(10))
+                    {
+                        logger.LogDebug("Applying deltas progress: {Processed}/{Total} (latestAppliedVersion={Version})",
+                            processedMutable, totalDeltasMutable, v);
+                        lastProgressLogMutable = DateTime.UtcNow;
+                    }
             }
+
+                logger.LogDebug("Finished applying deltas: {Processed}/{Total}", processedMutable, totalDeltasMutable);
+
+            // Convert protobuf SnapshotIndex to immutable state once
+            return ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+    }
+
+
+    private static void ApplyDeltaToMutableSnapshotIndex(SnapshotIndex snapshotIndex, DeltaIndex delta)
+    {
+        var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
+
+        // Ensure Entities dictionary exists
+        var entities = snapshotIndex.Entities;
+
+        foreach (var newEntity in delta.NewEntities)
+        {
+            if (!entities.TryGetValue(newEntity.Name, out var existing))
+            {
+                existing = new SnapshotEntity();
+            }
+
+            // Update fields similar to ImmutableSnapshotEntity.FromProto logic
+            var updated = new SnapshotEntity
+            {
+                LastDeletedVersion = { existing.LastDeletedVersion },
+                LastInsertedVersion = { existing.LastInsertedVersion },
+                LastUpdatedVersion = existing.LastUpdatedVersion,
+                Position = newEntity.Position,
+                Length = newEntity.Length,
+                Crc32 = newEntity.Crc32
+            };
+
+            // Add deltaVersion to LastInsertedVersion
+            updated.LastInsertedVersion.Add(deltaVersion);
+
+            entities[newEntity.Name] = updated;
         }
 
-        logger.LogDebug("Finished applying deltas: {Processed}/{Total}", processed, totalDeltas);
+        foreach (var changedEntity in delta.ChangedEntities)
+        {
+            var existing = entities[changedEntity.Name];
 
-        return snapshotIndex;
+            var updated = new SnapshotEntity
+            {
+                LastDeletedVersion = { existing.LastDeletedVersion },
+                LastInsertedVersion = { existing.LastInsertedVersion },
+                LastUpdatedVersion = deltaVersion,
+                Position = changedEntity.Position,
+                Length = changedEntity.Length,
+                Crc32 = changedEntity.Crc32
+            };
+
+            entities[changedEntity.Name] = updated;
+        }
+
+        foreach (var deletedName in delta.DeletedNames)
+        {
+            var existing = entities[deletedName];
+
+            var updated = new SnapshotEntity
+            {
+                LastDeletedVersion = { existing.LastDeletedVersion },
+                LastInsertedVersion = { existing.LastInsertedVersion },
+                LastUpdatedVersion = existing.LastUpdatedVersion,
+                Position = 0,
+                Length = 0,
+                Crc32 = existing.Crc32
+            };
+
+            updated.LastDeletedVersion.Add(deltaVersion);
+
+            entities[deletedName] = updated;
+        }
     }
 
     public async Task<ImmutableDatasetState> GetLatestSnapshotIndex(ulong? specificSnapshot = null)
+    {
+        var snapshotIndex = await GetLatestSnapshotIndexMutable(specificSnapshot);
+        return ImmutableDatasetState.FromProto(snapshotIndex);
+    }
+
+    private async Task<SnapshotIndex> GetLatestSnapshotIndexMutable(ulong? specificSnapshot = null)
     {
         var availableVersions = await storageProvider.ListVersions();
 
@@ -166,14 +251,14 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             specificSnapshot = availableVersions.Snapshots.Count > 0
                 ? availableVersions.Snapshots.MaxBy((s) => s.Version)!.Version
                 : 0ul;
-            return await TryGetSnapshot(specificSnapshot.Value);
+            return await TryGetSnapshotMutable(specificSnapshot.Value);
         }
 
         foreach (var version in availableVersions.Snapshots.Select(s => s.Version).OrderDescending())
         {
             try
             {
-                return await TryGetSnapshot(version);
+                return await TryGetSnapshotMutable(version);
             }
             catch (Exception e)
             {
@@ -185,11 +270,20 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         throw new FileNotFoundException("There are no snapshots available to read.");
     }
 
-    private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion)
+    private async Task<SnapshotIndex> TryGetSnapshotMutable(ulong snapshotVersion)
     {
+        var sw = Stopwatch.StartNew();
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
+        var readElapsed = sw.Elapsed;
+
+        sw.Restart();
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
+        var parseElapsed = sw.Elapsed;
+
+        sw.Restart();
         mutableSnapshotIndex.ValidateAgainstVersion(snapshotVersion);
+        var validateElapsed = sw.Elapsed;
+
         var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
             .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
 
@@ -214,8 +308,18 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             mutableSnapshotIndex.SnapshotVersion = snapshotVersion;
         }
 
-        var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
-        return snapshotIndex;
+        sw.Restart();
+        // Do NOT convert to immutable here - return the mutable protobuf SnapshotIndex for in-place delta application
+        var fromProtoElapsed = sw.Elapsed;
+
+        logger.LogDebug("TryGetSnapshotMutable v{SnapshotVersion} timings: read={ReadMs}ms parse={ParseMs}ms validate={ValidateMs}ms protoReturnOverhead={FromProtoMs}ms",
+            snapshotVersion,
+            Math.Round(readElapsed.TotalMilliseconds, 1),
+            Math.Round(parseElapsed.TotalMilliseconds, 1),
+            Math.Round(validateElapsed.TotalMilliseconds, 1),
+            Math.Round(fromProtoElapsed.TotalMilliseconds, 1));
+
+        return mutableSnapshotIndex;
     }
     public static string GetObjectNamePrefix<T>(StorageConfig storageConfig) =>
         $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
