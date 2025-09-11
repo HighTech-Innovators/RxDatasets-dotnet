@@ -23,11 +23,17 @@ namespace RxDatasets
         public static DtoServerBuilder<TEntity> AddReadOnlyDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
         {
             services.AddSingleton(serviceProvider => serviceProvider);
-            return new DtoServerBuilder<TEntity>(services, true);
+            return new DtoServerBuilder<TEntity>(services).WithoutWriter();
+        }
+
+        public static DtoServerBuilder<TEntity> AddWriteOnlyDtoServer<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
+        {
+            services.AddSingleton(serviceProvider => serviceProvider);
+            return new DtoServerBuilder<TEntity>(services).WithoutReader();
         }
     }
 
-    public class DtoServerBuilder<TEntity>(IServiceCollection services, bool readOnlyMode = false)
+    public class DtoServerBuilder<TEntity>(IServiceCollection services)
         where TEntity : class, IMessage<TEntity>
     {
         private bool _withCache;
@@ -35,8 +41,23 @@ namespace RxDatasets
         private bool _withDistributedLock;
         private bool _withSnapshot;
         private bool _withCleanup;
+        private bool _withReader = true;
+        private bool _withWriter = true;
+        private bool readOnlyMode => _withReader && !_withWriter && !_withCleanup && !_withSnapshot && !_withDistributedLock;
 
         public IServiceCollection Services => services;
+
+        public DtoServerBuilder<TEntity> WithoutReader()
+        {
+            _withReader = false;
+            return this;
+        }
+
+        public DtoServerBuilder<TEntity> WithoutWriter()
+        {
+            _withWriter = false;
+            return this;
+        }
 
         public DtoServerBuilder<TEntity> WithCache()
         {
@@ -132,26 +153,31 @@ namespace RxDatasets
 
             services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>();
 
-            if (!readOnlyMode)
-                services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
-            else
-                services.AddSingletonAsHostedService<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
-
-            if (readOnlyMode)
+            if (_withReader)
             {
-                services.AddHealthChecks()
-                    .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
-                    .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
-                return;
-
+                if (!readOnlyMode)
+                    services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
+                else
+                    services.AddSingletonAsHostedService<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
             }
 
-            services.AddHealthChecks()
-                .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
-                .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+            if (readOnlyMode)
+                {
+                    services.AddHealthChecks()
+                        .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
+                        .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+                    return;
+                }
 
-            services.AddValidatedConfigSection<WriterConfig>();
-            services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+            if (_withWriter)
+            {
+                services.AddHealthChecks()
+                    .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
+                    .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+
+                services.AddValidatedConfigSection<WriterConfig>();
+                services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+            }
         }
 
         private void AddStorageProvider()
