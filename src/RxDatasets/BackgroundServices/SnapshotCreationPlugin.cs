@@ -202,10 +202,10 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             }
         }
 
-    // final progress log
-    _logger.LogDebug("Finished copying from deltas: {Processed}/{Total}", processed, totalDeltaEntities);
+        // final progress log
+        _logger.LogDebug("Finished copying from deltas: {Processed}/{Total}", processed, totalDeltaEntities);
 
-    return targetSnapshotStreamPosition;
+        return targetSnapshotStreamPosition;
     }
 
     private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,

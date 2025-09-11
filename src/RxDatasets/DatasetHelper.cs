@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -6,7 +7,6 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.Models;
 using RxDatasets.StorageProviders;
-using System.Diagnostics;
 
 namespace RxDatasets;
 
@@ -135,38 +135,39 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
             totalDeltas, fromVersion + 1, version);
 
-            // operate on mutableSnapshotIndex (protobuf types)
-                var totalDeltasMutable = (long)(version - fromVersion);
-                logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
-                    totalDeltasMutable, fromVersion + 1, version);
+        // operate on mutableSnapshotIndex (protobuf types)
+        var totalDeltasMutable = (long)(version - fromVersion);
+        logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
+            totalDeltasMutable, fromVersion + 1, version);
 
-                var processedMutable = 0L;
-                var lastProgressLogMutable = DateTime.UtcNow - TimeSpan.FromSeconds(11);
+        var processedMutable = 0L;
+        var lastProgressLogMutable = DateTime.UtcNow - TimeSpan.FromSeconds(11);
 
-                for (ulong v = fromVersion + 1; v <= version; v++)
+        for (ulong v = fromVersion + 1; v <= version; v++)
+        {
+            var readDeltaIndex = await storageProvider.ReadDeltaIndex(v);
+            var delta = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
+            delta.ValidateAgainstVersion(v);
+            // Apply delta to the mutable SnapshotIndex (protobuf)
+            ApplyDeltaToMutableSnapshotIndex(mutableSnapshotIndex, delta);
+
+            processedMutable++;
+
+            if ((DateTime.UtcNow - lastProgressLogMutable) >= TimeSpan.FromSeconds(10))
             {
-                var readDeltaIndex = await storageProvider.ReadDeltaIndex(v);
-                var delta = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
-                delta.ValidateAgainstVersion(v);
-                    // Apply delta to the mutable SnapshotIndex (protobuf)
-                    ApplyDeltaToMutableSnapshotIndex(mutableSnapshotIndex, delta);
-
-                    processedMutable++;
-
-                    if ((DateTime.UtcNow - lastProgressLogMutable) >= TimeSpan.FromSeconds(10))
-                    {
-                        logger.LogDebug("Applying deltas progress: {Processed}/{Total} (latestAppliedVersion={Version})",
-                            processedMutable, totalDeltasMutable, v);
-                        lastProgressLogMutable = DateTime.UtcNow;
-                    }
+                logger.LogDebug("Applying deltas progress: {Processed}/{Total} (latestAppliedVersion={Version})",
+                    processedMutable, totalDeltasMutable, v);
+                lastProgressLogMutable = DateTime.UtcNow;
             }
+        }
 
-                logger.LogDebug("Finished applying deltas: {Processed}/{Total}", processedMutable, totalDeltasMutable);
+        logger.LogDebug("Finished applying deltas: {Processed}/{Total}", processedMutable, totalDeltasMutable);
 
-            // Convert protobuf SnapshotIndex to immutable state once
-            return ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+        // Convert protobuf SnapshotIndex to immutable state once
+        var currentIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+        logger.LogDebug("Flattened index of {ItemCount} entities", currentIndex.Entities.Count);
+        return currentIndex;
     }
-
 
     private static void ApplyDeltaToMutableSnapshotIndex(SnapshotIndex snapshotIndex, DeltaIndex delta)
     {

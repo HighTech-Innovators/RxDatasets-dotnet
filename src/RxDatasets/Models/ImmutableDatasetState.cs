@@ -6,11 +6,23 @@ public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapsho
 {
     public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
     {
-        Dictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>();
-        snapshotIndex.Entities.ToList().ForEach(x => entities.Add(x.Key, ImmutableSnapshotEntity.FromProto(x.Value)));
+        // Single-pass conversion without materializing intermediate lists.
+        var protoEntities = snapshotIndex.Entities;
+        var capacity = protoEntities?.Count ?? 0;
+
+        // Use ImmutableDictionary builder to avoid an extra copy when creating the immutable map
+        var builder = ImmutableDictionary.CreateBuilder<string, ImmutableSnapshotEntity>();
+
+        if (protoEntities is not null && capacity > 0)
+        {
+            foreach (var kv in protoEntities)
+            {
+                builder.Add(kv.Key, ImmutableSnapshotEntity.FromProto(kv.Value));
+            }
+        }
 
         var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
-        return new ImmutableDatasetState(entities.ToImmutableDictionary(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
+        return new ImmutableDatasetState(builder.ToImmutable(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
     }
 
     public SnapshotIndex ToProto()

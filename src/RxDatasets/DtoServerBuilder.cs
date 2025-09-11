@@ -162,12 +162,12 @@ namespace RxDatasets
             }
 
             if (readOnlyMode)
-                {
-                    services.AddHealthChecks()
-                        .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
-                        .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
-                    return;
-                }
+            {
+                services.AddHealthChecks()
+                    .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
+                    .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+                return;
+            }
 
             if (_withWriter)
             {
