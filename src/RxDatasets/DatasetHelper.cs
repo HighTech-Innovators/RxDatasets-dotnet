@@ -90,7 +90,6 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     /// <exception cref="InvalidOperationException">In case the requested version is lower than the latestSnapshot</exception>
     public async Task<ImmutableDatasetState> GetIndexOfVersion(ulong version)
     {
-        List<DeltaIndex> deltas;
         ImmutableDatasetState snapshotIndex;
 
         try
@@ -104,24 +103,56 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
                 0, version);
         }
 
-        if (snapshotIndex.SnapshotVersion == 0)
+        var fromVersion = snapshotIndex.SnapshotVersion;
+
+        if (fromVersion == 0 && version > 0)
         {
-            logger.LogInformation($"No Snapshot was seen, Applying deltas from v1 util v{version}");
-            deltas = await GetChangedDeltas(0, version);
+            logger.LogInformation($"No Snapshot was seen, applying deltas from v1 until v{version}");
         }
-        else if (version == 0 && snapshotIndex.SnapshotVersion > 0)
+        else if (version == 0 && fromVersion > 0)
         {
-            logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it without any extra deltas as we dont have any delta");
-            deltas = [];
+            logger.LogInformation($"Snapshot {fromVersion} was seen, building index based on it without any extra deltas as we don't have any delta");
+            return snapshotIndex;
         }
         else
         {
-            logger.LogInformation($"Snapshot {snapshotIndex.SnapshotVersion} was seen, building index based on it to version {version}");
-            deltas = await GetChangedDeltas(snapshotIndex.SnapshotVersion, version);
+            logger.LogInformation($"Snapshot {fromVersion} was seen, building index based on it to version {version}");
         }
 
-        logger.LogInformation($"Applying {(deltas.Count > 0 ? $"deltas from {deltas.Min(d => d.DeltaVersion)}/(legacy){deltas.Min(d => d.DeltaVersionLegacy)} - {deltas.Max(d => d.DeltaVersion)}/(legacy){deltas.Max(d => d.DeltaVersionLegacy)}" : " no deltas")} to the main index");
-        snapshotIndex = snapshotIndex.ApplyDeltas(deltas);
+        if (version <= fromVersion)
+        {
+            logger.LogInformation($"No deltas to apply (fromVersion={fromVersion}, requested={version})");
+            return snapshotIndex;
+        }
+
+        logger.LogInformation($"Applying deltas sequentially from {fromVersion + 1} to {version} to the main index");
+
+        // Read and apply deltas one by one to avoid loading many/large delta indexes into memory.
+        var totalDeltas = (long)(version - fromVersion);
+        logger.LogDebug("Starting applying {Total} deltas sequentially (from={FromVersion}, to={ToVersion})",
+            totalDeltas, fromVersion + 1, version);
+
+        var processed = 0L;
+        var lastProgressLog = DateTime.UtcNow - TimeSpan.FromSeconds(11);
+
+        for (ulong v = fromVersion + 1; v <= version; v++)
+        {
+            var readDeltaIndex = await storageProvider.ReadDeltaIndex(v);
+            var delta = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
+            delta.ValidateAgainstVersion(v);
+            snapshotIndex = snapshotIndex.ApplyDelta(delta);
+
+            processed++;
+
+            if ((DateTime.UtcNow - lastProgressLog) >= TimeSpan.FromSeconds(10))
+            {
+                logger.LogDebug("Applying deltas progress: {Processed}/{Total} (latestAppliedVersion={Version})",
+                    processed, totalDeltas, v);
+                lastProgressLog = DateTime.UtcNow;
+            }
+        }
+
+        logger.LogDebug("Finished applying deltas: {Processed}/{Total}", processed, totalDeltas);
 
         return snapshotIndex;
     }
