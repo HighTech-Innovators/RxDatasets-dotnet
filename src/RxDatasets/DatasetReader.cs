@@ -131,7 +131,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         try
         {
-            _index = await _datasetHelper.GetLatestIndex();
+            _index = await _datasetHelper.GetLatestIndex(_cts.Token);
             try
             {
                 _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();

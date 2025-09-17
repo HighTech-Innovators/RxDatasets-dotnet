@@ -17,6 +17,11 @@ message SnapshotIndex {
 	uint64 snapshot_version = 32;
 }
 
+message PairMessage {
+	string key = 1;
+	SnapshotEntity entity = 2;
+}
+
 message DeltaEntity {
 	string name = 1;
 	int64 position = 2;

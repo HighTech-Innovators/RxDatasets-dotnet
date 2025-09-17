@@ -4,10 +4,11 @@ namespace RxDatasets.Models;
 
 public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapshotEntity> Entities, ulong SnapshotVersion, ulong LatestVersion)
 {
-    public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
+    //public static ImmutableDatasetState FromProto(S state) 
+    public static ImmutableDatasetState From(MutableDatasetState datasetState)
     {
         // Single-pass conversion without materializing intermediate lists.
-        var protoEntities = snapshotIndex.Entities;
+        var protoEntities = datasetState.Entities;
         var capacity = protoEntities?.Count ?? 0;
 
         // Use ImmutableDictionary builder to avoid an extra copy when creating the immutable map
@@ -21,8 +22,7 @@ public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapsho
             }
         }
 
-        var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
-        return new ImmutableDatasetState(builder.ToImmutable(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
+        return new ImmutableDatasetState(builder.ToImmutable(), datasetState.SnapshotVersion, datasetState.LatestVersion);
     }
 
     public SnapshotIndex ToProto()

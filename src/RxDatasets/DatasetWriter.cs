@@ -88,7 +88,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         try
         {
-            _index = await _datasetHelper.GetLatestIndex();
+            _index = await _datasetHelper.GetLatestIndex(CancellationToken.None);
             try
             {
                 _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
