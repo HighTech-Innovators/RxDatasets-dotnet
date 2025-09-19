@@ -345,6 +345,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0 };
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
+
+        // Track final state per entity - last operation wins
+        var entityFinalStates = new Dictionary<string, (uint crc32, long position, int length)?>();
         long byteArrayPosition = 0;
 
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
@@ -371,33 +374,77 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
             if (entityBytes == null)
             {
-                if (index.Entities.TryGetValue(name, out var existing) && existing.GetLatestChangeType() != ChangeType.Deleted)
+                // Delete operation - store null state
+                entityFinalStates[name] = null;
+            }
+            else
+            {
+                // Put operation - compute and store CRC32, write to stream
+                var crc32 = DatasetHelper.ComputeCrc32(entityBytes);
+
+                var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(stream, entityBytes.Length);
+                byteArrayPosition += lengthOfTheVarPrefix;
+
+                // Store final state for this entity
+                entityFinalStates[name] = (crc32, byteArrayPosition, entityBytes.Length);
+
+                await stream.WriteAsync(entityBytes, ct);
+                byteArrayPosition += entityBytes.Length;
+            }
+        }
+
+        // Now determine net effect for each entity using CRC32 comparison with index
+        foreach (var (name, finalState) in entityFinalStates)
+        {
+            // Get original state from index
+            var hasExistingEntity = index.Entities.TryGetValue(name, out var existingEntity);
+            var existingIsDeleted = hasExistingEntity && existingEntity!.GetLatestChangeType() == ChangeType.Deleted;
+
+            if (finalState == null)
+            {
+                // Final state is delete
+                if (hasExistingEntity && !existingIsDeleted)
                     deltaIndex.DeletedNames.Add(name);
-                continue; // explicit delete
+                continue;
             }
 
-            var changeType = await DetermineChangeType(name, entityBytes);
+            // Final state is put - compare with original CRC32 from index
+            var (finalCrc, position, length) = finalState.Value;
+            ChangeType changeType;
+            if (!hasExistingEntity || existingIsDeleted)
+            {
+                changeType = ChangeType.New;
+            }
+            else
+            {
+                // Compare final CRC32 with original CRC32 from index
+                var originalCrc = existingEntity!.Crc32;
+                changeType = (originalCrc != 0 && originalCrc != finalCrc)
+                    ? ChangeType.Changed
+                    : ChangeType.None;
+
+                // For entities without CRC32 (legacy), assume it's changed
+                if (originalCrc == 0)
+                    changeType = ChangeType.Changed;
+            }
+
             if (changeType == ChangeType.None)
                 continue;
 
-            var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(stream, entityBytes.Length);
-            byteArrayPosition += lengthOfTheVarPrefix;
-
             var deltaEntity = new DeltaEntity
             {
-                Position = byteArrayPosition,
-                Length = entityBytes.Length,
+                Position = position,
+                Length = length,
                 Name = name,
-                Crc32 = DatasetHelper.ComputeCrc32(entityBytes)
+                Crc32 = finalCrc
             };
 
             if (changeType == ChangeType.New)
                 deltaIndex.NewEntities.Add(deltaEntity);
             else
                 deltaIndex.ChangedEntities.Add(deltaEntity);
-            await stream.WriteAsync(entityBytes, ct);
-            byteArrayPosition += entityBytes.Length;
         }
+
         return (deltaIndex, receivedNames, allParents);
     }
 
@@ -447,7 +494,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         if (entityVersion <= _index.SnapshotVersion)
         {
             // It's 'older' than the snapshot our index 'started' with, so the position refers to the Position in the snapshot
-            // Double check that we 
+            // Double check that we
             if (sources.Count == 0 || sources[0].version != _index.SnapshotVersion)
                 sources.Add((ObjectNameTypeEnum.Snapshot, _index.SnapshotVersion, entityInMainIndex.Position));
         }

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.IO;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 namespace RxDatasets.StorageProvider.LocalDisk
@@ -144,7 +145,16 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 // Atomically replace the original file if it exists, or move if it doesn’t
                 if (File.Exists(filePath))
                 {
-                    File.Replace(tempFilePath, filePath, null);
+                    try
+                    {
+                        File.Replace(tempFilePath, filePath, null);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Fallback: delete original and move temp file
+                        File.Delete(filePath);
+                        File.Move(tempFilePath, filePath);
+                    }
                 }
                 else
                 {
@@ -225,6 +235,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 if (File.Exists(filePath))
                 {
                     File.Delete(filePath);
+                    _logger.LogDebug($"Successfully deleted file {key} from disk.");
                 }
                 else
                 {
@@ -250,6 +261,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 if (Directory.Exists(filePath))
                 {
                     Directory.Delete(filePath, true);
+                    _logger.LogDebug($"Successfully deleted folder {prefix} from disk.");
                 }
                 else
                 {

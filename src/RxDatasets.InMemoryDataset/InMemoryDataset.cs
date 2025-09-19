@@ -140,6 +140,9 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
 
+        // Track final state per entity - last operation wins
+        var entityFinalStates = new Dictionary<string, (uint crc32, byte[] bytes)?>();
+
         await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
         {
             if (includeParents)
@@ -152,20 +155,45 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
             receivedNames.Add(name);
 
+            // Store final state (last operation wins)
             if (entityBytes == null)
             {
+                entityFinalStates[name] = null;
+            }
+            else
+            {
+                var crc32 = DatasetHelper.ComputeCrc32(entityBytes);
+                entityFinalStates[name] = (crc32, entityBytes);
+            }
+        }
+
+        // Second pass: determine net effect for each entity using CRC32 comparison
+        foreach (var (name, finalState) in entityFinalStates)
+        {
+            if (finalState == null)
+            {
+                // Final state is delete
                 if (_currentSnapshot.ContainsKey(name))
                     changes[name] = (name, null, ChangeType.Deleted);
                 continue;
             }
 
+            // Final state is put - determine net change using CRC32 comparison when possible
+            var (finalCrc, finalBytes) = finalState.Value;
             if (!_currentSnapshot.TryGetValue(name, out var oldEntityBytes))
             {
-                changes[name] = (name, entityBytes, ChangeType.New);
+                changes[name] = (name, finalBytes, ChangeType.New);
             }
-            else if (!entityBytes.SequenceEqual(oldEntityBytes))
+            else
             {
-                changes[name] = (name, entityBytes, ChangeType.Changed);
+                // Fast CRC32 comparison - only fall back to byte comparison if needed
+                var oldCrc = DatasetHelper.ComputeCrc32(oldEntityBytes);
+
+                if (oldCrc != finalCrc)
+                {
+                    changes[name] = (name, finalBytes, ChangeType.Changed);
+                }
+                // If CRC32 matches, no change needed (not added to changes)
             }
         }
 

@@ -155,10 +155,12 @@ namespace RxDatasets.StorageProvider.S3
             await EnsureInitialized();
             try
             {
+                // Normalize prefix to folder-like form to avoid accidental prefix collisions
+                var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
                 var listObjectsRequest = new ListObjectsV2Request
                 {
                     BucketName = _bucketName,
-                    Prefix = prefix
+                    Prefix = normalizedPrefix
                 };
 
                 var objects = new List<S3Object>();

@@ -304,5 +304,201 @@ namespace RxDatasets.StorageTests
 
             return numAdded == expectedAdded && numUpdated == expectedUpdated;
         }
+
+        [Fact]
+        public async Task Test_PutOrDeleteMany_DeletePutSameEntity_ReportsNoChange()
+        {
+            // Integration test: delete followed by put of same entity should report no change
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Arrange: Create initial entity using proper gRPC
+            var basePayload = new Demodto { Name = "test_entity_delete_put_same", SomeString = "original_data" };
+            var putResponse = await writerClient.PutAsync(basePayload);
+            VerifyResponseIsExpected(putResponse, 1, 0).Should().BeTrue("Initial put should add one entity");
+
+            // Add small delay to ensure initial put is fully processed
+            await Task.Delay(100);
+
+            try
+            {
+                // Act: Delete then put same entity in batch using PutOrDeleteMany gRPC streaming
+                var call = writerClient.PutOrDeleteMany();
+
+                // Delete operation
+                await call.RequestStream.WriteAsync(new PutOrDelete
+                {
+                    Name = basePayload.Name,
+                    IsDelete = true
+                });
+
+                // Small delay between operations
+                await Task.Delay(50);
+
+                // Put back same entity
+                await call.RequestStream.WriteAsync(new PutOrDelete
+                {
+                    Name = basePayload.Name,
+                    EntityBytes = basePayload.ToByteString()
+                });
+
+                await call.RequestStream.CompleteAsync();
+
+                // Add delay before reading response
+                await Task.Delay(100);
+
+                var batchResponse = await call;
+
+                // Assert: Should report no net change
+                batchResponse.Should().NotBeNull();
+                batchResponse.NumAddedEntities.Should().Be(0u, "No entities should be added when delete+put results in same state");
+                batchResponse.NumUpdatedEntities.Should().Be(0u, "No entities should be updated when delete+put results in same state");
+                batchResponse.NumDeletedEntities.Should().Be(0u, "No entities should be deleted when delete+put results in same state");
+
+                // Verify entity still exists with original data using gRPC reader
+                var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
+                retrievedEntity.Should().NotBeNull("Entity should still exist after delete+put with same data");
+                retrievedEntity.SomeString.Should().Be(basePayload.SomeString, "Entity data should be unchanged");
+            }
+            catch (Exception ex)
+            {
+                // Add detailed error information
+                throw new Exception($"gRPC streaming test failed. Error: {ex.Message}. InnerException: {ex.InnerException?.Message}", ex);
+            }
+            finally
+            {
+                await factory1.DisposeAsync();
+            }
+        }
+
+        [Fact]
+        public async Task Test_PutOrDeleteMany_DeletePutDifferentEntity_ReportsChange()
+        {
+            // Integration test: delete followed by put of different entity should report a change
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Arrange: Create initial entity using proper gRPC
+            var basePayload = new Demodto { Name = "test_entity_delete_put_different", SomeString = "original_data" };
+            var putResponse = await writerClient.PutAsync(basePayload);
+            VerifyResponseIsExpected(putResponse, 1, 0).Should().BeTrue("Initial put should add one entity");
+
+            // Act: Delete then put different entity in batch using PutOrDeleteMany gRPC streaming
+            var modifiedPayload = new Demodto { Name = basePayload.Name, SomeString = "modified_data" };
+            var call = writerClient.PutOrDeleteMany();
+
+            // Delete operation
+            await call.RequestStream.WriteAsync(new PutOrDelete
+            {
+                Name = basePayload.Name,
+                IsDelete = true
+            });
+
+            // Put back different entity
+            await call.RequestStream.WriteAsync(new PutOrDelete
+            {
+                Name = modifiedPayload.Name,
+                EntityBytes = modifiedPayload.ToByteString()
+            });
+
+            await call.RequestStream.CompleteAsync();
+            var batchResponse = await call;
+
+            // Assert: Should report a change
+            batchResponse.Should().NotBeNull();
+            batchResponse.NumAddedEntities.Should().Be(0u, "Should not count as added since entity existed before");
+            batchResponse.NumUpdatedEntities.Should().Be(1u, "Should count as updated since final data differs from initial");
+            batchResponse.NumDeletedEntities.Should().Be(0u, "Should not count as deleted since entity exists after batch");
+
+            // Verify entity exists with modified data using gRPC reader
+            var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
+            retrievedEntity.Should().NotBeNull("Entity should exist after delete+put with different data");
+            retrievedEntity.SomeString.Should().Be(modifiedPayload.SomeString, "Entity should have the modified data");
+
+            await factory1.DisposeAsync();
+        }
+
+        [Fact]
+        public async Task Test_PutOrDeleteMany_MultiplePutsOriginal_ReportsNoChange()
+        {
+            // Integration test: multiple operations ending with original state should report no change
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Arrange: Create initial entity using proper gRPC
+            var basePayload = new Demodto { Name = "test_entity_multiple_puts_original", SomeString = "original_data" };
+            var putResponse = await writerClient.PutAsync(basePayload);
+            VerifyResponseIsExpected(putResponse, 1, 0).Should().BeTrue("Initial put should add one entity");
+
+            // Add delay to ensure initial put is fully processed
+            await Task.Delay(100);
+
+            try
+            {
+                // Act: Multiple operations ending with original data
+                var tempPayload1 = new Demodto { Name = basePayload.Name, SomeString = "temp_data_1" };
+                var tempPayload2 = new Demodto { Name = basePayload.Name, SomeString = "temp_data_2" };
+                var call = writerClient.PutOrDeleteMany();
+
+                // Put different data
+                await call.RequestStream.WriteAsync(new PutOrDelete
+                {
+                    Name = tempPayload1.Name,
+                    EntityBytes = tempPayload1.ToByteString()
+                });
+
+                // Small delay between operations
+                await Task.Delay(50);
+
+                // Put more different data
+                await call.RequestStream.WriteAsync(new PutOrDelete
+                {
+                    Name = tempPayload2.Name,
+                    EntityBytes = tempPayload2.ToByteString()
+                });
+
+                // Small delay between operations
+                await Task.Delay(50);
+
+                // Put back original data
+                await call.RequestStream.WriteAsync(new PutOrDelete
+                {
+                    Name = basePayload.Name,
+                    EntityBytes = basePayload.ToByteString()
+                });
+
+                await call.RequestStream.CompleteAsync();
+
+                // Add delay before reading response
+                await Task.Delay(100);
+
+                var batchResponse = await call;
+
+                // Assert: Should report no net change
+                // CRITICAL: This test MUST FAIL before the bug fix is implemented
+                batchResponse.Should().NotBeNull();
+                batchResponse.NumAddedEntities.Should().Be(0u, "No entities should be added when ending with original state");
+                batchResponse.NumUpdatedEntities.Should().Be(0u, "No entities should be updated when ending with original state");
+                batchResponse.NumDeletedEntities.Should().Be(0u, "No entities should be deleted when ending with original state");
+
+                // Verify entity still exists with original data using gRPC reader
+                var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
+                retrievedEntity.Should().NotBeNull("Entity should still exist with original data");
+                retrievedEntity.SomeString.Should().Be(basePayload.SomeString, "Entity data should be back to original");
+            }
+            finally
+            {
+                await factory1.DisposeAsync();
+            }
+        }
     }
 }

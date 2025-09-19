@@ -82,7 +82,7 @@ public class ObjectStorageProvider<T>(
         {
             var folderKey = DatasetHelper.GetObjectFolder<T>(snapshot.Version, ObjectNameTypeEnum.Snapshot,
                 _storageConfig.Value);
-            await _storage.DeleteFolder(folderKey);
+            await _storage.DeleteFolder(folderKey + '/');
             Snapshots.Remove(snapshot);
             await SaveSnapshotInfo();
         }
@@ -96,7 +96,7 @@ public class ObjectStorageProvider<T>(
                  deltaToDelete++)
             {
                 var folderKey = DatasetHelper.GetObjectFolder<T>(deltaToDelete, ObjectNameTypeEnum.Delta, _storageConfig.Value);
-                await _storage.DeleteFolder(folderKey);
+                await _storage.DeleteFolder(folderKey + '/');
             }
 
             DeltaInfo.EarliestDeltaVersion = version + 1;

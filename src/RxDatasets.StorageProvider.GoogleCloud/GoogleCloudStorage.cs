@@ -21,10 +21,20 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             _bucketName = googleCloudConfig.Value.BucketName;
 
             var clientBuilder = new StorageClientBuilder();
-            if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
+
+            // Check if we're running against an emulator
+            var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+            if (!string.IsNullOrEmpty(emulatorHost))
+            {
+                // Configure for emulator use
+                clientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";
+                clientBuilder.UnauthenticatedAccess = true;
+            }
+            else if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
             {
                 clientBuilder.JsonCredentials = googleCloudConfig.Value.JsonCredentials;
             }
+
             _storageClient = clientBuilder.Build();
 
             _ = retryInitialization ? InitializationLoop() : Initialize();
@@ -104,11 +114,17 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public async Task DeleteFolder(string prefix)
         {
             await EnsureInitialized();
+            _logger.LogInformation("Deleting 'folder' {folderName}", prefix);
             try
             {
-                var objects = _storageClient.ListObjectsAsync(_bucketName, prefix);
+                // Normalize prefix to ensure it represents a folder path.
+                // Google Cloud Storage uses simple prefix matching, so "deltas/2" would also match "deltas/20".
+                // Ensure a trailing slash so we only match objects directly under the intended folder.
+                var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
+                var objects = _storageClient.ListObjectsAsync(_bucketName, normalizedPrefix);
                 await foreach (var obj in objects)
                 {
+                    _logger.LogDebug("Deleting object {objectName}", obj.Name);
                     await _storageClient.DeleteObjectAsync(obj);
                 }
                 SetHealthy();
@@ -185,8 +201,14 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             {
                 var options = new DownloadObjectOptions
                 {
-                    Range = new RangeHeaderValue(position, position + length - 1)
+                    Range = new RangeHeaderValue(position, position + length - 1),
                 };
+                var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+                if (!string.IsNullOrEmpty(emulatorHost))
+                {
+                    // Configure for emulator use
+                    options.DownloadValidationMode = DownloadValidationMode.Never; 
+                }
                 using var stream = new MemoryStream();
                 await _storageClient.DownloadObjectAsync(_bucketName, objectKey, stream, options);
                 SetHealthy();
@@ -289,7 +311,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             {
                 _logger.LogWarning(ex, "Failed to upload bytes to {objectKey} in Google Cloud Storage", objectKey);
                 SetUnhealthy(ex);
-                throw;
+                throw new InvalidOperationException(ex.Message, ex);
             }
         }
 
@@ -305,7 +327,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             {
                 _logger.LogWarning(ex, "Failed to upload stream to {objectKey} in Google Cloud Storage", objectKey);
                 SetUnhealthy(ex);
-                throw;
+                throw new InvalidOperationException(ex.Message, ex);
             }
         }
 

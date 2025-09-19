@@ -20,9 +20,14 @@ namespace RxDatasets.BackgroundServices
         private IDisposable? _disposableSnapshotNotificationSubscription;
         private readonly List<DateTime> _listOfSnapshotsDatesScheduledForDeleting = [];
         private IDisposable? _disposableVersionProcessedNotificationSubscription;
+        private IDisposable? _disposableReadinessNotificationSubscription;
+        private bool _isActive;
 
         public async Task SearchForOutdatedData()
         {
+            if (!_isActive)
+                return;
+
             try
             {
                 var (_, _, allSnapshots) = await storageProvider.ListVersions();
@@ -95,6 +100,13 @@ namespace RxDatasets.BackgroundServices
             if (!config.Value.IsEnabled)
                 return Task.CompletedTask;
 
+            _disposableReadinessNotificationSubscription = notificationsHub
+                .Subscribe<StorageProviderReadinessNotifcation>(notification =>
+                {
+                    _isActive = notification.ServiceStatus == ServiceStatus.Ready;
+                    return SearchForOutdatedData();
+                });
+
             _disposableSnapshotNotificationSubscription = notificationsHub
                 .Subscribe<SnapshotCreatedNotification>(_ => SearchForOutdatedData());
 
@@ -113,6 +125,7 @@ namespace RxDatasets.BackgroundServices
         {
             _disposableSnapshotNotificationSubscription?.Dispose();
             _disposableVersionProcessedNotificationSubscription?.Dispose();
+            _disposableReadinessNotificationSubscription?.Dispose();
             return Task.CompletedTask;
         }
     }

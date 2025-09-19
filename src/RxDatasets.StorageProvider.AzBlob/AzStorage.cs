@@ -107,7 +107,8 @@ public class AzStorage<T> : IDiskStorage<T>
         try
         {
             await EnsureInitialized();
-            var blobClients = _containerClient.GetBlobsAsync(prefix: prefix);
+            var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
+            var blobClients = _containerClient.GetBlobsAsync(prefix: normalizedPrefix);
             await foreach (var blobItem in blobClients)
             {
                 // Delete each blob
