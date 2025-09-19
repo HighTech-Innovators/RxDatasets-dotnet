@@ -7,7 +7,7 @@ RUN chown -R 1001:0 /tmp/minio-data \
     && chmod -R 755 /tmp/minio-data
 
 # Stage 2: Build the final image
-FROM docker.io/bitnami/minio AS minio-container
+FROM docker.io/bitnamilegacy/minio AS minio-container
 COPY --from=temp-container /tmp/minio-data /bitnami/minio/data/
 
 #
