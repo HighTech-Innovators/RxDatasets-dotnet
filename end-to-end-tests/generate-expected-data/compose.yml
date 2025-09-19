@@ -32,7 +32,7 @@ services:
 
   minio:
     image:
-      docker.io/bitnami/minio
+      docker.io/bitnamilegacy/minio
     volumes:
       - ./generated-minio-data:/bitnami/minio/data/
     user: "0"
