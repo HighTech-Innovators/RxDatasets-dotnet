@@ -1,6 +1,7 @@
 using System.IO.Pipelines;
 using System.Net.Http.Headers;
 using Google.Cloud.Storage.V1;
+using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
@@ -207,7 +208,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 if (!string.IsNullOrEmpty(emulatorHost))
                 {
                     // Configure for emulator use
-                    options.DownloadValidationMode = DownloadValidationMode.Never; 
+                    options.DownloadValidationMode = DownloadValidationMode.Never;
                 }
                 using var stream = new MemoryStream();
                 await _storageClient.DownloadObjectAsync(_bucketName, objectKey, stream, options);
@@ -301,18 +302,31 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public async Task UploadBytes(string objectKey, byte[] bytes)
         {
             await EnsureInitialized();
-            try
+            for (var i = 0; i < 5; i++)
             {
-                using var stream = new MemoryStream(bytes);
-                await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream);
-                SetHealthy();
+                try
+                {
+                    using var stream = new MemoryStream(bytes);
+                    await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream);
+                    SetHealthy();
+                    return;
+                }
+                catch (Exception ex) when (IsGcs429(ex))
+                {
+                    _logger.LogWarning(ex, "Rate limit hit for {objectKey}. Retrying in 1.1s. Attempt {attempt}", objectKey, i + 1);
+                    await Task.Delay(1100);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to upload bytes to {objectKey} in Google Cloud Storage", objectKey);
+                    SetUnhealthy(ex);
+                    throw new InvalidOperationException(ex.Message, ex);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to upload bytes to {objectKey} in Google Cloud Storage", objectKey);
-                SetUnhealthy(ex);
-                throw new InvalidOperationException(ex.Message, ex);
-            }
+
+            var finalEx = new InvalidOperationException($"Failed to upload {objectKey} after multiple retries due to rate limiting.");
+            SetUnhealthy(finalEx);
+            throw finalEx;
         }
 
         public async Task UploadFileStream(string objectKey, Stream stream)
@@ -330,6 +344,17 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 throw new InvalidOperationException(ex.Message, ex);
             }
         }
+
+        private static bool IsGcs429(Exception ex) =>
+            ex is Google.GoogleApiException g &&
+                ((int)g.HttpStatusCode == 429 || g.Error?.Code == 429 ||
+                 g.Error?.Message?.Contains("rate limit for object mutation",
+                                            StringComparison.OrdinalIgnoreCase) == true)
+            || ex.InnerException is Google.GoogleApiException g2 && IsGcs429(g2)
+            || ex is Grpc.Core.RpcException r &&
+                (r.StatusCode is StatusCode.ResourceExhausted or StatusCode.Unavailable) &&
+                (r.Status.Detail?.Contains("rate limit for object mutation",
+                                           StringComparison.OrdinalIgnoreCase) == true);
 
         private void SetHealthy()
         {
