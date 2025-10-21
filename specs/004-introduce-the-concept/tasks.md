@@ -82,11 +82,11 @@
   - Acceptance: Test compiles, runs, fails with NotImplementedException
   - ✅ **COMPLETE**: Included in IndexContractTests.cs
 
-- [ ] **T007** [P] Integration test: Index initialization via ListChanges replay
-  - File: `tst/RxDatasets.Tests/Indexes/IndexInitializationTests.cs`
-  - Test: `InMemoryReadableIndex_Initialize_ReplayChangeStream_PopulatesMaps()`
-  - Setup: Mock change stream with 3 entities, verify maps populated
-  - Acceptance: Test compiles, runs, fails (maps empty until implementation)
+- [x] **T007** ✅ [P] Integration test: Index initialization via ListChanges replay
+  - File: `tst/RxDatasets.Tests/Indexes/IndexInitializationTests.cs` ✅
+  - Tests: 4 initialization tests (empty, replay, mixed, compute function)
+  - Setup: Mock change streams with various entity counts, verify initialization flow
+  - Acceptance: All 4 tests compile and run, fail as expected (NotImplementedException in constructor)
 
 - [ ] **T008** [P] Integration test: Index handles entity creation
   - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
