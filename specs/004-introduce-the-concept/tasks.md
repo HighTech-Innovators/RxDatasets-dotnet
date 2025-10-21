@@ -61,23 +61,26 @@
 
 **CRITICAL**: These tests MUST be written and MUST FAIL before ANY implementation starts.
 
-- [ ] **T004** [P] Contract test: IDatasetIndex.Read() via valid alias
+- [x] **T004** [P] Contract test: IDatasetIndex.Read() via valid alias
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_Read_ValidAlias_ReturnsEntity()`
   - Setup: Create test with mock reader, verify Read() signature, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
+  - ✅ **COMPLETE**: Tests written and failing as expected (8 tests total, all fail on NotImplementedException)
 
-- [ ] **T005** [P] Contract test: IDatasetIndex.BatchRead() via multiple aliases
+- [x] **T005** [P] Contract test: IDatasetIndex.BatchRead() via multiple aliases
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_BatchRead_MultipleAliases_ReturnsEntities()`
   - Setup: Test multiple alias resolution, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
+  - ✅ **COMPLETE**: Included in IndexContractTests.cs
 
-- [ ] **T006** [P] Contract test: IDatasetIndex.CountChildren() with alias prefix
+- [x] **T006** [P] Contract test: IDatasetIndex.CountChildren() with alias prefix
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_CountChildren_WithPrefix_ReturnsCount()`
   - Setup: Test prefix-based counting, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
+  - ✅ **COMPLETE**: Included in IndexContractTests.cs
 
 - [ ] **T007** [P] Integration test: Index initialization via ListChanges replay
   - File: `tst/RxDatasets.Tests/Indexes/IndexInitializationTests.cs`
