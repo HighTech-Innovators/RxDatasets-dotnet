@@ -13,7 +13,7 @@ namespace RxDatasets.Indexes;
 /// Response types mimic IDatasetReader for consistency with storage patterns.
 /// </summary>
 /// <typeparam name="T">The entity type (used for type safety in DI, not for deserialization)</typeparam>
-public class InMemoryReadableIndex<T> : IDatasetIndex
+public class InMemoryReadableIndex<T> : IDatasetIndex<T>
 {
     /// <summary>
     /// Creates a new index.
