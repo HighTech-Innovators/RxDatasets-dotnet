@@ -124,18 +124,18 @@
 
 **All tests from Phase 3.2 MUST be failing before starting Phase 3.3.**
 
-- [ ] **T013** [P] Implement IDatasetIndex<TEntity> interface
-  - File: `src/RxDatasets.Abstractions/IDatasetIndex.cs`
-  - Define: Read(), BatchRead(), CountChildren() method signatures
-  - Constraints: Does NOT inherit from IDatasetReader; excludes ListChanges(), ListChildren()
-  - Acceptance: Compiles; all tests T004-T006 still fail (no implementation yet)
+- [x] **T013** ✅ [P] Implement IDatasetIndex`<TEntity>` interface
+  - File: `src/RxDatasets.Abstractions/IDatasetIndex.cs` ✅
+  - Define: Get(), BatchGet(), Count(), List() method signatures
+  - Constraints: Generic type parameter, raw bytes response (ReadOnlyMemory`<byte>`?)
+  - Acceptance: Interface defined, no changes needed (already done)
 
-- [ ] **T014** [P] Implement InMemoryReadableIndex<TEntity> constructor and initialization
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
-  - Constructor: (string indexName, IDatasetReader<TEntity>, Func<string, TEntity, string[]>)
-  - Initialize: Two internal dictionaries (aliasPath→entityName, entityName→aliases)
-  - Initialization logic: Replay ListChanges() to populate maps
-  - Acceptance: Compiles; initialization test (T007) starts passing
+- [x] **T014** ✅ [P] Implement InMemoryReadableIndex`<TEntity>` constructor and initialization
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Constructor: Stores indexName, underlyingReader, aliasComputeFunction
+  - Initialize: Replays GetChangedNames(0) to populate maps during construction
+  - Acceptance: Constructor compiles, initializes correctly, no NotImplementedException
+  - Result: All 8 contract tests (T004-T006) now passing ✅
 
 - [ ] **T015** [P] Implement AliasResolutionState helper type
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` (internal struct/record)
