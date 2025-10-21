@@ -88,35 +88,35 @@
   - Setup: Mock change streams with various entity counts, verify initialization flow
   - Acceptance: All 4 tests compile and run, fail as expected (NotImplementedException in constructor)
 
-- [ ] **T008** [P] Integration test: Index handles entity creation
-  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
-  - Test: `InMemoryReadableIndex_EntityCreated_AddsAliasesToMaps()`
+- [x] **T008** ✅ [P] Integration test: Index handles entity creation
+  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs` ✅
+  - Tests: 2 creation tests (single and multiple aliases)
   - Setup: Simulate ChangeType.Created event, verify alias mapping
-  - Acceptance: Test compiles, runs, fails
+  - Acceptance: Both tests compile and run, fail as expected (NotImplementedException)
 
-- [ ] **T009** [P] Integration test: Index handles entity modification with alias changes
-  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
-  - Test: `InMemoryReadableIndex_EntityModified_UpdatesAliases_RemovesOldAddsNew()`
-  - Setup: Simulate ChangeType.Modified, compare old vs new aliases
-  - Acceptance: Test compiles, runs, fails
+- [x] **T009** ✅ [P] Integration test: Index handles entity modification with alias changes
+  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs` ✅
+  - Tests: 2 modification tests (alias updates, content changes)
+  - Setup: Simulate ChangeType.Modified, verify old aliases removed and new ones added
+  - Acceptance: Both tests compile and run, fail as expected (NotImplementedException)
 
-- [ ] **T010** [P] Integration test: Index handles entity deletion
-  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
-  - Test: `InMemoryReadableIndex_EntityDeleted_RemovesAllAliases()`
-  - Setup: Simulate ChangeType.Deleted, verify aliases removed
-  - Acceptance: Test compiles, runs, fails
+- [x] **T010** ✅ [P] Integration test: Index handles entity deletion
+  - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs` ✅
+  - Tests: 2 deletion tests (single and multiple aliases removal)
+  - Setup: Simulate ChangeType.Deleted, verify all aliases removed
+  - Acceptance: Both tests compile and run, fail as expected (NotImplementedException)
 
-- [ ] **T011** [P] Integration test: "Last one wins" conflict resolution
-  - File: `tst/RxDatasets.Tests/Indexes/IndexConflictTests.cs`
-  - Test: `InMemoryReadableIndex_AliasCollision_LastOneWins_OverwritesPrevious()`
-  - Setup: Two entities generate same alias, verify latest entity wins
-  - Acceptance: Test compiles, runs, fails
+- [x] **T011** ✅ [P] Integration test: "Last one wins" conflict resolution
+  - File: `tst/RxDatasets.Tests/Indexes/IndexConflictTests.cs` ✅
+  - Tests: 4 conflict resolution tests (collisions, overwrites, partial conflicts)
+  - Setup: Multiple entities generating same aliases, verify latest entity wins
+  - Acceptance: All 4 tests compile and run, fail as expected (NotImplementedException)
 
-- [ ] **T012** [P] Integration test: gRPC reader service routing with indexName parameter
-  - File: `tst/RxDatasets.Tests/Indexes/IndexGrpcReaderTests.cs`
-  - Test: `GrpcReaderService_Read_WithIndexName_RoutesToIndex()`
-  - Setup: Mock gRPC service, verify indexName routing logic, Assert.Fail
-  - Acceptance: Test compiles, runs, fails
+- [x] **T012** ✅ [P] Integration test: gRPC reader service routing with indexName parameter
+  - File: `tst/RxDatasets.Tests/Indexes/IndexGrpcReaderTests.cs` ✅
+  - Tests: 5 routing tests (Get, BatchGet, List, Count across multiple indexes)
+  - Setup: Multiple named indexes, verify gRPC requests routed correctly
+  - Acceptance: All 5 tests compile and run, fail as expected (NotImplementedException)
 
 ---
 
