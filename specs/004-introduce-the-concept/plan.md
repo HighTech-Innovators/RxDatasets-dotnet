@@ -136,17 +136,17 @@ testapps/
    - **IndexRegistration**: DI helper class with generic registration methods
    - No new entities; alias is computed value derived from entity content
 
-2. **API contracts** (`contracts/`):
-   - Define IDatasetIndex<T> interface contract with method signatures
-   - gRPC service extension: optional indexName parameter in Read, ListChildren, CountChildren
+2. **API contracts** (contracts/):
+   - Define IDatasetIndex interface contract with method signatures: Read(), BatchRead(), CountChildren()
+   - gRPC service extension: optional indexName parameter in Read(), BatchRead(), CountChildren()
    - Error scenarios: invalid alias paths, non-existent indexes, ambiguous aliases
    - Change feed contract: how alias changes propagate (via underlying reader notifications)
 
 3. **Test scenarios** (contract tests):
-   - **Contract tests**:
-     - Read via valid alias → returns entity data
-     - ListChildren with alias prefix → returns all matching entities
-     - CountChildren with alias prefix → returns correct count
+   - Contract tests:
+     - Read(aliasPath) via valid alias → returns entity data
+     - BatchRead([aliasPath, ...]) via valid aliases → returns multiple entities
+     - CountChildren(aliasPrefix) with alias prefix → returns correct count
      - Invalid alias → throws IndexOutOfRangeException or NotFoundException
      - Read via primary ID when alias exists → still works (no interference)
    
@@ -161,10 +161,11 @@ testapps/
      - Two entities generate same alias → last one wins, overwrites previous
      - Alias collision resolution order → deterministic based on change feed order
 
-4. **Quickstart** (`quickstart.md`):
+4. **Quickstart** (quickstart.md):
    - Register index: `services.AddDatasetIndex<LinkEntity>("links_by_item", (name, link) => GenerateAliases(link))`
    - Read via alias: `var link = await index.Read("items/item1/links/l001")`
-   - ListChildren: `var allItemLinks = await index.ListChildren("items/item1/links")`
+   - BatchRead via aliases: `var links = await index.BatchRead(["items/item1/links/l001", "items/item2/links/l002"])`
+   - CountChildren at alias prefix: `var count = await index.CountChildren("items/item1/links")`
    - Integration with gRPC: client calls `Read(indexName: "links_by_item", path: "items/item1/links/l001")`
 
 5. **Agent file update**:
@@ -190,20 +191,20 @@ testapps/
    - Implement ongoing change subscription (deltas)
    - Implement state management (alias maps, diff tracking)
 
-3. **Read Operations** (Phase 2c):
+3. Read Operations (Phase 2c):
    - Implement Read() with alias resolution → batch read on underlying reader [P]
-   - Implement ListChildren() with alias prefix matching [P]
-   - Implement CountChildren() with alias filtering [P]
+   - Implement BatchRead() with multiple alias resolution → batch read on underlying reader [P]
+   - Implement CountChildren() with alias prefix filtering [P]
 
 4. **DI & Registration** (Phase 2d):
    - Create IndexExtensions static class with registration methods [P]
    - Implement AddDatasetIndex<T>() extension method
    - Implement type-safe indexing by name
 
-5. **gRPC Integration** (Phase 2e):
-   - Extend GrpcReaderServiceImpl with index-aware overloads [P]
+5. gRPC Integration (Phase 2e):
+   - Extend GrpcReaderServiceImpl with index-aware overloads for Read(), BatchRead(), CountChildren() [P]
    - Implement index resolution by name from DI container
-   - Implement request routing (index vs. direct reader)
+   - Implement request routing (index vs. direct reader based on indexName parameter)
 
 6. **Unit Tests** (Phase 2f):
    - Basic read/write scenario tests [P]
