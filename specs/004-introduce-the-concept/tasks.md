@@ -40,15 +40,15 @@
 
 ## Phase 3.1: Setup
 
-- [x] **T001** Create `src/RxDatasets.Abstractions/IDatasetIndex.cs` file structure
+- [ ] **T001** Create `src/RxDatasets.Abstractions/IDatasetIndex.cs` file structure
   - Create new folder if needed; file will contain interface definition
   - Files: `src/RxDatasets.Abstractions/IDatasetIndex.cs`
 
-- [x] **T002** Create `src/RxDatasets/Indexes/` folder and implementation files
+- [ ] **T002** Create `src/RxDatasets/Indexes/` folder and implementation files
   - Create folder; add `InMemoryReadableIndex.cs` and supporting types
   - Files: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
 
-- [x] **T003** [P] Verify xUnit and testhost dependencies
+- [ ] **T003** [P] Verify xUnit and testhost dependencies
   - Confirm xUnit, testhost, System.Reactive in project file
   - Files: `src/RxDatasets/RxDatasets.csproj`
 
@@ -58,55 +58,55 @@
 
 **CRITICAL**: These tests MUST be written and MUST FAIL before ANY implementation starts.
 
-- [x] **T004** [P] Contract test: IDatasetIndex.Read() via valid alias
+- [ ] **T004** [P] Contract test: IDatasetIndex.Read() via valid alias
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_Read_ValidAlias_ReturnsEntity()`
   - Setup: Create test with mock reader, verify Read() signature, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
 
-- [x] **T005** [P] Contract test: IDatasetIndex.BatchRead() via multiple aliases
+- [ ] **T005** [P] Contract test: IDatasetIndex.BatchRead() via multiple aliases
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_BatchRead_MultipleAliases_ReturnsEntities()`
   - Setup: Test multiple alias resolution, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
 
-- [x] **T006** [P] Contract test: IDatasetIndex.CountChildren() with alias prefix
+- [ ] **T006** [P] Contract test: IDatasetIndex.CountChildren() with alias prefix
   - File: `tst/RxDatasets.Tests/Indexes/IndexContractTests.cs`
   - Test: `IDatasetIndex_CountChildren_WithPrefix_ReturnsCount()`
   - Setup: Test prefix-based counting, Assert.Fail (not implemented)
   - Acceptance: Test compiles, runs, fails with NotImplementedException
 
-- [x] **T007** [P] Integration test: Index initialization via ListChanges replay
+- [ ] **T007** [P] Integration test: Index initialization via ListChanges replay
   - File: `tst/RxDatasets.Tests/Indexes/IndexInitializationTests.cs`
   - Test: `InMemoryReadableIndex_Initialize_ReplayChangeStream_PopulatesMaps()`
   - Setup: Mock change stream with 3 entities, verify maps populated
   - Acceptance: Test compiles, runs, fails (maps empty until implementation)
 
-- [x] **T008** [P] Integration test: Index handles entity creation
+- [ ] **T008** [P] Integration test: Index handles entity creation
   - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
   - Test: `InMemoryReadableIndex_EntityCreated_AddsAliasesToMaps()`
   - Setup: Simulate ChangeType.Created event, verify alias mapping
   - Acceptance: Test compiles, runs, fails
 
-- [x] **T009** [P] Integration test: Index handles entity modification with alias changes
+- [ ] **T009** [P] Integration test: Index handles entity modification with alias changes
   - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
   - Test: `InMemoryReadableIndex_EntityModified_UpdatesAliases_RemovesOldAddsNew()`
   - Setup: Simulate ChangeType.Modified, compare old vs new aliases
   - Acceptance: Test compiles, runs, fails
 
-- [x] **T010** [P] Integration test: Index handles entity deletion
+- [ ] **T010** [P] Integration test: Index handles entity deletion
   - File: `tst/RxDatasets.Tests/Indexes/IndexChangeHandlingTests.cs`
   - Test: `InMemoryReadableIndex_EntityDeleted_RemovesAllAliases()`
   - Setup: Simulate ChangeType.Deleted, verify aliases removed
   - Acceptance: Test compiles, runs, fails
 
-- [x] **T011** [P] Integration test: "Last one wins" conflict resolution
+- [ ] **T011** [P] Integration test: "Last one wins" conflict resolution
   - File: `tst/RxDatasets.Tests/Indexes/IndexConflictTests.cs`
   - Test: `InMemoryReadableIndex_AliasCollision_LastOneWins_OverwritesPrevious()`
   - Setup: Two entities generate same alias, verify latest entity wins
   - Acceptance: Test compiles, runs, fails
 
-- [x] **T012** [P] Integration test: gRPC reader service routing with indexName parameter
+- [ ] **T012** [P] Integration test: gRPC reader service routing with indexName parameter
   - File: `tst/RxDatasets.Tests/Indexes/IndexGrpcReaderTests.cs`
   - Test: `GrpcReaderService_Read_WithIndexName_RoutesToIndex()`
   - Setup: Mock gRPC service, verify indexName routing logic, Assert.Fail
@@ -118,38 +118,38 @@
 
 **All tests from Phase 3.2 MUST be failing before starting Phase 3.3.**
 
-- [x] **T013** [P] Implement IDatasetIndex<TEntity> interface
+- [ ] **T013** [P] Implement IDatasetIndex<TEntity> interface
   - File: `src/RxDatasets.Abstractions/IDatasetIndex.cs`
   - Define: Read(), BatchRead(), CountChildren() method signatures
   - Constraints: Does NOT inherit from IDatasetReader; excludes ListChanges(), ListChildren()
   - Acceptance: Compiles; all tests T004-T006 still fail (no implementation yet)
 
-- [x] **T014** [P] Implement InMemoryReadableIndex<TEntity> constructor and initialization
+- [ ] **T014** [P] Implement InMemoryReadableIndex<TEntity> constructor and initialization
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Constructor: (string indexName, IDatasetReader<TEntity>, Func<string, TEntity, string[]>)
   - Initialize: Two internal dictionaries (aliasPath→entityName, entityName→aliases)
   - Initialization logic: Replay ListChanges() to populate maps
   - Acceptance: Compiles; initialization test (T007) starts passing
 
-- [x] **T015** [P] Implement AliasResolutionState helper type
+- [ ] **T015** [P] Implement AliasResolutionState helper type
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` (internal struct/record)
   - Fields: AliasToPrimaryName, PrimaryNameToAliases, PreviousAliases
   - Purpose: Manage state transitions during change processing
   - Acceptance: Compiles; no visible public changes; supports T014
 
-- [x] **T016** Implement InMemoryReadableIndex.Read() method
+- [ ] **T016** Implement InMemoryReadableIndex.Read() method
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Lookup alias → get primary ID → call underlyingReader.Read()
   - Error: Throw IndexOutOfRangeException if alias not found
   - Acceptance: Test T004 passes
 
-- [x] **T017** Implement InMemoryReadableIndex.BatchRead() method
+- [ ] **T017** Implement InMemoryReadableIndex.BatchRead() method
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Map aliases to primary IDs, call underlyingReader.BatchRead(), yield results
   - Behavior: Skip non-existent aliases (no error)
   - Acceptance: Test T005 passes
 
-- [x] **T018** Implement InMemoryReadableIndex.CountChildren() method
+- [ ] **T018** Implement InMemoryReadableIndex.CountChildren() method
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Iterate AliasToPrimaryName, count keys with given prefix
   - Performance: O(m) where m = matching aliases
@@ -159,25 +159,25 @@
 
 ## Phase 3.4: Change Feed Processing
 
-- [x] **T019** Implement change notification handler: ChangeType.Created
+- [ ] **T019** Implement change notification handler: ChangeType.Created
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Compute aliases via mapping function, add to both maps
   - Integration: Triggered by ListChanges() subscription
   - Acceptance: Test T008 passes
 
-- [x] **T020** Implement change notification handler: ChangeType.Modified with alias diff
+- [ ] **T020** Implement change notification handler: ChangeType.Modified with alias diff
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Compute new aliases, diff vs previous, remove old/add new
   - Diff algorithm: Compare PrimaryNameToAliases vs new computed aliases
   - Acceptance: Test T009 passes
 
-- [x] **T021** Implement change notification handler: ChangeType.Deleted
+- [ ] **T021** Implement change notification handler: ChangeType.Deleted
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Remove all aliases for entity from both maps
   - Cleanup: Also remove entity from PreviousAliases
   - Acceptance: Test T010 passes
 
-- [x] **T022** Implement "last one wins" conflict resolution
+- [ ] **T022** Implement "last one wins" conflict resolution
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: In AliasToPrimaryName, overwrite if alias already exists
   - Behavior: Deterministic based on change feed order
@@ -187,20 +187,20 @@
 
 ## Phase 3.5: DI & Registration
 
-- [x] **T023** [P] Create IndexExtensions helper class for DI registration
+- [ ] **T023** [P] Create IndexExtensions helper class for DI registration
   - File: `src/RxDatasets/IndexExtensions.cs` (new)
   - Method: AddDatasetIndex<TEntity>(services, indexName, aliasMappingFunc)
   - Pattern: Extension method on IServiceCollection
   - Registration: Store index in DI container by name
   - Acceptance: Compiles; can be injected into services
 
-- [x] **T024** [P] Implement index registry/lookup mechanism
+- [ ] **T024** [P] Implement index registry/lookup mechanism
   - File: `src/RxDatasets/Indexes/IndexRegistry.cs` (new) OR modify IndexExtensions
   - Purpose: Retrieve registered indexes by name at runtime
   - Integration: Used by gRPC reader to route based on indexName parameter
   - Acceptance: Can retrieve registered indexes; returns null or throws if not found
 
-- [x] **T025** Create quickstart test verifying registration and basic usage
+- [ ] **T025** Create quickstart test verifying registration and basic usage
   - File: `tst/RxDatasets.Tests/Indexes/IndexQuickstartTests.cs`
   - Scenario: Register index, inject into service, call Read/BatchRead/CountChildren
   - Acceptance: Quickstart example from quickstart.md compiles and runs successfully
@@ -209,25 +209,25 @@
 
 ## Phase 3.6: gRPC Reader Service Integration
 
-- [x] **T026** Extend GrpcReaderServiceImpl.Read() with optional indexName parameter
+- [ ] **T026** Extend GrpcReaderServiceImpl.Read() with optional indexName parameter
   - File: `src/RxDatasets/GrpcReaderServiceImpl.cs`
   - Logic: If indexName null → direct reader; else → resolve index and route
   - Proto change: Add optional indexName field to ReadRequest
   - Acceptance: Test T012 passes; backward compatible (indexName omitted = direct read)
 
-- [x] **T027** Extend GrpcReaderServiceImpl.BatchRead() with optional indexName parameter
+- [ ] **T027** Extend GrpcReaderServiceImpl.BatchRead() with optional indexName parameter
   - File: `src/RxDatasets/GrpcReaderServiceImpl.cs`
   - Logic: Same routing as Read()
   - Proto change: Add optional indexName field to BatchReadRequest
   - Acceptance: Works with and without indexName; skips non-existent aliases
 
-- [x] **T028** Extend GrpcReaderServiceImpl.CountChildren() with optional indexName parameter
+- [ ] **T028** Extend GrpcReaderServiceImpl.CountChildren() with optional indexName parameter
   - File: `src/RxDatasets/GrpcReaderServiceImpl.cs`
   - Logic: Same routing as Read()
   - Proto change: Add optional indexName field to CountChildrenRequest
   - Acceptance: Returns count from index if indexName provided; else direct reader
 
-- [x] **T029** Implement index routing in gRPC service handler
+- [ ] **T029** Implement index routing in gRPC service handler
   - File: `src/RxDatasets/GrpcReaderServiceImpl.cs`
   - Logic: Resolve index from DI by indexName, handle NotFoundException
   - Error handling: Return gRPC status NOT_FOUND if index not registered
@@ -237,40 +237,40 @@
 
 ## Phase 3.7: Polish & Validation
 
-- [x] **T030** [P] Add unit tests for AliasResolutionState state management
+- [ ] **T030** [P] Add unit tests for AliasResolutionState state management
   - File: `tst/RxDatasets.Tests/Indexes/IndexStateTests.cs`
   - Coverage: Map updates, diff calculation, edge cases (empty, duplicates)
   - Acceptance: 80%+ coverage on state transitions
 
-- [x] **T031** [P] Add edge case tests: empty results, complex hierarchies, special characters
+- [ ] **T031** [P] Add edge case tests: empty results, complex hierarchies, special characters
   - File: `tst/RxDatasets.Tests/Indexes/IndexEdgeCaseTests.cs`
   - Scenarios: No aliases, many aliases, nested paths, unicode aliases
   - Acceptance: All tests pass
 
-- [x] **T032** [P] Add performance tests for alias lookup (O(1) validation)
+- [ ] **T032** [P] Add performance tests for alias lookup (O(1) validation)
   - File: `tst/RxDatasets.Tests/Indexes/IndexPerformanceTests.cs`
   - Benchmark: Read/BatchRead/CountChildren with 1000+ entities
   - Goal: Read < 1ms, CountChildren < 5ms
   - Acceptance: Benchmarks complete; latencies acceptable
 
-- [x] **T033** Add integration test with testhost for realistic scenarios
+- [ ] **T033** Add integration test with testhost for realistic scenarios
   - File: `tst/RxDatasets.Tests/Indexes/IndexTestHostIntegrationTests.cs`
   - Scenario: Real DatasetWriter + InMemoryReadableIndex, gRPC client calls
   - Sequence: Create entities with writer, read via index aliases, verify results
   - Acceptance: End-to-end flow works; gRPC correctly routes through index
 
-- [x] **T034** [P] Update documentation: copilot-instructions.md with new feature
+- [ ] **T034** [P] Update documentation: copilot-instructions.md with new feature
   - File: `.github/copilot-instructions.md`
   - Changes: Add IDatasetIndex, InMemoryReadableIndex, System.Reactive for indexes
   - Keep under 150 lines; preserve manual additions between markers
   - Acceptance: File updated; syntax valid
 
-- [x] **T035** [P] Update README or main docs with index feature overview
+- [ ] **T035** [P] Update README or main docs with index feature overview
   - File: `README.md` or `docs/indexes.md`
   - Content: What indexes are, basic usage, when to use (from quickstart)
   - Acceptance: Linked from main docs; examples work
 
-- [x] **T036** Clean up: Remove duplication, verify no leftover debug code
+- [ ] **T036** Clean up: Remove duplication, verify no leftover debug code
   - File: All modified files (`InMemoryReadableIndex.cs`, `GrpcReaderServiceImpl.cs`, `IndexExtensions.cs`)
   - Checks: No Debug.WriteLine, no TODO comments, consistent formatting
   - Acceptance: Code review ready
