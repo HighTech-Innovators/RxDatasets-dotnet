@@ -57,4 +57,12 @@ public class InMemoryReadableIndex<T> : IDatasetIndex
     {
         throw new NotImplementedException("T018: Count method to be implemented");
     }
+
+    /// <summary>
+    /// Lists all aliases under a given prefix.
+    /// </summary>
+    public Task<(List<string> Names, ulong LatestVersion)> List(string aliasPrefix, CancellationToken ct)
+    {
+        throw new NotImplementedException("T019: List method to be implemented");
+    }
 }

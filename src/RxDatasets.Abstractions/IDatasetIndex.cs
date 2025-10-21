@@ -29,4 +29,12 @@ public interface IDatasetIndex<T>
     /// <param name="aliasPrefix">The prefix to match (e.g., "items/item1/links")</param>
     /// <returns>The count of matching aliases</returns>
     Task<long> Count(string aliasPrefix);
+
+    /// <summary>
+    /// Lists all aliases under a given prefix, returning the same response type as IDatasetReader.List.
+    /// </summary>
+    /// <param name="aliasPrefix">The prefix to match (e.g., "items/item1/links")</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>A tuple of (list of matching aliases, latest version)</returns>
+    Task<(List<string> Names, ulong LatestVersion)> List(string aliasPrefix, CancellationToken ct);
 }
