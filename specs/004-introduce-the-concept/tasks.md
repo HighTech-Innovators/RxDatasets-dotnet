@@ -40,17 +40,20 @@
 
 ## Phase 3.1: Setup
 
-- [ ] **T001** Create `src/RxDatasets.Abstractions/IDatasetIndex.cs` file structure
+- [x] **T001** Create `src/RxDatasets.Abstractions/IDatasetIndex.cs` file structure
   - Create new folder if needed; file will contain interface definition
   - Files: `src/RxDatasets.Abstractions/IDatasetIndex.cs`
+  - ✅ **COMPLETE**: Interface defined with Read(), BatchRead(), CountChildren() methods
 
-- [ ] **T002** Create `src/RxDatasets/Indexes/` folder and implementation files
+- [x] **T002** Create `src/RxDatasets/Indexes/` folder and implementation files
   - Create folder; add `InMemoryReadableIndex.cs` and supporting types
   - Files: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
+  - ✅ **COMPLETE**: Folder created; stub implementation with NotImplementedExceptions ready for T013+
 
-- [ ] **T003** [P] Verify xUnit and testhost dependencies
+- [x] **T003** [P] Verify xUnit and testhost dependencies
   - Confirm xUnit, testhost, System.Reactive in project file
   - Files: `src/RxDatasets/RxDatasets.csproj`
+  - ✅ **COMPLETE**: All dependencies verified; xUnit, testhost, System.Reactive, Google.ProtoBuf, Grpc.Core.Api present
 
 ---
 
