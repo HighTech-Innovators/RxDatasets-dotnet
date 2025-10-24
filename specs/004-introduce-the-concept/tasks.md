@@ -177,11 +177,11 @@
   - Integration: Called via HandleChangeAsync() from change processing loop
   - Acceptance: Handler logic implemented, supports future change subscriptions
 
-- [ ] **T021** Implement change notification handler: ChangeType.Modified with alias diff
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
+- [x] **T021** ✅ Implement change notification handler: ChangeType.Modified with alias diff
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
   - Logic: Compute new aliases, diff vs previous, remove old/add new
   - Diff algorithm: Compare PrimaryNameToAliases vs new computed aliases
-  - Acceptance: Test T009 passes
+  - Acceptance: Test T009 passes ✅
 
 - [ ] **T022** Implement change notification handler: ChangeType.Deleted
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
