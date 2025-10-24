@@ -183,11 +183,11 @@
   - Diff algorithm: Compare PrimaryNameToAliases vs new computed aliases
   - Acceptance: Test T009 passes ✅
 
-- [ ] **T022** Implement change notification handler: ChangeType.Deleted
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
+- [x] **T022** ✅ Implement change notification handler: ChangeType.Deleted
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
   - Logic: Remove all aliases for entity from both maps
   - Cleanup: Also remove entity from PreviousAliases
-  - Acceptance: Test T010 passes
+  - Acceptance: Test T010 passes ✅
 
 - [ ] **T023** Implement "last one wins" conflict resolution
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
