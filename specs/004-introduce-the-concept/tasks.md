@@ -189,11 +189,11 @@
   - Cleanup: Also remove entity from PreviousAliases
   - Acceptance: Test T010 passes ✅
 
-- [ ] **T023** Implement "last one wins" conflict resolution
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
+- [x] **T023** ✅ Implement "last one wins" conflict resolution
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
   - Logic: In AliasToPrimaryName, overwrite if alias already exists
   - Behavior: Deterministic based on change feed order
-  - Acceptance: Test T011 passes
+  - Acceptance: Test T011 passes ✅
 
 ---
 
