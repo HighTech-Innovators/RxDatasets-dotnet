@@ -5,6 +5,32 @@ using RxDatasets.Abstractions;
 namespace RxDatasets.Indexes;
 
 /// <summary>
+/// Helper type for managing alias resolution state during change processing.
+/// Tracks the mapping between aliases and entity names, supporting efficient
+/// state transitions when entities are created, modified, or deleted.
+/// </summary>
+internal record AliasResolutionState
+{
+    /// <summary>
+    /// Maps alias paths to their owning entity name (current state).
+    /// Used for O(1) alias resolution during Get/BatchGet operations.
+    /// </summary>
+    public required ConcurrentDictionary<string, string> AliasToPrimaryName { get; init; }
+    
+    /// <summary>
+    /// Maps entity names to their set of alias paths (current state).
+    /// Used for efficient cleanup during entity modification or deletion.
+    /// </summary>
+    public required ConcurrentDictionary<string, HashSet<string>> PrimaryNameToAliases { get; init; }
+    
+    /// <summary>
+    /// Tracks previous aliases for an entity, used during modification to compute diffs.
+    /// Key: entity name, Value: set of aliases before the modification.
+    /// </summary>
+    public required ConcurrentDictionary<string, HashSet<string>?> PreviousAliases { get; init; }
+}
+
+/// <summary>
 /// An in-memory, read-only index implementation that maps semantic aliases to entity names.
 /// This index maintains two internal maps:
 /// 1. Alias → Primary Entity Name (for O(1) alias resolution)

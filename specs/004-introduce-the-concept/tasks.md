@@ -137,11 +137,11 @@
   - Acceptance: Constructor compiles, initializes correctly, no NotImplementedException
   - Result: All 8 contract tests (T004-T006) now passing ✅
 
-- [ ] **T015** [P] Implement AliasResolutionState helper type
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` (internal struct/record)
+- [x] **T015** ✅ [P] Implement AliasResolutionState helper type
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` (internal record) ✅
   - Fields: AliasToPrimaryName, PrimaryNameToAliases, PreviousAliases
   - Purpose: Manage state transitions during change processing
-  - Acceptance: Compiles; no visible public changes; supports T014
+  - Acceptance: Compiles; internal helper ready for T019-T021
 
 - [ ] **T016** Implement InMemoryReadableIndex.Read() method
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
