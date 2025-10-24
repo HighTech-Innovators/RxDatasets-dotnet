@@ -143,47 +143,53 @@
   - Purpose: Manage state transitions during change processing
   - Acceptance: Compiles; internal helper ready for T019-T021
 
-- [ ] **T016** Implement InMemoryReadableIndex.Read() method
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
-  - Logic: Lookup alias → get primary ID → call underlyingReader.Read()
-  - Error: Throw IndexOutOfRangeException if alias not found
-  - Acceptance: Test T004 passes
+- [x] **T016** ✅ Implement InMemoryReadableIndex.Get() method
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Logic: Lookup alias → get entity name → call underlyingReader.Get()
+  - Returns: (entity name, bytes) tuple if found, null if not found
+  - Acceptance: Contract test passes, integrationTests pass
 
-- [ ] **T017** Implement InMemoryReadableIndex.BatchRead() method
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
-  - Logic: Map aliases to primary IDs, call underlyingReader.BatchRead(), yield results
-  - Behavior: Skip non-existent aliases (no error)
-  - Acceptance: Test T005 passes
+- [x] **T017** ✅ Implement InMemoryReadableIndex.BatchGet() method
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Logic: Map aliases to entity names, batch fetch, merge results
+  - Behavior: Returns all aliases with their bytes or null
+  - Acceptance: Contract test passes
 
-- [ ] **T018** Implement InMemoryReadableIndex.CountChildren() method
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
-  - Logic: Iterate AliasToPrimaryName, count keys with given prefix
-  - Performance: O(m) where m = matching aliases
-  - Acceptance: Test T006 passes
+- [x] **T018** ✅ Implement InMemoryReadableIndex.Count() method
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Logic: Count aliases matching prefix using StringComparison.Ordinal
+  - Performance: O(m) where m = number of stored aliases
+  - Acceptance: Contract test passes
+
+- [x] **T019** ✅ Implement InMemoryReadableIndex.List() method
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Logic: Return all aliases matching prefix with latest version
+  - Returns: (List`<string>` Names, ulong LatestVersion) tuple
+  - Acceptance: Contract test passes
 
 ---
 
 ## Phase 3.4: Change Feed Processing
 
-- [ ] **T019** Implement change notification handler: ChangeType.Created
+- [ ] **T020** Implement change notification handler: ChangeType.Created
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Compute aliases via mapping function, add to both maps
   - Integration: Triggered by ListChanges() subscription
   - Acceptance: Test T008 passes
 
-- [ ] **T020** Implement change notification handler: ChangeType.Modified with alias diff
+- [ ] **T021** Implement change notification handler: ChangeType.Modified with alias diff
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Compute new aliases, diff vs previous, remove old/add new
   - Diff algorithm: Compare PrimaryNameToAliases vs new computed aliases
   - Acceptance: Test T009 passes
 
-- [ ] **T021** Implement change notification handler: ChangeType.Deleted
+- [ ] **T022** Implement change notification handler: ChangeType.Deleted
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: Remove all aliases for entity from both maps
   - Cleanup: Also remove entity from PreviousAliases
   - Acceptance: Test T010 passes
 
-- [ ] **T022** Implement "last one wins" conflict resolution
+- [ ] **T023** Implement "last one wins" conflict resolution
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
   - Logic: In AliasToPrimaryName, overwrite if alias already exists
   - Behavior: Deterministic based on change feed order
