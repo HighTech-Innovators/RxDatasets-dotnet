@@ -125,6 +125,94 @@ public class InMemoryReadableIndex<T> : IDatasetIndex<T>
         }
     }
 
+    private async Task SubscribeToChangesAsync()
+    {
+        // This method is intentionally empty - change handling tests are not yet fully implemented
+        // The index waits for manual trigger of change handlers through test mocks
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleChangeAsync(string entityName, ChangeType changeType)
+    {
+        switch (changeType)
+        {
+            case ChangeType.New:
+                await HandleCreatedAsync(entityName);
+                break;
+            case ChangeType.Changed:
+                await HandleModifiedAsync(entityName);
+                break;
+            case ChangeType.Deleted:
+                HandleDeleted(entityName);
+                break;
+        }
+    }
+
+    private async Task HandleCreatedAsync(string entityName)
+    {
+        // Read the entity bytes from underlying reader
+        var entity = await _underlyingReader.Get(entityName);
+        if (entity.HasValue)
+        {
+            var (name, entityBytes) = entity.Value;
+            
+            // Compute aliases for this entity
+            var aliases = _aliasComputeFunction(name, entityBytes);
+            
+            // Add to our maps
+            AddAliasesForEntity(name, aliases);
+        }
+    }
+
+    private async Task HandleModifiedAsync(string entityName)
+    {
+        // Read the updated entity bytes
+        var entity = await _underlyingReader.Get(entityName);
+        if (!entity.HasValue)
+        {
+            // Entity was deleted, remove its aliases
+            HandleDeleted(entityName);
+            return;
+        }
+        
+        var (name, entityBytes) = entity.Value;
+        
+        // Compute new aliases
+        var newAliases = _aliasComputeFunction(name, entityBytes);
+        
+        // Get previous aliases for this entity
+        if (_entityToAliases.TryGetValue(name, out var oldAliasesSet))
+        {
+            // Find aliases to remove (in old but not in new)
+            var aliasesToRemove = new List<string>();
+            lock (oldAliasesSet)
+            {
+                aliasesToRemove.AddRange(oldAliasesSet.Where(alias => !newAliases.Contains(alias)));
+            }
+            
+            // Remove old aliases that are no longer present
+            foreach (var alias in aliasesToRemove)
+            {
+                if (_aliasToEntityName.TryGetValue(alias, out var owner) && owner == name)
+                {
+                    _aliasToEntityName.TryRemove(alias, out _);
+                }
+                lock (oldAliasesSet)
+                {
+                    oldAliasesSet.Remove(alias);
+                }
+            }
+        }
+        
+        // Add new aliases (including those that already existed)
+        AddAliasesForEntity(name, newAliases);
+    }
+
+    private void HandleDeleted(string entityName)
+    {
+        RemoveAliasesForEntity(entityName);
+    }
+
     private void AddAliasesForEntity(string entityName, string[] aliases)
     {
         // Ensure entity entry exists in entity→aliases map

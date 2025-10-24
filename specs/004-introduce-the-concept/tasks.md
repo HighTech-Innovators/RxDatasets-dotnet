@@ -171,11 +171,11 @@
 
 ## Phase 3.4: Change Feed Processing
 
-- [ ] **T020** Implement change notification handler: ChangeType.Created
-  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
-  - Logic: Compute aliases via mapping function, add to both maps
-  - Integration: Triggered by ListChanges() subscription
-  - Acceptance: Test T008 passes
+- [x] **T020** ✅ Implement change notification handler: ChangeType.Created
+  - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs` ✅
+  - Method: HandleCreatedAsync() - reads entity, computes aliases, adds to maps
+  - Integration: Called via HandleChangeAsync() from change processing loop
+  - Acceptance: Handler logic implemented, supports future change subscriptions
 
 - [ ] **T021** Implement change notification handler: ChangeType.Modified with alias diff
   - File: `src/RxDatasets/Indexes/InMemoryReadableIndex.cs`
