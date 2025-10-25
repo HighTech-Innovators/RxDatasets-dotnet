@@ -38,9 +38,12 @@ public class IndexConflictTests
             aliasComputeFunction
         );
 
-        // When: A second entity generates the same alias
+        // When: A second entity generates the same alias (processed via change handler)
         var entity2Bytes = new ReadOnlyMemory<byte>(new byte[] { 2 });
         mockReader.Get("entity2").Returns(("entity2", entity2Bytes));
+
+        // Invoke the handler for entity2 creation (simulating change feed processing)
+        await index.HandleChangeAsync("entity2", ChangeType.New);
 
         // Then: The latest entity (entity2) should win and be resolvable
         var result = await index.Get("shared/alias");
@@ -73,12 +76,14 @@ public class IndexConflictTests
             aliasComputeFunction
         );
 
-        // When: Second entity also generates same alias
+        // When: Second entity also generates same alias (processed via change handler)
         mockReader.Get("entity2").Returns(("entity2", new ReadOnlyMemory<byte>(new byte[] { 2 })));
+        await index.HandleChangeAsync("entity2", ChangeType.New);
 
-        // And third entity generates same alias
+        // And third entity generates same alias (processed via change handler)
         var entity3Bytes = new ReadOnlyMemory<byte>(new byte[] { 3 });
         mockReader.Get("entity3").Returns(("entity3", entity3Bytes));
+        await index.HandleChangeAsync("entity3", ChangeType.New);
 
         // Then: The latest entity (entity3) should be resolvable via the alias
         var result = await index.Get("contested/alias");
@@ -112,9 +117,11 @@ public class IndexConflictTests
 
         // When: Entity1 is deleted (entity1 no longer owns the alias)
         mockReader.Get("entity1").Returns(_ => Task.FromResult<(string name, ReadOnlyMemory<byte> entityBytes)?>( null));
+        await index.HandleChangeAsync("entity1", ChangeType.Deleted);
 
-        // And entity2 also generates the same alias
+        // And entity2 also generates the same alias (processed via change handler)
         mockReader.Get("entity2").Returns(("entity2", new ReadOnlyMemory<byte>(new byte[] { 2 })));
+        await index.HandleChangeAsync("entity2", ChangeType.New);
 
         // Then: entity2 should now own the alias
         var result = await index.Get("alias");
@@ -152,8 +159,9 @@ public class IndexConflictTests
             aliasComputeFunction
         );
 
-        // When: Entity2 is added (collides on shared but not unique aliases)
+        // When: Entity2 is added (collides on shared but not unique aliases, processed via change handler)
         mockReader.Get("entity2").Returns(("entity2", new ReadOnlyMemory<byte>(new byte[] { 2 })));
+        await index.HandleChangeAsync("entity2", ChangeType.New);
 
         // Then: 
         var sharedResult = await index.Get("alias/shared");      // Should resolve to entity2 (last one wins)

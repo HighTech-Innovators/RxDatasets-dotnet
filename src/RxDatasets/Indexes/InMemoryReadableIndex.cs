@@ -132,7 +132,7 @@ public class InMemoryReadableIndex<T> : IDatasetIndex<T>
         await Task.CompletedTask;
     }
 
-    private async Task HandleChangeAsync(string entityName, ChangeType changeType)
+    internal async Task HandleChangeAsync(string entityName, ChangeType changeType)
     {
         switch (changeType)
         {
