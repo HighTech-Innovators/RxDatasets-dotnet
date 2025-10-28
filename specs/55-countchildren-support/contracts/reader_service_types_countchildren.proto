@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.type;
+
+option java_multiple_files = true;
+option java_outer_classname = "CountChildrenTypesProto";
+option java_package = "com.hightechinnovators.dtos.type";
+option csharp_namespace = "Hightechinnovators.Dtos.Type";
+
+// Request to count children entities under a parent
+message CountChildrenRequest {
+    // The parent path for which to count child entities
+    string parent = 1;
+}
+
+// Response containing the count of children
+message CountChildrenResponse {
+    // The number of child entities under the specified parent
+    uint32 count = 1;
+}

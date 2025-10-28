@@ -500,5 +500,214 @@ namespace RxDatasets.StorageTests
                 await factory1.DisposeAsync();
             }
         }
+
+        /// <summary>
+        /// T020: Integration test for gRPC CountChildren with testHost
+        /// Verifies that CountChildren RPC method works through gRPC ReaderService
+        /// and returns correct counts for parent hierarchies
+        /// </summary>
+        [Fact]
+        public async Task CountChildren_ReturnsCorrectCountForGivenParent()
+        {
+            // Arrange
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Create a parent-child hierarchy
+            const string parentPath = "departments/engineering";
+            var childEntities = new[]
+            {
+                new Demodto { Name = "departments/engineering/employees/alice", SomeString = "engineer" },
+                new Demodto { Name = "departments/engineering/employees/bob", SomeString = "engineer" },
+                new Demodto { Name = "departments/engineering/employees/charlie", SomeString = "engineer" },
+            };
+
+            // Write child entities
+            foreach (var entity in childEntities)
+            {
+                var response = await writerClient.PutAsync(entity);
+                VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
+            }
+
+            // Allow time for entities to be indexed
+            await Task.Delay(100);
+
+            // Act: Call CountChildren RPC
+            var countRequest = new CountChildrenRequest { Parent = parentPath };
+            var countResponse = await readerClient.CountChildrenAsync(countRequest);
+
+            // Assert
+            countResponse.Should().NotBeNull();
+            countResponse.Count.Should().Be(3u, "Should count 3 children under departments/engineering");
+
+            await factory1.DisposeAsync();
+        }
+
+        /// <summary>
+        /// T020 (continued): Test CountChildren with no children returns 0
+        /// </summary>
+        [Fact]
+        public async Task CountChildren_WithNoChildren_ReturnsZero()
+        {
+            // Arrange
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Act: Call CountChildren for a parent with no children
+            const string emptyParentPath = "departments/nonexistent";
+            var countRequest = new CountChildrenRequest { Parent = emptyParentPath };
+            var countResponse = await readerClient.CountChildrenAsync(countRequest);
+
+            // Assert
+            countResponse.Should().NotBeNull();
+            countResponse.Count.Should().Be(0u, "Should return 0 for parent with no children");
+
+            await factory1.DisposeAsync();
+        }
+
+        /// <summary>
+        /// T021: Integration test for concurrent gRPC CountChildren calls through testHost
+        /// Verifies that multiple concurrent CountChildren calls return consistent results
+        /// </summary>
+        [Fact]
+        public async Task CountChildren_ConcurrentCalls_ReturnConsistentResults()
+        {
+            // Arrange
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            const string parentPath = "teams/frontend";
+            const int childCount = 10;
+
+            // Write multiple child entities
+            for (int i = 0; i < childCount; i++)
+            {
+                var entity = new Demodto
+                {
+                    Name = $"teams/frontend/developers/dev{i:D2}",
+                    SomeString = $"developer_{i}"
+                };
+                var response = await writerClient.PutAsync(entity);
+                VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
+            }
+
+            // Allow time for entities to be indexed
+            await Task.Delay(100);
+
+            // Act: Make multiple concurrent CountChildren calls
+            var countTasks = Enumerable.Range(0, 5)
+                .Select(_ => readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = parentPath }).ResponseAsync)
+                .ToList();
+
+            var results = await Task.WhenAll(countTasks);
+
+            // Assert: All concurrent calls should return the same count
+            results.Should().AllSatisfy(count => count.Count.Should().Be((uint)childCount));
+
+            await factory1.DisposeAsync();
+        }
+
+        /// <summary>
+        /// T022: Integration test for gRPC CountChildren with different storage providers
+        /// Note: Using InMemory for now; can be extended to test other providers
+        /// </summary>
+        [Fact]
+        public async Task CountChildren_WithMultipleHierarchyLevels_CountsAllDescendants()
+        {
+            // Arrange
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Create entities at multiple hierarchy levels
+            var entities = new[]
+            {
+                new Demodto { Name = "company/division/department", SomeString = "direct_child_1" },
+                new Demodto { Name = "company/division/team", SomeString = "direct_child_2" },
+                new Demodto { Name = "company/division/department/section", SomeString = "nested_child" },
+                new Demodto { Name = "company/division/department/section/unit", SomeString = "deep_nested" },
+            };
+
+            foreach (var entity in entities)
+            {
+                var response = await writerClient.PutAsync(entity);
+                VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
+            }
+
+            // Allow time for entities to be indexed
+            await Task.Delay(100);
+
+            // Act: Count children of "company/division"
+            const string parentPath = "company/division";
+            var countRequest = new CountChildrenRequest { Parent = parentPath };
+            var countResponse = await readerClient.CountChildrenAsync(countRequest);
+
+            // Assert: Should count all descendants under the parent path
+            // This includes both direct children and nested descendants
+            countResponse.Should().NotBeNull();
+            countResponse.Count.Should().Be(4u, "Should count all descendants including nested ones");
+
+            await factory1.DisposeAsync();
+        }
+
+        /// <summary>
+        /// T026: End-to-end validation that CountChildren works through gRPC ReaderService
+        /// Comprehensive test ensuring the feature integrates properly end-to-end
+        /// </summary>
+        [Fact]
+        public async Task CountChildren_EndToEnd_VerifiesFeatureIntegration()
+        {
+            // Arrange
+            var storageProvider = new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>());
+            var (factory1, _, channel) = await CreateWebhostFactoryAsync(storage: storageProvider);
+
+            var writerClient = new WriterService.WriterServiceClient(channel);
+            var readerClient = new ReaderService.ReaderServiceClient(channel);
+
+            // Create initial data
+            const string mainParent = "projects/mobile";
+            var initialEntities = new[]
+            {
+                new Demodto { Name = "projects/mobile/ios/app", SomeString = "ios_app" },
+                new Demodto { Name = "projects/mobile/android/app", SomeString = "android_app" },
+            };
+
+            foreach (var entity in initialEntities)
+            {
+                var response = await writerClient.PutAsync(entity);
+                VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
+            }
+
+            await Task.Delay(100);
+
+            // Act & Assert: Verify initial count
+            var initialCount = await readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = mainParent });
+            initialCount.Count.Should().Be(2u);
+
+            // Add more children
+            var newEntity = new Demodto { Name = "projects/mobile/web/app", SomeString = "web_app" };
+            await writerClient.PutAsync(newEntity);
+            await Task.Delay(100);
+
+            // Assert: Verify count increased
+            var updatedCount = await readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = mainParent });
+            updatedCount.Count.Should().Be(3u, "Count should increase after adding new child");
+
+            // Assert: Verify root path also works
+            var rootCount = await readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = "" });
+            rootCount.Count.Should().BeGreaterThanOrEqualTo(3u, "Root path should count all top-level entities");
+
+            await factory1.DisposeAsync();
+        }
     }
 }

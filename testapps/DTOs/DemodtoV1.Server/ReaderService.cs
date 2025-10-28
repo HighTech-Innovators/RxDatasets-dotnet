@@ -62,6 +62,19 @@ public class ReaderServiceImpl(GrpcReaderServiceImpl<Demodto> grpcReaderServiceI
         }
     }
 
+    public override async Task<CountChildrenResponse> CountChildren(CountChildrenRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var count = await grpcReaderServiceImpl.CountChildren(request.Parent, context.CancellationToken);
+            return new CountChildrenResponse { Count = count };
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+        }
+    }
+
     private ListChangesResponse Map(GrpcReaderServiceImpl<Demodto>.ListChangesResponse response)
     {
         return new()

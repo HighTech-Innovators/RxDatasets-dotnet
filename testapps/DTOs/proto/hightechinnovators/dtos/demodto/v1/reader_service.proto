@@ -22,6 +22,9 @@ service ReaderService {
 
     // Returns the names of changed entities since the last dataset_version
     rpc ListChanges(hightechinnovators.dtos.type.ListChangesRequest) returns (hightechinnovators.dtos.type.ListChangesResponse);
+
+    // Count child entities under a parent path
+    rpc CountChildren(hightechinnovators.dtos.type.CountChildrenRequest) returns (hightechinnovators.dtos.type.CountChildrenResponse);
 }
 
 message GetDemodtoRequest {

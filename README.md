@@ -27,6 +27,15 @@ Reactive Datasets is a project which provides an efficient way to managing statu
 
 [A README for the diskformat used to store entities](src/RxDatasets/diskFormat.md)
 
+## Features
+
+- **Entity Management**: Persistent storage and retrieval of protobuf-formatted entities
+- **Reactive Updates**: Delta-based change tracking and notification system
+- **Storage Flexibility**: Support for multiple backends (Local Disk, Azure Blob, S3, Google Cloud Storage, Minio)
+- **Change Tracking**: Efficient tracking of additions, modifications, and deletions
+- **CountChildren**: Query hierarchical entity counts by parent path (useful for testing and validation)
+- **gRPC Integration**: Full gRPC service support for remote access to dataset operations
+
   
 
 ## Configurations
