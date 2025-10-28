@@ -185,4 +185,31 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 
     private readonly int _defaultPageSize = AsInt(config["PageSize"]) ?? 1000;
     private readonly int _maxPageSize = AsInt(config["MaxPageSize"]) ?? 1000;
+
+    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken)
+    {
+        using var cts = CombiTokenSource(cancellationToken);
+        try
+        {
+            logger.LogDebug("CountChildren called for parent: {Parent}", parent ?? "<null>");
+
+            var count = await dataset.CountChildren(parent ?? "", cts.Token);
+
+            logger.LogDebug("CountChildren returned count {Count} for parent {Parent}", count, parent ?? "<null>");
+
+            return count;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            if (appLifetime.ApplicationStopping.IsCancellationRequested)
+            {
+                throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
+            }
+            throw;
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
 }

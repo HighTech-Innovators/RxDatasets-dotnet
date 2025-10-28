@@ -1,0 +1,9 @@
+// Add to existing ReaderService definition in reader_service.proto files:
+
+service ReaderService {
+    // ... existing methods ...
+    
+    // Count child entities under a parent path
+    rpc CountChildren(hightechinnovators.dtos.type.CountChildrenRequest) 
+        returns (hightechinnovators.dtos.type.CountChildrenResponse);
+}

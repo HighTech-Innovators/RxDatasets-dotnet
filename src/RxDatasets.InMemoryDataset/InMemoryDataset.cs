@@ -376,12 +376,45 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
-        var prefix = parent + "/";
-        var names = GetAll(ulong.MaxValue, CancellationToken.None)
-            .Where(ent => ent.name.StartsWith(prefix, StringComparison.Ordinal))
-            .Select(s => s.name).ToList();
+        List<string> names;
+
+        if (string.IsNullOrEmpty(parent) || parent is "/")
+        {
+            // For root path, return only direct children (names with exactly one "/" segment)
+            names = GetAll(ulong.MaxValue, ct)
+                .Where(ent => !string.IsNullOrEmpty(ent.name) && ent.name.Count(c => c == '/') == 1)
+                .Select(s => s.name)
+                .ToList();
+        }
+        else
+        {
+            var prefix = parent + "/";
+            names = GetAll(ulong.MaxValue, ct)
+                .Where(ent => ent.name.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(s => s.name).ToList();
+        }
 
         return Task.FromResult<(List<string> Names, ulong LatestVersion)>((names, 0));
+    }
+
+    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Always count all descendants under parent, regardless of nesting level
+        // (different from List() which has backwards-compatibility asymmetric behavior)
+        using var _ = await Lock(cancellationToken);
+        
+        if (string.IsNullOrEmpty(parent) || parent is "/")
+        {
+            // For root path, count all entities
+            return (uint)_currentSnapshot.Count;
+        }
+        else
+        {
+            var prefix = parent + "/";
+            return (uint)_currentSnapshot.Keys.Count(key => key.StartsWith(prefix, StringComparison.Ordinal));
+        }
     }
 
     private async Task<IDisposable> Lock()
