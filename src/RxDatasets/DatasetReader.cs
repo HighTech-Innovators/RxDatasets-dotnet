@@ -330,6 +330,26 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     }
 
+    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var indexRef = ThrowIfNotInitialized();
+
+        if (string.IsNullOrEmpty(parent) || parent is "/")
+        {
+            // For root path, count all non-deleted entities
+            return (uint)indexRef.Entities
+                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
+        }
+
+        IEnumerable<string> allNamesGetter = indexRef.Entities
+            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+            .Select(entity => entity.Key);
+
+        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
+        return (uint)childrenIndex.Count();
+    }
+
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
     {
         var tempState = datasetState;

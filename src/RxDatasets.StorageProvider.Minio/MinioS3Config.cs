@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
 namespace RxDatasets.StorageProvider.Minio;
+
 [RegionOrEndpointRequiredAttribute]
 public class MinioS3Config
 {

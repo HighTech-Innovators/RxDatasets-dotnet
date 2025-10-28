@@ -29,17 +29,17 @@ public class StorageCleanTaskTests
 
     private const ulong UNIT_KB = 1024;
 
-      private readonly ILoggerFactory logFactory = LoggerFactory.Create(builder =>
-        {
-            builder
-                .SetMinimumLevel(LogLevel.Trace)              // be as chatty as you want
-                .AddSimpleConsole(o =>                        // prettier console output
-                {
-                    o.SingleLine = true;
-                    o.TimestampFormat = "HH:mm:ss.fff ";
-                    o.IncludeScopes = true;
-                });
-        });
+    private readonly ILoggerFactory logFactory = LoggerFactory.Create(builder =>
+      {
+          builder
+              .SetMinimumLevel(LogLevel.Trace)              // be as chatty as you want
+              .AddSimpleConsole(o =>                        // prettier console output
+              {
+                  o.SingleLine = true;
+                  o.TimestampFormat = "HH:mm:ss.fff ";
+                  o.IncludeScopes = true;
+              });
+      });
 
     private async Task<(IStorageProvider<object>, DatasetReader<object>, DatasetWriter<object>)> SetupDataset(TestScheduler ts)
     {
@@ -133,12 +133,12 @@ public class StorageCleanTaskTests
         ulong secondSnapshot = snapshots[^1].Version;
 
         await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
-        await storageProvider.StoreProcessedVersion("unittest", 10+N);
+        await storageProvider.StoreProcessedVersion("unittest", 10 + N);
         await Task.Delay(TimeSpan.FromSeconds(0.2));
 
         //act
         await CreateNumberOf1Deltas(datasetWriter, 5); //creates 6th snapshot
-        await storageProvider.StoreProcessedVersion("unittest", 15+N);
+        await storageProvider.StoreProcessedVersion("unittest", 15 + N);
         await Task.Delay(TimeSpan.FromSeconds(0.2));
 
 
