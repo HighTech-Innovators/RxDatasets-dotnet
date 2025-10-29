@@ -55,7 +55,20 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return _protoParser.ParseFrom(entity.entityBytes.Span);
     }
 
+    /// <summary>
+    /// Lists child entities for the given parent.
+    /// Deprecated: Use ListChildren to get IDs/names instead, then BatchGet to retrieve entities.
+    /// </summary>
+    [Obsolete("Use GetChildren instead")]
     public async Task<(ICollection<TEntity> batch, string? nextPageToken)> List(string parent, int pageSize, string pageToken, CancellationToken cancellationToken)
+    {
+        return await GetChildren(parent, pageSize, pageToken, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lists child entities for the given parent.
+    /// </summary>
+    public async Task<(ICollection<string> childrenIds, string? nextPageToken)> ListChildren(string parent, int pageSize, string pageToken, CancellationToken cancellationToken)
     {
         var isPaging = pageToken?.Length > 0;
         using var cts = CombiTokenSource(cancellationToken);
@@ -71,15 +84,12 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             }
             else
             {
-                (names, toDatasetVersion) = await dataset.List(parent, cancellationToken);
+                (names, toDatasetVersion) = await dataset.List(parent, cts.Token);
             }
 
             var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion);
 
-            var batch = await BatchGet(paginatedNames, parent, cts.Token);
-
-
-            return (batch, nextPageToken);
+            return (paginatedNames, nextPageToken);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -90,8 +100,20 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             }
             // For client-initiated cancellations, you don't necessarily need to throw an RpcException
             // because the client already knows it cancelled the operation.
-            return (Array.Empty<TEntity>(), null);
+            return (Array.Empty<string>(), null);
         }
+    }
+
+    /// <summary>
+    /// Gets child entities for the given parent.
+    /// This method combines ListChildren and BatchGet to retrieve the full entities.
+    /// </summary>
+    public async Task<(ICollection<TEntity> batch, string? nextPageToken)> GetChildren(string parent, int pageSize, string pageToken, CancellationToken cancellationToken)
+    {
+        using var cts = CombiTokenSource(cancellationToken);
+        var (childrenIds, nextPageToken) = await ListChildren(parent, pageSize, pageToken, cts.Token);
+        var batch = await BatchGet(childrenIds, parent, cts.Token);
+        return (batch, nextPageToken);
     }
 
     public async Task<ListChangesResponse> ListChanges(ListChangesRequest request, CancellationToken cancellationToken)
