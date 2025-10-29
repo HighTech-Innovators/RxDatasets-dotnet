@@ -80,7 +80,18 @@ namespace RxDatasets.BackgroundServices
         {
             logger.LogInformation("Stopping DistributedLockService...");
 
-            _cts.Cancel();
+            if (!_isDisposed)
+            {
+                try
+                {
+                    _cts.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // CancellationTokenSource was already disposed
+                }
+            }
+
             if (_loopTask != null)
             {
                 await _loopTask;
@@ -102,7 +113,15 @@ namespace RxDatasets.BackgroundServices
             if (_isDisposed)
                 return;
 
-            _cts.Cancel();
+            try
+            {
+                _cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed
+            }
+
             _cts.Dispose();
             _isDisposed = true;
         }
