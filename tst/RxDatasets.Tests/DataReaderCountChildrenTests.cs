@@ -35,7 +35,8 @@ public class DataReaderCountChildrenTests
             Substitute.For<ILogger<GrpcReaderServiceImpl<Demodto>>>(),
             Substitute.For<IHostApplicationLifetime>(),
             configuration,
-            _dataset);
+            _dataset,
+            default!);  
     }
 
     [Fact]

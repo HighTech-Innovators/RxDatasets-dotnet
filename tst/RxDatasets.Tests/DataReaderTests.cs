@@ -32,8 +32,7 @@ public class DataReaderTests
         configurationSection.Value.Returns(cacheDuration);
         configuration.GetSection("PaginationCacheDuration").Returns(configurationSection);
         _sut = new GrpcReaderServiceImpl<Demodto>(Substitute.For<ILogger<GrpcReaderServiceImpl<Demodto>>>(),
-            Substitute.For<IHostApplicationLifetime>(), configuration, _dataset);
-
+            Substitute.For<IHostApplicationLifetime>(), configuration, _dataset, default!);
     }
 
     [Fact]

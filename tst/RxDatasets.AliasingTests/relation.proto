@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package datasettypes.relation;
+
+option csharp_namespace = "RxDatasets.AliasingTests.Types.Relation";
+
+message Relation {
+    // ID following pattern: t/{tokenid}/s/{systemid}/relations/{relation-id}
+    string id = 1;
+
+    oneof variant {
+        Single single = 2;
+        MultiProduct multi_product = 3;
+        MultiDevice multi_device = 4;
+    }
+
+    message Device {
+        string device_id = 1;
+        string model_id = 2;
+    }
+
+    message RelatedProduct {
+        string product_id = 1;
+    }
+
+    message Single {
+        Device device = 1;
+        RelatedProduct related_product = 4;
+    }
+
+    message MultiProduct {
+        Device device = 1;
+        repeated RelatedProduct related_products = 4;
+    }
+
+    message MultiDevice {
+        repeated Device devices = 1;
+        RelatedProduct related_product = 4;
+    }
+}
