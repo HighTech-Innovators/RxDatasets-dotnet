@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package datasettypes;
+
+option csharp_namespace = "RxDatasets.AliasingTests.Types";
+
+message TestEntity {
+  string id = 1;
+  repeated string aliases = 2;
+}
