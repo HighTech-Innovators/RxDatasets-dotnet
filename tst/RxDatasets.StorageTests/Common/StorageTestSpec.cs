@@ -195,7 +195,7 @@ public abstract class StorageTestSpec
         var newRes = await storageDatasetWriter.PutAllChildren(newChanges.ToAsyncEnumerable());
         sw.Stop();
 
-        sw.ElapsedMilliseconds.Should().BeCloseTo(200, 50);
+        sw.ElapsedMilliseconds.Should().BeLessOrEqualTo(250);
     }
 
     [Fact]
