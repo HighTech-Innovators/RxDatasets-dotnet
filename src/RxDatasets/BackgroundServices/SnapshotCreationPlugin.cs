@@ -85,7 +85,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     /// <summary>
-    /// 
+    ///
     /// </summary>
     /// <returns>True if enough time has passed to create a snapshot</returns>
     public static TimeSpan CalculateTimeUntilNextSnapshot(IScheduler scheduler, DateTimeOffset? snapshotTime,
@@ -138,7 +138,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
             var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
+                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), ImmutableDictionary<string, ImmutableSnapshotChildIndex>.Empty, newSnapshotVersion,
                     currentIndex.LatestVersion);
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
@@ -157,7 +157,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         }
     }
 
-    private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
+private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
         Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
@@ -187,6 +187,42 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
                 newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
             }
+        }
+
+        // Process entities in SubIndices
+        foreach (var subIndex in currentIndex.SubIndices.Values)
+        {
+            targetSnapshotStreamPosition = await CopyRelevantItemsFromSubIndex(subIndex, targetSnapshotStream, targetSnapshotStreamPosition, currentIndex.SnapshotVersion, stoppingToken);
+        }
+
+        return targetSnapshotStreamPosition;
+    }
+
+    private async Task<long> CopyRelevantItemsFromSubIndex(ImmutableSnapshotChildIndex childIndex, Stream targetSnapshotStream, long targetSnapshotStreamPosition, ulong snapshotVersion, CancellationToken stoppingToken)
+    {
+        foreach (var entity in childIndex.Entities.Where(x =>
+                     x.Value.GetLatestEntityVersion() > snapshotVersion))
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+
+            if (entity.Value.GetLatestChangeType() != ChangeType.Deleted)
+            {
+                var entityLength = entity.Value.Length;
+
+                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+
+                var latestEntityVersion = entity.Value.GetLatestEntityVersion();
+                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
+
+                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
+                targetSnapshotStreamPosition += entityLength;
+            }
+        }
+
+        // Recursively process nested SubIndices
+        foreach (var nestedSubIndex in childIndex.SubIndices.Values)
+        {
+            targetSnapshotStreamPosition = await CopyRelevantItemsFromSubIndex(nestedSubIndex, targetSnapshotStream, targetSnapshotStreamPosition, snapshotVersion, stoppingToken);
         }
 
         return targetSnapshotStreamPosition;

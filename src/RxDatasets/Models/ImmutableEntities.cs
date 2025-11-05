@@ -2,6 +2,10 @@
 
 namespace RxDatasets.Models;
 
+public record ImmutableSnapshotChildIndex(ImmutableDictionary<string, ImmutableSnapshotEntity> Entities, ImmutableDictionary<string, ImmutableSnapshotChildIndex> SubIndices)
+{
+}
+
 public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, ImmutableArray<ulong> LastInsertedVersion, ulong LastUpdatedVersion, long Position, int Length, uint Crc32 = 0)
 {
     public SnapshotEntity ToProto()

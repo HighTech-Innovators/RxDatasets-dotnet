@@ -93,7 +93,7 @@ public class DatasetHelperTests
             { "parent3/child3/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
         }.ToImmutableDictionary();
 
-        var index = new ImmutableDatasetState(entities, 0, 0);
+        var index = new ImmutableDatasetState(entities,ImmutableDictionary<string, ImmutableSnapshotChildIndex>.Empty, 0, 0);
 
         var receivedNames = new HashSet<string> { "parent2/child1/bla/1", "parent3/child1/bla/1" };
 
@@ -120,7 +120,7 @@ public class DatasetHelperTests
             { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
         }.ToImmutableDictionary();
 
-        var index = new ImmutableDatasetState(entities, 0, 0);
+        var index = new ImmutableDatasetState(entities,ImmutableDictionary<string, ImmutableSnapshotChildIndex>.Empty, 0, 0);
 
         var receivedNames = new HashSet<string>
             { "parent2/child1/bla/1", "parent3/child1/bla/1" }; // all siblings of those should be deleted

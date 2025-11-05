@@ -156,7 +156,7 @@ public abstract class StorageTestSpec
 
     }
 
-    [Fact(Skip = "Performance test that take around 2 min to load data into storage")]
+    [Fact]
     public async Task Should_Put_All_Children_DTOs_ShouldBeFast()
     {
         var (azBlobStorageDatasetReader, storageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
