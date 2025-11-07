@@ -2,8 +2,22 @@
 
 namespace RxDatasets.Models;
 
-public record ImmutableSnapshotChildIndex(ImmutableDictionary<string, ImmutableSnapshotEntity> Entities, ImmutableDictionary<string, ImmutableSnapshotChildIndex> SubIndices)
+public record ImmutableSnapshotChildIndex()
 {
+    public ImmutableDictionary<string, ImmutableSnapshotEntity> Entities;
+    public ImmutableDictionary<string, ImmutableSnapshotChildIndex> SubIndices;
+    public ImmutableSnapshotChildIndex(ImmutableDictionary<string, ImmutableSnapshotEntity> entities) : this()
+    {
+        Entities = entities;
+        SubIndices = ImmutableDictionary<string, ImmutableSnapshotChildIndex>.Empty;
+    }
+
+    public ImmutableSnapshotChildIndex(ImmutableDictionary<string, ImmutableSnapshotChildIndex> subIndices) : this()
+    {
+        Entities = ImmutableDictionary<string, ImmutableSnapshotEntity>.Empty;
+        SubIndices = subIndices;
+    }
+
 }
 
 public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, ImmutableArray<ulong> LastInsertedVersion, ulong LastUpdatedVersion, long Position, int Length, uint Crc32 = 0)

@@ -1,4 +1,5 @@
 
+using System.Collections.Immutable;
 using System.Reactive.Disposables;
 using Google.Protobuf;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -187,23 +188,29 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
 
-        var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
+        var prefix = ancestor.EndsWith('/') ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
-            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
+            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements as a type/id structure is enforced");
 
-        var deletedNames = new List<string>(_index!.Entities.Count);
+        List<string> deletedNames;
+        if (_index?.SubIndices.Count == 0)
+            deletedNames = DeleteFlatStructure(prefix);
 
-        foreach (var (name, entity) in _index!.Entities)
+        else
         {
-            if (!name.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
+            ImmutableSnapshotChildIndex topNode = _index.SubIndices[splitAncestor[0]];;
 
-            if (entity.GetLatestChangeType() == ChangeType.Deleted)
-                continue;
+            for (int i = 1; i < splitAncestor.Length; i++)
+            {
+                if (!topNode.SubIndices.ContainsKey(splitAncestor[i]))
+                    break;
+                topNode = topNode.SubIndices[splitAncestor[i]];;
+            }
 
-            deletedNames.Add(name);
+            deletedNames = GetAllSubnodePaths(topNode, prefix, []);
         }
+
 
         if (!deletedNames.Any())
         {
@@ -220,6 +227,33 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         _logger.LogInformation("Deleted {Count} descendants of '{Prefix}'; version {NewVersion}", deleteChanges.Length, prefix, _index.LatestVersion);
         return WriteResponseFor(delta);
+    }
+
+    private List<string> DeleteFlatStructure(string prefix)
+    {
+        List<string> deletedNames = [];
+        foreach (var (name, entity) in _index!.Entities)
+        {
+            if (!name.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+
+            if (entity.GetLatestChangeType() == ChangeType.Deleted)
+                continue;
+
+            deletedNames.Add(name);
+        }
+
+        return deletedNames;
+    }
+
+    private List<string> GetAllSubnodePaths(ImmutableSnapshotChildIndex parentNode, string prefix, List<string> deletedNames)
+    {
+        deletedNames.AddRange(parentNode.Entities.Select(entity => prefix + entity.Key));
+        foreach (var subIndex in parentNode.SubIndices)
+        {
+            GetAllSubnodePaths(subIndex.Value, prefix+subIndex.Key, deletedNames);
+        }
+        return deletedNames;
     }
 
     private void EnsureNameIsValid(string entityName)

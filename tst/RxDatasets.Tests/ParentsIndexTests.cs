@@ -12,7 +12,7 @@ public class ParentsIndexTests
             k => k,
             _ => new ImmutableSnapshotEntity([], [], 0, 0, 0)
         );
-        return new ImmutableDatasetState(entities.ToImmutableDictionary(),ImmutableDictionary<string, ImmutableSnapshotChildIndex>.Empty, 0, 0);
+        return new ImmutableDatasetState(entities.ToImmutableDictionary(), 0, 0);
     }
 
     private static IEnumerable<string> GetActiveEntityKeys(ImmutableDatasetState dataset)

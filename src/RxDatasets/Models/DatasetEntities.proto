@@ -14,14 +14,9 @@ message SnapshotEntity {
 message SnapshotIndex {
 	uint64 snapshot_version_legacy = 1;
   map<string, SnapshotEntity> entities = 2;
-  map<string, SnapshotChildIndex> sub_indices = 3;
 	uint64 snapshot_version = 32;
 }
 
-message SnapshotChildIndex {
-  map<string, SnapshotEntity> entities = 1;
-  map<string, SnapshotChildIndex> sub_indices = 2;
-}
 
 message DeltaEntity {
 	string name = 1;

@@ -102,7 +102,6 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             // There are no snapshots available
             snapshotIndex = new ImmutableDatasetState(
                 new Dictionary<string, ImmutableSnapshotEntity>().ToImmutableDictionary(),
-                new Dictionary<string, ImmutableSnapshotChildIndex>().ToImmutableDictionary(),
                 0, version);
         }
 
