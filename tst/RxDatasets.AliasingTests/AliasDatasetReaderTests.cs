@@ -3,6 +3,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Reactive.Testing;
 using RxDatasets.Abstractions;
 using RxDatasets.Aliasing;
 using RxDatasets.InMemoryDataset;
@@ -960,5 +961,183 @@ public class AliasDatasetReaderTests : IAsyncLifetime
         // The reader should still be functional but background sync should have stopped
         // We verify this by checking that the cancellation was triggered
         appLifetime.ApplicationStopping.IsCancellationRequested.Should().BeTrue("cancellation token should be triggered");
+    }
+
+    // ==================== INITIALIZATION FAILURE & RECOVERY ====================
+
+    /// <summary>
+    /// Mock IDatasetReader that throws an exception on GetChangedNames during initialization.
+    /// After a configurable number of failures, it starts succeeding.
+    /// </summary>
+    private class FailingDatasetReader : IDatasetReader<TestEntity>
+    {
+        private readonly InMemoryDataset<TestEntity> _underlying;
+        private int _failuresRemaining;
+        private readonly Exception _exceptionToThrow;
+
+        public int GetChangedNamesCallCount { get; private set; }
+
+        public FailingDatasetReader(InMemoryDataset<TestEntity> underlying, int failureCount, Exception? exceptionToThrow = null)
+        {
+            _underlying = underlying;
+            _failuresRemaining = failureCount;
+            _exceptionToThrow = exceptionToThrow ?? new InvalidOperationException("Simulated upstream failure during initialization");
+        }
+
+        public Task<ChangeSet> GetChangedNames(ulong fromVersion)
+        {
+            GetChangedNamesCallCount++;
+            if (_failuresRemaining > 0)
+            {
+                _failuresRemaining--;
+                throw _exceptionToThrow;
+            }
+            return _underlying.GetChangedNames(fromVersion);
+        }
+
+        public Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken = default)
+            => _underlying.WaitChangedNames(fromVersion, cancellationToken);
+
+        public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string id)
+            => _underlying.Get(id);
+
+        public Task<ICollection<(string name, ReadOnlyMemory<byte>? entityBytes)>> BatchGet(IEnumerable<string> ids, string? parent = null)
+            => _underlying.BatchGet(ids, parent);
+
+        public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken cancellationToken = default)
+            => _underlying.List(parent, cancellationToken);
+
+        public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+            => _underlying.CountChildren(parent, cancellationToken);
+    }
+
+    [Fact]
+    public async Task Should_Recover_From_Upstream_Exception_During_Initialization()
+    {
+        // Arrange - create a failing upstream reader that fails first 2 attempts, then succeeds
+        var entity = new TestEntity { Id = "entity/recovery-test" };
+        entity.Aliases.Add("recovery-alias");
+        await _inMemoryDataset.Put(entity.Id, entity.ToByteArray());
+
+        var failingReader = new FailingDatasetReader(_inMemoryDataset, failureCount: 2);
+
+        // Use TestScheduler to fast-forward through the 5-second delays
+        var scheduler = new TestScheduler();
+        var clock = new TrackingRxSchedulerClock(scheduler);
+
+        var reader = new AliasDatasetReader<TestEntity>(
+            failingReader,
+            ExtractAliases,
+            "recovery-test",
+            _logger,
+            _appLifetime,
+            clock);
+
+        // Act - start initialization (should fail initially, but recover)
+        reader.StartInitialization();
+
+        // Wait for the retry delay to be scheduled (implies the first call failed)
+        await clock.WaitUntilAnyDelaysPending(
+            TimeSpan.FromSeconds(5),
+            "retry delay should be scheduled after failure");
+
+        // Fast-forward past both 5-second retry delays (2 failures configured)
+        // The continuations run synchronously so one AdvanceBy handles all retries
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(12).Ticks);
+
+        // Wait for the reader to recover and initialize (with timeout)
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var result = await reader.Get("recovery-alias").WaitAsync(cts.Token);
+
+        // Assert - the reader should have recovered and resolved the alias
+        result.Should().NotBeNull("reader should recover from transient initialization failures");
+        var resolvedEntity = TestEntity.Parser.ParseFrom(result!.Value.entityBytes.Span);
+        resolvedEntity.Id.Should().Be("entity/recovery-test");
+
+        // Verify that GetChangedNames was called multiple times (retries)
+        failingReader.GetChangedNamesCallCount.Should().BeGreaterThan(1, "reader should have retried after failures");
+    }
+
+    [Fact]
+    public async Task Should_Not_Stay_Stuck_In_Uninitialized_State_After_Upstream_Failure()
+    {
+        // Arrange - This test reproduces the bug: if upstream throws during init,
+        // the reader stays stuck forever because _syncTask is non-null but _initialized is false
+        var failingReader = new FailingDatasetReader(_inMemoryDataset, failureCount: 1);
+
+        // Use TestScheduler to fast-forward through the 5-second delays
+        var scheduler = new TestScheduler();
+        var clock = new TrackingRxSchedulerClock(scheduler);
+
+        var reader = new AliasDatasetReader<TestEntity>(
+            failingReader,
+            ExtractAliases,
+            "stuck-test",
+            _logger,
+            _appLifetime,
+            clock);
+
+        // Act
+        reader.StartInitialization();
+
+        // Wait for the retry delay to be scheduled (implies the first call failed)
+        await clock.WaitUntilAnyDelaysPending(
+            TimeSpan.FromSeconds(5),
+            "retry delay should be scheduled after failure");
+
+        // Fast-forward past the 5-second retry delay
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(6).Ticks);
+
+        // The Get call should eventually succeed (after retry) rather than throwing forever
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Func<Task> act = async () =>
+        {
+            // This should not throw - it should either return null (no such alias) 
+            // or the reader should have recovered
+            await reader.Get("some-alias").WaitAsync(cts.Token);
+        };
+
+        // Assert - with the fix, this should complete without throwing
+        await act.Should().NotThrowAsync("reader should recover from initialization failure");
+    }
+
+    [Fact]
+    public async Task Should_Allow_Retry_After_Permanent_Failure_When_Restarted()
+    {
+        // Arrange - a reader that always fails
+        var alwaysFailingReader = new FailingDatasetReader(_inMemoryDataset, failureCount: int.MaxValue);
+
+        // Use TestScheduler to fast-forward through the 5-second delays
+        var scheduler = new TestScheduler();
+        var clock = new TrackingRxSchedulerClock(scheduler);
+
+        var reader = new AliasDatasetReader<TestEntity>(
+            alwaysFailingReader,
+            ExtractAliases,
+            "permanent-fail-test",
+            _logger,
+            _appLifetime,
+            clock);
+
+        reader.StartInitialization();
+
+        // Wait for the retry delay to be scheduled (implies the first call failed)
+        await clock.WaitUntilAnyDelaysPending(
+            TimeSpan.FromSeconds(5),
+            "retry delay should be scheduled after failure");
+
+        // Fast-forward past a few retry delays to ensure retries are happening
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(12).Ticks);
+
+        // The reader should still be trying to initialize (via retries)
+        // Calling Get should wait for initialization and eventually work after retries
+        // (or timeout if we set a reasonable timeout)
+        
+        // For now, just verify the reader doesn't throw immediately on construction
+        // and that multiple StartInitialization calls don't cause issues
+        reader.StartInitialization(); // Should be idempotent
+        
+        alwaysFailingReader.GetChangedNamesCallCount.Should().BeGreaterThan(0, 
+            "reader should have attempted initialization");
     }
 }

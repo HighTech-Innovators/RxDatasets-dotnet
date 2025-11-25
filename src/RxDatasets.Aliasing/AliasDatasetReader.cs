@@ -2,6 +2,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 
 namespace RxDatasets.Aliasing;
 
@@ -19,6 +20,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     private readonly string _aliasName;
     private readonly ILogger _logger;
     private readonly IHostApplicationLifetime _appLifetime;
+    private readonly IClock _clock;
 
     // Bidirectional mappings
     // Maps: alias -> original ID (for resolving aliases to IDs)
@@ -38,13 +40,15 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         Func<ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory,
         string aliasName,
         ILogger logger,
-        IHostApplicationLifetime appLifetime)
+        IHostApplicationLifetime appLifetime,
+        IClock? clock = null)
     {
         _sourceReader = sourceReader ?? throw new ArgumentNullException(nameof(sourceReader));
         _aliasFactory = aliasFactory ?? throw new ArgumentNullException(nameof(aliasFactory));
         _aliasName = aliasName ?? throw new ArgumentNullException(nameof(aliasName));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _appLifetime = appLifetime ?? throw new ArgumentNullException(nameof(appLifetime));
+        _clock = clock ?? new SystemClock();
 
         _initializationComplete = new TaskCompletionSource();
     }
@@ -64,51 +68,69 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     private async Task InitializeAndSync(CancellationToken cancellationToken)
     {
-        try
+        // Retry loop for initialization - transient failures should not permanently break the reader
+        while (!cancellationToken.IsCancellationRequested)
         {
-            // Initial load: get all entities from version 0
-            _logger.LogInformation("Initializing alias reader for alias name '{AliasName}'", _aliasName);
-
-            var initialChanges = await _sourceReader.GetChangedNames(0);
-            foreach (var entityId in initialChanges.Changes.Select(c => c.Name))
+            try
             {
-                try
+                // Initial load: get all entities from version 0
+                _logger.LogInformation("Initializing alias reader for alias name '{AliasName}'", _aliasName);
+
+                var initialChanges = await _sourceReader.GetChangedNames(0);
+                foreach (var entityId in initialChanges.Changes.Select(c => c.Name))
                 {
-                    var entity = await _sourceReader.Get(entityId);
-                    if (entity.HasValue)
+                    try
                     {
-                        RegisterAliases(entityId, entity.Value.entityBytes);
+                        var entity = await _sourceReader.Get(entityId);
+                        if (entity.HasValue)
+                        {
+                            RegisterAliases(entityId, entity.Value.entityBytes);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to load entity '{EntityId}' during initialization", entityId);
                     }
                 }
-                catch (Exception ex)
+
+                _initialized = true;
+                _initializationComplete?.TrySetResult();
+                _logger.LogInformation("Alias reader '{AliasName}' initialized with {AliasCount} aliases", _aliasName, _aliasToIdMap.Count);
+
+                // Update synced version after initial load
+                lock (_aliasToIdMap)
                 {
-                    _logger.LogWarning(ex, "Failed to load entity '{EntityId}' during initialization", entityId);
+                    _syncedVersion = initialChanges.ToVersion;
+                }
+
+                // Background sync: continuously watch for changes
+                await SyncChangesInBackground(initialChanges.ToVersion, cancellationToken);
+                
+                // If SyncChangesInBackground returns normally (e.g., due to cancellation), exit the loop
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Alias reader '{AliasName}' initialization cancelled", _aliasName);
+                _initializationComplete?.TrySetCanceled();
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing alias reader '{AliasName}', will retry in 5 seconds", _aliasName);
+                
+                // Don't set the exception on _initializationComplete - instead, retry
+                // This prevents the reader from being permanently stuck
+                try
+                {
+                    await _clock.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    _initializationComplete?.TrySetCanceled();
+                    break;
                 }
             }
-
-            _initialized = true;
-            _initializationComplete?.TrySetResult();
-            _logger.LogInformation("Alias reader '{AliasName}' initialized with {AliasCount} aliases", _aliasName, _aliasToIdMap.Count);
-
-            // Update synced version after initial load
-            lock (_aliasToIdMap)
-            {
-                _syncedVersion = initialChanges.ToVersion;
-            }
-
-            // Background sync: continuously watch for changes
-            await SyncChangesInBackground(initialChanges.ToVersion, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("Alias reader '{AliasName}' initialization cancelled", _aliasName);
-            _initializationComplete?.TrySetCanceled();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error initializing alias reader '{AliasName}'", _aliasName);
-            _initializationComplete?.TrySetException(ex);
-            throw;
         }
     }
 
@@ -256,7 +278,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
                 _logger.LogError(ex, "Error in background sync for alias reader '{AliasName}', will retry", _aliasName);
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    await _clock.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
