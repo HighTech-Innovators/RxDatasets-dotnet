@@ -487,7 +487,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         }
     }
 
-    public async Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         await EnsureInitialized(ct);
 
@@ -500,7 +500,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             }
         }
 
-        return await _sourceReader.GetHistory(id, ct);
+        return await _sourceReader.GetHistory(id, limit, minVersion, ct);
     }
 
     public void Dispose()

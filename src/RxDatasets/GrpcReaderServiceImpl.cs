@@ -51,11 +51,11 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return _protoParser.ParseFrom(entity.entityBytes.Span);
     }
 
-    public async Task<TEntity> GetHistoric(string name, ulong version, string aliasName, CancellationToken cancellationToken)
+    public async Task<TEntity> GetHistoric(string name, ulong version, CancellationToken cancellationToken)
     {
         try
         {
-            var entity = await GetDataset(aliasName).GetHistoric(name, version, cancellationToken);
+            var entity = await dataset.GetHistoric(name, version, cancellationToken);
             if (entity == null)
             {
                 throw new RpcException(new Status(StatusCode.NotFound, $"The requested {typeof(TEntity).Name} does not exist in version {version}: {name}"));
@@ -294,9 +294,9 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         not null => int.TryParse(config, out var intValue) ? intValue : null
     };
 
-    public async Task<List<HistoryEntry>> GetHistory(string id, string aliasName, CancellationToken cancellationToken)
+    public async Task<List<HistoryEntry>> GetHistory(string id, string aliasName, int limit, ulong minVersion, CancellationToken cancellationToken)
     {
-        return await GetDataset(aliasName).GetHistory(id, cancellationToken);
+        return await GetDataset(aliasName).GetHistory(id, limit, minVersion, cancellationToken);
     }
 
     private readonly int _defaultPageSize = AsInt(config["PageSize"]) ?? 1000;

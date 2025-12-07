@@ -446,7 +446,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return new ActionDisposable(() => semaphore.Release());
     }
 
-    public async Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
         if (!indexRef.Entities.TryGetValue(name, out var entity))
@@ -457,8 +457,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var history = new List<HistoryEntry>();
         var currentVersion = entity.GetLatestEntityVersion();
 
-        while (currentVersion > 0)
+        while (currentVersion > 0 && currentVersion > minVersion)
         {
+            if (limit > 0 && history.Count >= limit)
+            {
+                break;
+            }
+
             ct.ThrowIfCancellationRequested();
             DeltaIndex deltaIndex;
             try

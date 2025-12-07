@@ -525,13 +525,22 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return Task.CompletedTask;
     }
 
-    public Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         var history = new List<HistoryEntry>();
         // Iterate backwards through deltas
         for (int i = _deltas.Count - 1; i >= 0; i--)
         {
             var delta = _deltas[i];
+            if (delta.DatasetVersion <= minVersion)
+            {
+                break;
+            }
+            if (limit > 0 && history.Count >= limit)
+            {
+                break;
+            }
+
             var change = delta.Changes.FirstOrDefault(c => c.Name == name);
             if (change.Name != null)
             {
