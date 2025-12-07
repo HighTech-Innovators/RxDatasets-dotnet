@@ -51,6 +51,27 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return _protoParser.ParseFrom(entity.entityBytes.Span);
     }
 
+    public async Task<TEntity> GetHistoric(string name, ulong version, string aliasName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entity = await GetDataset(aliasName).GetHistoric(name, version, cancellationToken);
+            if (entity == null)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"The requested {typeof(TEntity).Name} does not exist in version {version}: {name}"));
+            }
+            return _protoParser.ParseFrom(entity.Value.entityBytes.Span);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
     /// <summary>
     /// Lists child entities for the given parent.
     /// Deprecated: Use ListChildren to get IDs/names instead, then BatchGet to retrieve entities.

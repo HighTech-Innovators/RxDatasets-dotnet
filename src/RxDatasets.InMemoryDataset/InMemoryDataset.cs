@@ -363,6 +363,42 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
     }
 
+    public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        using (await Lock(ct))
+        {
+            if (version > LatestVersion)
+            {
+                throw new ArgumentOutOfRangeException(nameof(version), "Version is in the future");
+            }
+
+            var delta = _deltas.FirstOrDefault(d => d.DatasetVersion == version);
+            if (delta == null)
+            {
+                throw new ArgumentException("Delta not found", nameof(version));
+            }
+
+            var change = delta.Changes.FirstOrDefault(c => c.Name == name);
+
+            if (change.Name == null)
+            {
+                throw new ArgumentException($"Entity {name} was not changed in version {version}");
+            }
+
+            if (change.Change == ChangeType.Deleted)
+            {
+                return null;
+            }
+
+            if (change.Entity == null)
+            {
+                return null;
+            }
+
+            return (name, new ReadOnlyMemory<byte>(change.Entity));
+        }
+    }
+
     public async Task<ICollection<(string, ReadOnlyMemory<byte>?)>> BatchGet(IEnumerable<string> names, string? parent)
     {
         (string name, ReadOnlyMemory<byte>? entityBytes)[] entities;

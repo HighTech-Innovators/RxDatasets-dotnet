@@ -10,4 +10,5 @@ public interface IDatasetReader<T>
     Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct);
     Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default);
     Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default);
+    Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default);
 }

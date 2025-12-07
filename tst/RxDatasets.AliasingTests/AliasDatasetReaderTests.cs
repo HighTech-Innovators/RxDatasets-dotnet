@@ -1012,6 +1012,9 @@ public class AliasDatasetReaderTests : IAsyncLifetime
 
         public Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
             => _underlying.GetHistory(name, ct);
+
+        public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+            => _underlying.GetHistoric(name, version, ct);
     }
 
     [Fact]

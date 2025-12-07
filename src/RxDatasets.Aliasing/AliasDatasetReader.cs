@@ -351,6 +351,13 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         return GetWithCancellation(id, CancellationToken.None);
     }
 
+    public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        // Try to resolve as alias first, if not found, assume it's an ID
+        var resolvedId = ResolveAliasToId(name) ?? name;
+        return _sourceReader.GetHistoric(resolvedId, version, ct);
+    }
+
     private async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetWithCancellation(string id, CancellationToken cancellationToken)
     {
         await EnsureInitialized(cancellationToken);

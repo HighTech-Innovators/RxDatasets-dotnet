@@ -527,6 +527,50 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return history;
     }
 
+    public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        if (version > indexRef.LatestVersion)
+        {
+            throw new ArgumentOutOfRangeException(nameof(version), "Version is in the future");
+        }
+
+        DeltaIndex deltaIndex;
+        try
+        {
+            var deltaBytes = await _storageProvider.ReadDeltaIndex(version);
+            deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+        }
+        catch (FileNotFoundException)
+        {
+            throw new ArgumentException("Delta not found", nameof(version));
+        }
+
+        // Check if it was deleted in this version
+        var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+        if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+        {
+            return null;
+        }
+
+        // Check if it was New or Changed
+        var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+        if (newEntity != null)
+        {
+            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
+            return (name, data);
+        }
+
+        var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+        if (changedEntity != null)
+        {
+            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);
+            return (name, data);
+        }
+
+        throw new ArgumentException($"Entity {name} was not changed in version {version}");
+    }
+
     private async Task<ulong> FindPreviousVersion(string name, ulong currentVersion, CancellationToken ct)
     {
         for (var v = currentVersion - 1; v > 0; v--)
