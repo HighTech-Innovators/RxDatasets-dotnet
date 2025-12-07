@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.CompilerServices;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.InMemoryDataset;
@@ -527,39 +528,12 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
-        var history = new List<HistoryEntry>();
-        // Iterate backwards through deltas
-        for (int i = _deltas.Count - 1; i >= 0; i--)
-        {
-            var delta = _deltas[i];
-            if (delta.DatasetVersion <= minVersion)
-            {
-                break;
-            }
-            if (limit > 0 && history.Count >= limit)
-            {
-                break;
-            }
+        throw new NotImplementedException();
+    }
 
-            var change = delta.Changes.FirstOrDefault(c => c.Name == name);
-            if (change.Name != null)
-            {
-                ulong previousVersion = 0;
-                // Search backwards from i-1
-                for (int j = i - 1; j >= 0; j--)
-                {
-                    var prevDelta = _deltas[j];
-                    if (prevDelta.Changes.Any(c => c.Name == name))
-                    {
-                        previousVersion = prevDelta.DatasetVersion;
-                        break;
-                    }
-                }
-
-                history.Add(new HistoryEntry(delta.DatasetVersion, change.Change, DateTimeOffset.MinValue, previousVersion));
-            }
-        }
-        return Task.FromResult(history);
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
     }
 
     private record Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion);

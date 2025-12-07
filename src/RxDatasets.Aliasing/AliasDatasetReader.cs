@@ -503,6 +503,31 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         return await _sourceReader.GetHistory(id, limit, minVersion, ct);
     }
 
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, CancellationToken ct = default)
+    {
+        // For aliasing, we might need to map the parent alias to a parent ID?
+        // Or just pass it through if it's a prefix?
+        // The requirement says "parent (can be empty, parent or full id)".
+        // If it's an alias, we should probably resolve it if possible, or pass it as is if it's a prefix.
+        // However, resolving a "parent" alias might be ambiguous if it maps to multiple things or if it's just a string prefix.
+        // Given the complexity, and that aliases are usually 1:1 or specific, let's assume for now we pass it through
+        // OR we try to resolve it if it matches an exact alias.
+        
+        string resolvedParent = parent;
+        if (!string.IsNullOrEmpty(parent))
+        {
+             lock (_aliasToIdMap)
+            {
+                if (_aliasToIdMap.TryGetValue(parent, out var mappedId))
+                {
+                    resolvedParent = mappedId;
+                }
+            }
+        }
+
+        return _sourceReader.StreamHistory(resolvedParent, minVersion, maxVersion, ct);
+    }
+
     public void Dispose()
     {
         _syncCancellationTokenSource?.Cancel();

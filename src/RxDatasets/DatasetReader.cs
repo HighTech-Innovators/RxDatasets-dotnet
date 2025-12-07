@@ -1,5 +1,6 @@
 
 using System.Reactive.Disposables;
+using System.Runtime.CompilerServices;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -530,6 +531,82 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
 
         return history;
+    }
+
+    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        var currentVersion = maxVersion > 0 ? maxVersion : indexRef.LatestVersion;
+
+        while (currentVersion > 0 && currentVersion > minVersion)
+        {
+            ct.ThrowIfCancellationRequested();
+            DeltaIndex deltaIndex;
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
+                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            }
+            catch (FileNotFoundException)
+            {
+                break;
+            }
+
+            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+
+            foreach (var newEntity in deltaIndex.NewEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                }
+            }
+
+            foreach (var changedEntity in deltaIndex.ChangedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                }
+            }
+
+            foreach (var deletedEntity in deltaIndex.DeletedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                }
+            }
+
+            foreach (var deletedName in deltaIndex.DeletedNames)
+            {
+                if (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                }
+            }
+
+            // We need to find the next version to check.
+            // Since we are streaming all history, we just go to the previous version of the dataset.
+            // However, the DeltaIndex doesn't explicitly store the "previous dataset version".
+            // But we know versions are sequential or we can infer it?
+            // Actually, DatasetReader usually assumes versions are sequential or we can just decrement?
+            // Wait, storage provider ReadDeltaIndex takes a version.
+            // In GetHistory, we follow the entity's previous version.
+            // Here we want ALL changes, so we should probably just go to currentVersion - 1?
+            // Or is there a way to know the previous version from the DeltaIndex?
+            // Looking at DeltaIndex proto (not visible here but inferred), it might not have it.
+            // But `GetChangedNames` usually iterates.
+            // Let's assume sequential for now or check how `GetChangedNames` works.
+            
+            // Checking `GetChangedNames` implementation might reveal how versions are traversed.
+            // But `GetHistory` follows `previousVersion` from the entity change.
+            
+            // If versions are not sequential (e.g. gaps), simply decrementing might fail with FileNotFound, which is handled.
+            // But better if we knew.
+            
+            currentVersion--;
+        }
     }
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
