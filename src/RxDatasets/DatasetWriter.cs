@@ -403,7 +403,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
         }
 
-        deltaIndex.Timestamp = Timestamp.FromDateTime(DateTime.UtcNow);
+        deltaIndex.Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
 
         // Now determine net effect for each entity using CRC32 comparison with index
         foreach (var (name, finalState) in entityFinalStates)
@@ -527,7 +527,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var deltaIndex = new DeltaIndex()
         {
             DeltaVersionLegacy = 0,
-            DeltaVersion = delta.DatasetVersion
+            DeltaVersion = delta.DatasetVersion,
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
         };
 
         await using var concatenatedByteStream = new MemoryStream();
@@ -535,6 +536,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         foreach (var (name, entityBytes, change, crc32) in delta.Changes)
         {
+            ulong previousVersion = 0;
+            if (_index!.Entities.TryGetValue(name, out var existingEntity))
+            {
+                previousVersion = existingEntity.GetLatestEntityVersion();
+            }
+
             switch (change)
             {
                 case ChangeType.New:
@@ -545,7 +552,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Position = targetPosition,
                         Length = entityBytes.Length,
                         Name = name,
-                        Crc32 = crc32
+                        Crc32 = crc32,
+                        PreviousVersion = previousVersion
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
@@ -558,13 +566,18 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Position = targetPosition,
                         Length = entityBytes.Length,
                         Name = name,
-                        Crc32 = crc32
+                        Crc32 = crc32,
+                        PreviousVersion = previousVersion
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
                     break;
                 case ChangeType.Deleted:
-                    deltaIndex.DeletedNames.Add(name);
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity
+                    {
+                        Name = name,
+                        PreviousVersion = previousVersion
+                    });
                     break;
             }
         }

@@ -404,7 +404,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         // Always count all descendants under parent, regardless of nesting level
         // (different from List() which has backwards-compatibility asymmetric behavior)
         using var _ = await Lock(cancellationToken);
-        
+
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
             // For root path, count all entities
@@ -511,7 +511,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
                     }
                 }
 
-                history.Add(new HistoryEntry(delta.DatasetVersion, change.Change, DateTime.MinValue, previousVersion));
+                history.Add(new HistoryEntry(delta.DatasetVersion, change.Change, DateTimeOffset.MinValue, previousVersion));
             }
         }
         return Task.FromResult(history);

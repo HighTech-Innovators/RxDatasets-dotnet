@@ -373,6 +373,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     {
                         await _parentsIndex.OnDelete(deletedEntity);
                     }
+                    foreach (var deletedEntity in delta.DeletedEntities)
+                    {
+                        await _parentsIndex.OnDelete(deletedEntity.Name);
+                    }
                 }
             }
 
@@ -447,7 +451,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var indexRef = ThrowIfNotInitialized();
         if (!indexRef.Entities.TryGetValue(name, out var entity))
         {
-            return new List<HistoryEntry>();
+            return [];
         }
 
         var history = new List<HistoryEntry>();
@@ -456,8 +460,16 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         while (currentVersion > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
-            var deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            DeltaIndex deltaIndex;
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
+                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            }
+            catch (FileNotFoundException)
+            {
+                break;
+            }
 
             ChangeType changeType = ChangeType.None;
             ulong previousVersion = 0;
@@ -496,7 +508,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
             if (changeType != ChangeType.None)
             {
-                var timestamp = deltaIndex.Timestamp?.ToDateTime() ?? DateTime.MinValue.ToUniversalTime();
+                var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+
+                if (previousVersion == 0 && changeType != ChangeType.New)
+                {
+                    previousVersion = await FindPreviousVersion(name, currentVersion, ct);
+                }
+
                 history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
                 currentVersion = previousVersion;
             }
@@ -507,5 +525,31 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
 
         return history;
+    }
+
+    private async Task<ulong> FindPreviousVersion(string name, ulong currentVersion, CancellationToken ct)
+    {
+        for (var v = currentVersion - 1; v > 0; v--)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(v);
+                var delta = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+
+                if (delta.NewEntities.Any(e => e.Name == name) ||
+                    delta.ChangedEntities.Any(e => e.Name == name) ||
+                    delta.DeletedEntities.Any(e => e.Name == name) ||
+                    delta.DeletedNames.Contains(name))
+                {
+                    return v;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                // Ignore missing deltas
+            }
+        }
+        return 0;
     }
 }
