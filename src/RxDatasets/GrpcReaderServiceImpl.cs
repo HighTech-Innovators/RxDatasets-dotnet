@@ -273,6 +273,10 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         not null => int.TryParse(config, out var intValue) ? intValue : null
     };
 
+    public async Task<List<HistoryEntry>> GetHistory(string id, string aliasName, CancellationToken cancellationToken)
+    {
+        return await GetDataset(aliasName).GetHistory(id, cancellationToken);
+    }
 
     private readonly int _defaultPageSize = AsInt(config["PageSize"]) ?? 1000;
     private readonly int _maxPageSize = AsInt(config["MaxPageSize"]) ?? 1000;

@@ -480,6 +480,22 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         }
     }
 
+    public async Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    {
+        await EnsureInitialized(ct);
+
+        string id = name;
+        lock (_aliasToIdMap)
+        {
+            if (_aliasToIdMap.TryGetValue(name, out var mappedId))
+            {
+                id = mappedId;
+            }
+        }
+
+        return await _sourceReader.GetHistory(id, ct);
+    }
+
     public void Dispose()
     {
         _syncCancellationTokenSource?.Cancel();

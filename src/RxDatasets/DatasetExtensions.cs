@@ -98,6 +98,21 @@ public static class DatasetExtensions
             tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
         }
 
+        foreach (var deletedEntity in delta.DeletedEntities)
+        {
+            var existingEntity = index.Entities[deletedEntity.Name];
+
+            var updatedEntity = new ImmutableSnapshotEntity(
+                existingEntity.LastDeletedVersion.Add(deltaVersion),
+                existingEntity.LastInsertedVersion,
+                existingEntity.LastUpdatedVersion,
+                0,
+                0,
+                existingEntity.Crc32);
+
+            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedEntity.Name, updatedEntity);
+        }
+
         return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion);
     }
 

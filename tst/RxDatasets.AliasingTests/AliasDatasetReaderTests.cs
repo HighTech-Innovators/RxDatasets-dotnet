@@ -1009,6 +1009,9 @@ public class AliasDatasetReaderTests : IAsyncLifetime
 
         public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
             => _underlying.CountChildren(parent, cancellationToken);
+
+        public Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+            => _underlying.GetHistory(name, ct);
     }
 
     [Fact]

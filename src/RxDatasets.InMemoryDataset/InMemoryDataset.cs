@@ -489,5 +489,33 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return Task.CompletedTask;
     }
 
+    public Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    {
+        var history = new List<HistoryEntry>();
+        // Iterate backwards through deltas
+        for (int i = _deltas.Count - 1; i >= 0; i--)
+        {
+            var delta = _deltas[i];
+            var change = delta.Changes.FirstOrDefault(c => c.Name == name);
+            if (change.Name != null)
+            {
+                ulong previousVersion = 0;
+                // Search backwards from i-1
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    var prevDelta = _deltas[j];
+                    if (prevDelta.Changes.Any(c => c.Name == name))
+                    {
+                        previousVersion = prevDelta.DatasetVersion;
+                        break;
+                    }
+                }
+
+                history.Add(new HistoryEntry(delta.DatasetVersion, change.Change, DateTime.MinValue, previousVersion));
+            }
+        }
+        return Task.FromResult(history);
+    }
+
     private record Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion);
 }

@@ -22,6 +22,12 @@ message DeltaEntity {
 	int64 position = 2;
 	int32 length = 3;
 	uint32 crc32 = 5;
+	uint64 previous_version = 6;
+}
+
+message DeletedEntity {
+	string name = 1;
+	uint64 previous_version = 2;
 }
 
 message DeltaIndex {
@@ -30,6 +36,8 @@ message DeltaIndex {
 	repeated DeltaEntity changed_entities = 3;
 	repeated DeltaEntity new_entities = 4;
 	uint64 delta_version = 32;
+	google.protobuf.Timestamp timestamp = 5;
+	repeated DeletedEntity deleted_entities = 6;
 }
 
 message ProcessedVersionsInfo {

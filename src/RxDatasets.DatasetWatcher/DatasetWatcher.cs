@@ -45,6 +45,11 @@ public class DatasetWatcher<T>(
             await datasetObserver.OnDelete(entityName);
         }
 
+        foreach (var entity in deltaIndexParsed.DeletedEntities)
+        {
+            await datasetObserver.OnDelete(entity.Name);
+        }
+
         await datasetObserver.OnDatasetVersionEnd(nextToReportedVersion);
 
     }

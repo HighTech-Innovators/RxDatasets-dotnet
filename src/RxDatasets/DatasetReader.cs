@@ -1,5 +1,6 @@
 
 using System.Reactive.Disposables;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -439,5 +440,72 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         await semaphore.WaitAsync();
         return new ActionDisposable(() => semaphore.Release());
+    }
+
+    public async Task<List<HistoryEntry>> GetHistory(string name, CancellationToken ct = default)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        {
+            return new List<HistoryEntry>();
+        }
+
+        var history = new List<HistoryEntry>();
+        var currentVersion = entity.GetLatestEntityVersion();
+
+        while (currentVersion > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
+            var deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+
+            ChangeType changeType = ChangeType.None;
+            ulong previousVersion = 0;
+
+            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+            if (newEntity != null)
+            {
+                changeType = ChangeType.New;
+                previousVersion = newEntity.PreviousVersion;
+            }
+
+            if (changeType == ChangeType.None)
+            {
+                var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+                if (changedEntity != null)
+                {
+                    changeType = ChangeType.Changed;
+                    previousVersion = changedEntity.PreviousVersion;
+                }
+            }
+
+            if (changeType == ChangeType.None)
+            {
+                var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+                if (deletedEntity != null)
+                {
+                    changeType = ChangeType.Deleted;
+                    previousVersion = deletedEntity.PreviousVersion;
+                }
+                else if (deltaIndex.DeletedNames.Contains(name))
+                {
+                    changeType = ChangeType.Deleted;
+                    previousVersion = 0;
+                }
+            }
+
+            if (changeType != ChangeType.None)
+            {
+                var timestamp = deltaIndex.Timestamp?.ToDateTime() ?? DateTime.MinValue.ToUniversalTime();
+                history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
+                currentVersion = previousVersion;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return history;
     }
 }
