@@ -105,7 +105,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
                 // Background sync: continuously watch for changes
                 await SyncChangesInBackground(initialChanges.ToVersion, cancellationToken);
-                
+
                 // If SyncChangesInBackground returns normally (e.g., due to cancellation), exit the loop
                 break;
             }
@@ -118,7 +118,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error initializing alias reader '{AliasName}', will retry in 5 seconds", _aliasName);
-                
+
                 // Don't set the exception on _initializationComplete - instead, retry
                 // This prevents the reader from being permanently stuck
                 try
@@ -353,9 +353,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
     {
-        // Try to resolve as alias first, if not found, assume it's an ID
-        var resolvedId = ResolveAliasToId(name) ?? name;
-        return _sourceReader.GetHistoric(resolvedId, version, ct);
+        throw new InvalidOperationException("Can't provide history by alias");
     }
 
     private async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetWithCancellation(string id, CancellationToken cancellationToken)
@@ -487,45 +485,14 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         }
     }
 
-    public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
-        await EnsureInitialized(ct);
-
-        string id = name;
-        lock (_aliasToIdMap)
-        {
-            if (_aliasToIdMap.TryGetValue(name, out var mappedId))
-            {
-                id = mappedId;
-            }
-        }
-
-        return await _sourceReader.GetHistory(id, limit, minVersion, ct);
+        throw new InvalidOperationException("Can't provide history by alias");
     }
 
     public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
     {
-        // For aliasing, we might need to map the parent alias to a parent ID?
-        // Or just pass it through if it's a prefix?
-        // The requirement says "parent (can be empty, parent or full id)".
-        // If it's an alias, we should probably resolve it if possible, or pass it as is if it's a prefix.
-        // However, resolving a "parent" alias might be ambiguous if it maps to multiple things or if it's just a string prefix.
-        // Given the complexity, and that aliases are usually 1:1 or specific, let's assume for now we pass it through
-        // OR we try to resolve it if it matches an exact alias.
-        
-        string resolvedParent = parent;
-        if (!string.IsNullOrEmpty(parent))
-        {
-             lock (_aliasToIdMap)
-            {
-                if (_aliasToIdMap.TryGetValue(parent, out var mappedId))
-                {
-                    resolvedParent = mappedId;
-                }
-            }
-        }
-
-        return _sourceReader.StreamHistory(resolvedParent, minVersion, maxVersion, waitIfNone, ct);
+        throw new InvalidOperationException("Can't provide history by alias");
     }
 
     public void Dispose()
