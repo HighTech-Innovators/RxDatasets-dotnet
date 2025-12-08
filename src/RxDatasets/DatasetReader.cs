@@ -533,8 +533,23 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return history;
     }
 
-    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, [EnumeratorCancellation] CancellationToken ct = default)
+    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, [EnumeratorCancellation] CancellationToken ct = default)
     {
+        if (_initializationTask == null || _initializationTask.IsFaulted)
+            ThrowIfNotInitialized();
+
+        if (!_initializationTask!.IsCompleted)
+            await _initializationTask;
+
+        // Wait for version to advance beyond minVersion if requested
+        if (waitIfNone)
+        {
+            while (minVersion >= ThrowIfNotInitialized().LatestVersion)
+            {
+                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+            }
+        }
+
         var indexRef = ThrowIfNotInitialized();
         var currentVersion = maxVersion > 0 ? maxVersion : indexRef.LatestVersion;
 

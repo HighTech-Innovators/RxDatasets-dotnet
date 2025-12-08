@@ -10,6 +10,6 @@ public interface IDatasetReader<T>
     Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct);
     Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default);
     Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default);
-    IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, CancellationToken ct = default);
+    IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default);
     Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default);
 }

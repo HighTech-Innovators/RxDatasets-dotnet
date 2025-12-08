@@ -503,7 +503,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         return await _sourceReader.GetHistory(id, limit, minVersion, ct);
     }
 
-    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, CancellationToken ct = default)
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
     {
         // For aliasing, we might need to map the parent alias to a parent ID?
         // Or just pass it through if it's a prefix?
@@ -525,7 +525,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             }
         }
 
-        return _sourceReader.StreamHistory(resolvedParent, minVersion, maxVersion, ct);
+        return _sourceReader.StreamHistory(resolvedParent, minVersion, maxVersion, waitIfNone, ct);
     }
 
     public void Dispose()

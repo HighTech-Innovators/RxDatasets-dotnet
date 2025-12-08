@@ -1013,8 +1013,8 @@ public class AliasDatasetReaderTests : IAsyncLifetime
         public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
             => _underlying.GetHistory(name, limit, minVersion, ct);
 
-        public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, CancellationToken ct = default)
-            => _underlying.StreamHistory(parent, minVersion, maxVersion, ct);
+        public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+            => _underlying.StreamHistory(parent, minVersion, maxVersion, waitIfNone, ct);
 
         public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
             => _underlying.GetHistoric(name, version, ct);
