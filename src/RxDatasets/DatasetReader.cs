@@ -499,6 +499,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
             if (changeType == ChangeType.None)
             {
+                // Prefer DeletedEntity (with PreviousVersion) over DeletedNames (legacy, without previous version)
                 var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
                 if (deletedEntity != null)
                 {
@@ -564,6 +565,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
             var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
 
+            // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
+            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
+
             foreach (var newEntity in deltaIndex.NewEntities)
             {
                 if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
@@ -588,9 +592,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 }
             }
 
+            // Only yield deleted names that don't have a corresponding deleted entity (avoid duplicates)
+            // Prefer the richer deleted entity info when both exist
             foreach (var deletedName in deltaIndex.DeletedNames)
             {
-                if (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal))
+                if (!deletedEntityNames.Contains(deletedName) && 
+                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
                 {
                     yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
                 }
