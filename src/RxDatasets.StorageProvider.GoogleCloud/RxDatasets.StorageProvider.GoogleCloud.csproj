@@ -11,6 +11,9 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Storage.V1" />
+    <PackageReference Include="Google.Cloud.Bigtable.V2" />
+    <PackageReference Include="Google.Cloud.Bigtable.Admin.V2" />
+    <PackageReference Include="Google.Api.Gax" />
   </ItemGroup>
 
   <ItemGroup>

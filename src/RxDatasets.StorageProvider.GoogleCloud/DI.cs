@@ -10,7 +10,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public static DtoServerBuilder<TEntity> WithGoogleCloudStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
         {
             builder.Services.AddValidatedConfigSection<GoogleCloudConfig>();
-            builder.Services.TryAddSingleton<IDiskStorage<TEntity>, GoogleCloudStorage<TEntity>>();
+            builder.Services.TryAddSingleton<IDiskStorage<TEntity>, HybridBigtableGcsStorage<TEntity>>();
             builder.Services.AddHealthChecks().AddCheck<GoogleCloudHealthCheck<TEntity>>($"storage.googlecloud.{typeof(TEntity).Name}", tags: ["googlecloud", typeof(TEntity).Name]);
             return builder;
         }

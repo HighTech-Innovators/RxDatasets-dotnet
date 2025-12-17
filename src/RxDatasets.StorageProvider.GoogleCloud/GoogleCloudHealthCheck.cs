@@ -10,7 +10,7 @@ public class GoogleCloudHealthCheck<T>(IServiceProvider serviceProvider) : IHeal
         CancellationToken cancellationToken = default)
     {
         var storageProvider = serviceProvider.GetRequiredService<IDiskStorage<T>>();
-        if (storageProvider is not GoogleCloudStorage<T> provider)
+        if (storageProvider is not HybridBigtableGcsStorage<T> provider)
             return HealthCheckResult.Degraded();
 
         var isLastResultFilled = provider?.LastResult != null;
