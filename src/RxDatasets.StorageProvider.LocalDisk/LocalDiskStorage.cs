@@ -290,7 +290,8 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 }
 
                 var files = Directory.GetFiles(searchPath, searchPattern, SearchOption.AllDirectories)
-                    .Select(path => (path.Substring(_rootFolder.Length).TrimStart(Path.DirectorySeparatorChar).Replace(Path.DirectorySeparatorChar, '/'), DateTimeOffset.UtcNow))
+                    .Select(path => (path.Substring(_rootFolder.Length).TrimStart(Path.DirectorySeparatorChar).Replace(Path.DirectorySeparatorChar, '/'), new FileInfo(path).LastWriteTimeUtc))
+                    .Select(x => (x.Item1, new DateTimeOffset(x.Item2)))
                     .ToList();
 
                 return await Task.FromResult(files);
