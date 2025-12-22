@@ -32,7 +32,7 @@ namespace RxDatasets.StorageProvider.LocalDisk
             catch (Exception ex)
             {
                 SetUnhealthy(ex);
-                _logger.LogError($"Could not initialize local disk storage: {ex.Message}");
+                _logger.LogError(ex, "Could not initialize local disk storage");
                 throw;
             }
         }

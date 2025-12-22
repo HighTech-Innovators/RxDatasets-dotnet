@@ -79,7 +79,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to initialize {typeof(T).Name} Dataset");
+                _logger.LogError(ex, "Failed to initialize Writer for {EntityType} Dataset", typeof(T).Name);
                 await Task.Delay(5 * 1000);
             }
         }
@@ -103,7 +103,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, "Failed to initialize Writer Dataset");
+            _logger.LogCritical(ex, "Failed to initialize Writer for {EntityType} Dataset", typeof(T).Name);
             throw;
         }
     }
