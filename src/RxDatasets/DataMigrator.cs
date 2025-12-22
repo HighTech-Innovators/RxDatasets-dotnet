@@ -212,7 +212,7 @@ public class DataMigrator<T> : IDataMigrator
                     log($"  Set previous_version for changed entity '{entity.Name}' to {lastVersion}");
                 }
             }
-            
+
             // Update tracking for changed entities
             foreach (var entity in deltaIndex.ChangedEntities)
             {
@@ -229,7 +229,7 @@ public class DataMigrator<T> : IDataMigrator
                     log($"  Set previous_version for new entity '{entity.Name}' to {lastVersion}");
                 }
             }
-            
+
             // Update tracking for new entities
             foreach (var entity in deltaIndex.NewEntities)
             {
@@ -246,7 +246,7 @@ public class DataMigrator<T> : IDataMigrator
                     log($"  Set previous_version for deleted entity '{entity.Name}' to {lastVersion}");
                 }
             }
-            
+
             // Update tracking for deleted entities
             foreach (var entity in deltaIndex.DeletedEntities)
             {
@@ -277,7 +277,7 @@ public class DataMigrator<T> : IDataMigrator
                         log($"    Migrated deleted entity '{deletedName}' with previous_version {deletedEntity.PreviousVersion}");
                     }
                 }
-                
+
                 // Update tracking for all deleted names
                 foreach (var deletedName in deltaIndex.DeletedNames)
                 {

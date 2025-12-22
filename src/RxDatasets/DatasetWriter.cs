@@ -482,9 +482,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return true;
 
         var newHashCode = DatasetHelper.ComputeCrc32(entityBytes);
-        // If the crc32 is 0 (which is the case for the entities inserted before we added crc32 hashes), we can't compare the crc32, so we have to compare the bytes
-        if (existingEntity.Crc32 != 0 && existingEntity.Crc32 != newHashCode)
-            return true;
+
+        // If we have a stored CRC (non-zero), trust it completely
+        if (existingEntity.Crc32 != 0)
+            return existingEntity.Crc32 != newHashCode;
+
+        // If stored CRC is 0 (legacy), always compare bytes
         var existingBytes = await ReadEntityBytes(name);
         return !existingBytes.Span.SequenceEqual(entityBytes);
     }
