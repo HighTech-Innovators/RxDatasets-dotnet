@@ -51,6 +51,27 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return _protoParser.ParseFrom(entity.entityBytes.Span);
     }
 
+    public async Task<TEntity> GetHistoric(string name, ulong version, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entity = await dataset.GetHistoric(name, version, cancellationToken);
+            if (entity == null)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"The requested {typeof(TEntity).Name} does not exist in version {version}: {name}"));
+            }
+            return _protoParser.ParseFrom(entity.Value.entityBytes.Span);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
     /// <summary>
     /// Lists child entities for the given parent.
     /// Deprecated: Use ListChildren to get IDs/names instead, then BatchGet to retrieve entities.
@@ -273,6 +294,15 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         not null => int.TryParse(config, out var intValue) ? intValue : null
     };
 
+    public async Task<List<HistoryEntry>> GetHistory(string id, string aliasName, int limit, ulong minVersion, CancellationToken cancellationToken)
+    {
+        return await GetDataset(aliasName).GetHistory(id, limit, minVersion, cancellationToken);
+    }
+
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, string aliasName, ulong minVersion, ulong maxVersion, bool waitIfNone, CancellationToken cancellationToken)
+    {
+        return GetDataset(aliasName).StreamHistory(parent, minVersion, maxVersion, waitIfNone, cancellationToken);
+    }
 
     private readonly int _defaultPageSize = AsInt(config["PageSize"]) ?? 1000;
     private readonly int _maxPageSize = AsInt(config["MaxPageSize"]) ?? 1000;

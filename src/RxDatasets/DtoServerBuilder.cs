@@ -152,6 +152,12 @@ namespace RxDatasets
 
             services.AddValidatedConfigSection<WriterConfig>();
             services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+
+            if (!_isInMemoryDataset)
+            {
+                services.AddSingleton<DataMigrator<TEntity>>();
+                services.AddSingleton<IDataMigrator>(sp => sp.GetRequiredService<DataMigrator<TEntity>>());
+            }
         }
 
         private void AddStorageProvider()

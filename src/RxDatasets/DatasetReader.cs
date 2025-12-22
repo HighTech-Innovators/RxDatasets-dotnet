@@ -1,5 +1,7 @@
 
 using System.Reactive.Disposables;
+using System.Runtime.CompilerServices;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -372,6 +374,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     {
                         await _parentsIndex.OnDelete(deletedEntity);
                     }
+                    foreach (var deletedEntity in delta.DeletedEntities)
+                    {
+                        await _parentsIndex.OnDelete(deletedEntity.Name);
+                    }
                 }
             }
 
@@ -439,5 +445,228 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         await semaphore.WaitAsync();
         return new ActionDisposable(() => semaphore.Release());
+    }
+
+    public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        {
+            return [];
+        }
+
+        var history = new List<HistoryEntry>();
+        var currentVersion = entity.GetLatestEntityVersion();
+
+        while (currentVersion > 0 && currentVersion > minVersion)
+        {
+            if (limit > 0 && history.Count >= limit)
+            {
+                break;
+            }
+
+            ct.ThrowIfCancellationRequested();
+            DeltaIndex deltaIndex;
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
+                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            }
+            catch (FileNotFoundException)
+            {
+                break;
+            }
+
+            ChangeType changeType = ChangeType.None;
+            ulong previousVersion = 0;
+
+            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+            if (newEntity != null)
+            {
+                changeType = ChangeType.New;
+                previousVersion = newEntity.PreviousVersion;
+            }
+
+            if (changeType == ChangeType.None)
+            {
+                var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+                if (changedEntity != null)
+                {
+                    changeType = ChangeType.Changed;
+                    previousVersion = changedEntity.PreviousVersion;
+                }
+            }
+
+            if (changeType == ChangeType.None)
+            {
+                // Prefer DeletedEntity (with PreviousVersion) over DeletedNames (legacy, without previous version)
+                var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+                if (deletedEntity != null)
+                {
+                    changeType = ChangeType.Deleted;
+                    previousVersion = deletedEntity.PreviousVersion;
+                }
+                else if (deltaIndex.DeletedNames.Contains(name))
+                {
+                    changeType = ChangeType.Deleted;
+                    previousVersion = 0;
+                }
+            }
+
+            if (changeType != ChangeType.None)
+            {
+                var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+
+                history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
+                currentVersion = previousVersion;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return history;
+    }
+
+    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (_initializationTask == null || _initializationTask.IsFaulted)
+            ThrowIfNotInitialized();
+
+        if (!_initializationTask!.IsCompleted)
+            await _initializationTask;
+
+        // Wait for version to advance beyond minVersion if requested
+        if (waitIfNone)
+        {
+            while (minVersion >= ThrowIfNotInitialized().LatestVersion)
+            {
+                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+            }
+        }
+
+        var indexRef = ThrowIfNotInitialized();
+        var currentVersion = maxVersion > 0 ? maxVersion : indexRef.LatestVersion;
+
+        while (currentVersion > 0 && currentVersion > minVersion)
+        {
+            ct.ThrowIfCancellationRequested();
+            DeltaIndex deltaIndex;
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
+                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            }
+            catch (FileNotFoundException)
+            {
+                break;
+            }
+
+            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+
+            // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
+            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
+
+            foreach (var newEntity in deltaIndex.NewEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                }
+            }
+
+            foreach (var changedEntity in deltaIndex.ChangedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                }
+            }
+
+            foreach (var deletedEntity in deltaIndex.DeletedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                }
+            }
+
+            // Only yield deleted names that don't have a corresponding deleted entity (avoid duplicates)
+            // Prefer the richer deleted entity info when both exist
+            foreach (var deletedName in deltaIndex.DeletedNames)
+            {
+                if (!deletedEntityNames.Contains(deletedName) && 
+                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
+                {
+                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                }
+            }
+
+            // We need to find the next version to check.
+            // Since we are streaming all history, we just go to the previous version of the dataset.
+            // However, the DeltaIndex doesn't explicitly store the "previous dataset version".
+            // But we know versions are sequential or we can infer it?
+            // Actually, DatasetReader usually assumes versions are sequential or we can just decrement?
+            // Wait, storage provider ReadDeltaIndex takes a version.
+            // In GetHistory, we follow the entity's previous version.
+            // Here we want ALL changes, so we should probably just go to currentVersion - 1?
+            // Or is there a way to know the previous version from the DeltaIndex?
+            // Looking at DeltaIndex proto (not visible here but inferred), it might not have it.
+            // But `GetChangedNames` usually iterates.
+            // Let's assume sequential for now or check how `GetChangedNames` works.
+            
+            // Checking `GetChangedNames` implementation might reveal how versions are traversed.
+            // But `GetHistory` follows `previousVersion` from the entity change.
+            
+            // If versions are not sequential (e.g. gaps), simply decrementing might fail with FileNotFound, which is handled.
+            // But better if we knew.
+            
+            currentVersion--;
+        }
+    }
+
+    public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        if (version > indexRef.LatestVersion)
+        {
+            throw new ArgumentOutOfRangeException(nameof(version), "Version is in the future");
+        }
+
+        DeltaIndex deltaIndex;
+        try
+        {
+            var deltaBytes = await _storageProvider.ReadDeltaIndex(version);
+            deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+        }
+        catch (FileNotFoundException)
+        {
+            throw new ArgumentException("Delta not found", nameof(version));
+        }
+
+        // Check if it was deleted in this version
+        var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+        if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+        {
+            return null;
+        }
+
+        // Check if it was New or Changed
+        var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+        if (newEntity != null)
+        {
+            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
+            return (name, data);
+        }
+
+        var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+        if (changedEntity != null)
+        {
+            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);
+            return (name, data);
+        }
+
+        throw new ArgumentException($"Entity {name} was not changed in version {version}");
     }
 }

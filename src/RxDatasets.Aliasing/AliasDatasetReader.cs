@@ -105,7 +105,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
                 // Background sync: continuously watch for changes
                 await SyncChangesInBackground(initialChanges.ToVersion, cancellationToken);
-                
+
                 // If SyncChangesInBackground returns normally (e.g., due to cancellation), exit the loop
                 break;
             }
@@ -118,7 +118,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error initializing alias reader '{AliasName}', will retry in 5 seconds", _aliasName);
-                
+
                 // Don't set the exception on _initializationComplete - instead, retry
                 // This prevents the reader from being permanently stuck
                 try
@@ -351,6 +351,11 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         return GetWithCancellation(id, CancellationToken.None);
     }
 
+    public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
+    }
+
     private async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetWithCancellation(string id, CancellationToken cancellationToken)
     {
         await EnsureInitialized(cancellationToken);
@@ -478,6 +483,16 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
             return count;
         }
+    }
+
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
+    }
+
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
     }
 
     public void Dispose()

@@ -1,6 +1,7 @@
 
 using System.Reactive.Disposables;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -290,13 +291,22 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         // Handle deletes based on parent inclusion and only if deletes are allowed
         if (performImplicitDeletes)
         {
+            IEnumerable<string> implicitDeletes;
             if (includeParents)
             {
-                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletesForParentNames(_index!, receivedNames, allParents));
+                implicitDeletes = DatasetHelper.GetImplicitDeletesForParentNames(_index!, receivedNames, allParents);
             }
             else
             {
-                deltaIndex.DeletedNames.AddRange(DatasetHelper.GetImplicitDeletes(_index!, receivedNames));
+                implicitDeletes = DatasetHelper.GetImplicitDeletes(_index!, receivedNames);
+            }
+
+            foreach (var name in implicitDeletes)
+            {
+                if (_index!.Entities.TryGetValue(name, out var existingEntity))
+                {
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = existingEntity.GetLatestEntityVersion() });
+                }
             }
         }
         var hasEntityData = deltaIndex.NewEntities.Count > 0 || deltaIndex.ChangedEntities.Count > 0;
@@ -307,7 +317,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         fileStream.Close();
 
-        if (deltaIndex.NewEntities.Count == 0 && deltaIndex.ChangedEntities.Count == 0 && deltaIndex.DeletedNames.Count == 0)
+        if (deltaIndex.NewEntities.Count == 0 && deltaIndex.ChangedEntities.Count == 0 && deltaIndex.DeletedNames.Count == 0 && deltaIndex.DeletedEntities.Count == 0)
         {
             File.Delete(tempDataFilePath);
             return new IDatasetWriter<T>.WriteResponse
@@ -324,14 +334,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
-        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedNames.Count);
+        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
 
         return new IDatasetWriter<T>.WriteResponse
         {
             NewDatasetVersion = _index.LatestVersion,
             NumAddedEntities = (uint)deltaIndex.NewEntities.Count,
             NumUpdatedEntities = (uint)deltaIndex.ChangedEntities.Count,
-            NumDeletedEntities = (uint)deltaIndex.DeletedNames.Count
+            NumDeletedEntities = (uint)deltaIndex.DeletedEntities.Count
         };
     }
 
@@ -393,18 +403,23 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
         }
 
+        deltaIndex.Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+
         // Now determine net effect for each entity using CRC32 comparison with index
         foreach (var (name, finalState) in entityFinalStates)
         {
             // Get original state from index
             var hasExistingEntity = index.Entities.TryGetValue(name, out var existingEntity);
             var existingIsDeleted = hasExistingEntity && existingEntity!.GetLatestChangeType() == ChangeType.Deleted;
+            ulong previousVersion = hasExistingEntity ? existingEntity!.GetLatestEntityVersion() : 0;
 
             if (finalState == null)
             {
                 // Final state is delete
                 if (hasExistingEntity && !existingIsDeleted)
-                    deltaIndex.DeletedNames.Add(name);
+                {
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = previousVersion });
+                }
                 continue;
             }
 
@@ -436,7 +451,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 Position = position,
                 Length = length,
                 Name = name,
-                Crc32 = finalCrc
+                Crc32 = finalCrc,
+                PreviousVersion = previousVersion
             };
 
             if (changeType == ChangeType.New)
@@ -511,7 +527,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var deltaIndex = new DeltaIndex()
         {
             DeltaVersionLegacy = 0,
-            DeltaVersion = delta.DatasetVersion
+            DeltaVersion = delta.DatasetVersion,
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
         };
 
         await using var concatenatedByteStream = new MemoryStream();
@@ -519,6 +536,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         foreach (var (name, entityBytes, change, crc32) in delta.Changes)
         {
+            ulong previousVersion = 0;
+            if (_index!.Entities.TryGetValue(name, out var existingEntity))
+            {
+                previousVersion = existingEntity.GetLatestEntityVersion();
+            }
+
             switch (change)
             {
                 case ChangeType.New:
@@ -529,7 +552,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Position = targetPosition,
                         Length = entityBytes.Length,
                         Name = name,
-                        Crc32 = crc32
+                        Crc32 = crc32,
+                        PreviousVersion = previousVersion
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
@@ -542,13 +566,18 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Position = targetPosition,
                         Length = entityBytes.Length,
                         Name = name,
-                        Crc32 = crc32
+                        Crc32 = crc32,
+                        PreviousVersion = previousVersion
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
                     break;
                 case ChangeType.Deleted:
-                    deltaIndex.DeletedNames.Add(name);
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity
+                    {
+                        Name = name,
+                        PreviousVersion = previousVersion
+                    });
                     break;
             }
         }

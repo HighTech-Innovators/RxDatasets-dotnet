@@ -40,9 +40,22 @@ public class DatasetWatcher<T>(
             await datasetObserver.OnChange(entity.Name, data);
         }
 
+        // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
+        var deletedEntityNames = new HashSet<string>(deltaIndexParsed.DeletedEntities.Select(e => e.Name));
+
+        // Only delete via DeletedNames if there's no corresponding DeletedEntity
+        // Prefer DeletedEntities as they contain previous version info
         foreach (var entityName in deltaIndexParsed.DeletedNames)
         {
-            await datasetObserver.OnDelete(entityName);
+            if (!deletedEntityNames.Contains(entityName))
+            {
+                await datasetObserver.OnDelete(entityName);
+            }
+        }
+
+        foreach (var entity in deltaIndexParsed.DeletedEntities)
+        {
+            await datasetObserver.OnDelete(entity.Name);
         }
 
         await datasetObserver.OnDatasetVersionEnd(nextToReportedVersion);

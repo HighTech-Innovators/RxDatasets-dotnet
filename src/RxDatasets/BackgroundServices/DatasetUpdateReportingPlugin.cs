@@ -62,8 +62,8 @@ namespace RxDatasets.BackgroundServices
                 if (deltaIndexParsed.ChangedEntities.Count > 0)
                     logger.LogDebug("Processing {ChangeCount} changed entities", deltaIndexParsed.ChangedEntities.Count);
 
-                if (deltaIndexParsed.DeletedNames.Count > 0)
-                    logger.LogDebug("Processing {DeleteCount} deleted entities", deltaIndexParsed.DeletedNames.Count);
+                if (deltaIndexParsed.DeletedNames.Count > 0 || deltaIndexParsed.DeletedEntities.Count > 0)
+                    logger.LogDebug("Processing {DeleteCount} deleted entities", deltaIndexParsed.DeletedNames.Count + deltaIndexParsed.DeletedEntities.Count);
 
                 foreach (var newEntity in deltaIndexParsed.NewEntities)
                 {
@@ -87,6 +87,13 @@ namespace RxDatasets.BackgroundServices
 
                     cancellationToken.ThrowIfCancellationRequested();
                     await _reportingImplementation.OnDeletedDto(deletedEntity,
+                        optionalState);
+                }
+
+                foreach (var deletedEntity in deltaIndexParsed.DeletedEntities)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await _reportingImplementation.OnDeletedDto(deletedEntity.Name,
                         optionalState);
                 }
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace RxDatasets.Aliasing;
@@ -110,12 +111,17 @@ public static class DI
             var aliasPatterns = aliasNameValues.Select(av => av.AliasPattern).ToList();
 
             // Create alias factory
-            var aliasFactory = CreateAliasFactoryDelegate(idPattern, aliasPatterns, protoParser);
+            var aliasFactory = PatternsAndExpressions.CreateAliasFactoryDelegate(idPattern, aliasPatterns, protoParser);
             services.AddDatasetAlias<TEntity>(aliasName, aliasFactory);
         }
     }
+}
 
-    internal static Func<ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
+public static class PatternsAndExpressions
+{
+    private static readonly Regex PlaceholderRegex = new(@"\{([^}]+)\}", RegexOptions.Compiled);
+
+    public static Func<ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
         string idPattern,
         List<string> aliasPatterns,
         MessageParser<TEntity> protoParser)
@@ -155,7 +161,7 @@ public static class DI
     /// For example, "t/{tenantid}/s/{storeid}/links/{linkid}" produces:
     /// {tenantid: 1, storeid: 3, linkid: 5} (positions in the split result)
     /// </summary>
-    private static Dictionary<string, int> ExtractPatternVariables(string idPattern)
+    public static Dictionary<string, int> ExtractPatternVariables(string idPattern)
     {
         var variables = new Dictionary<string, int>();
         var parts = idPattern.Split('/');
@@ -195,7 +201,7 @@ public static class DI
     ///   For Link with multi_item.linked_items having ["a", "b", "c"] (3 distinct items):
     ///     Result: ["item/a", "item/b", "item/c"]
     /// </summary>
-    private static IEnumerable<string> EvaluateAliasPattern(
+    public static IEnumerable<string> EvaluateAliasPattern(
         string aliasPattern,
         Dictionary<string, int> idVariables,
         object entity)
@@ -224,8 +230,7 @@ public static class DI
             }
 
             // Parse the pattern into alternating literal and placeholder segments
-            var regex = new Regex(@"\{([^}]+)\}");
-            var matches = regex.Matches(aliasPattern);
+            var matches = PlaceholderRegex.Matches(aliasPattern);
             var segments = new List<(bool isPlaceholder, string content)>();
             int lastIndex = 0;
 
@@ -292,6 +297,59 @@ public static class DI
         {
             return Enumerable.Empty<string>();
         }
+    }
+
+    /// <summary>
+    /// Evaluates an expression that references ID placeholders (e.g. {tenantid}, {storeid})
+    /// using the provided ID pattern and DTO entity ID.
+    /// </summary>
+    public static string? EvaluateIdPatternExpression(string expression, string idPattern, string entityId)
+    {
+        if (string.IsNullOrWhiteSpace(expression) || string.IsNullOrWhiteSpace(idPattern) || string.IsNullOrWhiteSpace(entityId))
+            return null;
+
+        var idVariables = ExtractPatternVariables(idPattern);
+        if (idVariables.Count == 0)
+            return null;
+
+        var idParts = entityId.Split('/');
+        var idValues = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (variableName, position) in idVariables)
+        {
+            if (position < idParts.Length)
+            {
+                idValues[variableName] = idParts[position];
+            }
+        }
+
+        var builder = new StringBuilder();
+        int lastIndex = 0;
+        var matches = PlaceholderRegex.Matches(expression);
+        foreach (Match match in matches)
+        {
+            if (match.Index > lastIndex)
+            {
+                builder.Append(expression.Substring(lastIndex, match.Index - lastIndex));
+            }
+
+            var placeholder = match.Groups[1].Value;
+            if (string.IsNullOrEmpty(placeholder) || placeholder.StartsWith(".", StringComparison.Ordinal))
+                return null;
+
+            if (!idValues.TryGetValue(placeholder, out var value))
+                return null;
+
+            builder.Append(value);
+            lastIndex = match.Index + match.Length;
+        }
+
+        if (lastIndex < expression.Length)
+        {
+            builder.Append(expression.Substring(lastIndex));
+        }
+
+        var result = builder.ToString();
+        return string.IsNullOrEmpty(result) ? null : result;
     }
 
     /// <summary>

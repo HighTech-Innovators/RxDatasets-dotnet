@@ -22,7 +22,7 @@ public class EvaluateJsonPathTests
         var aliasPattern = "{.id}";
 
         var relation = new Relation { Id = "t/100/s/200/relations/abc" };
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -48,7 +48,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -81,7 +81,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -112,7 +112,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -146,7 +146,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -181,7 +181,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -216,7 +216,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -250,7 +250,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -283,7 +283,7 @@ public class EvaluateJsonPathTests
             }
         };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { pattern1, pattern2 },
             Relation.Parser);
@@ -305,7 +305,7 @@ public class EvaluateJsonPathTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/abc" };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -324,7 +324,7 @@ public class EvaluateJsonPathTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/abc" };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
@@ -343,7 +343,7 @@ public class EvaluateJsonPathTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/abc" };
 
-        var factory = DI.CreateAliasFactoryDelegate(
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
             idPattern,
             new List<string> { aliasPattern },
             Relation.Parser);
