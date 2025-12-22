@@ -283,7 +283,10 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         var cacheValueFound = _memoryCache.TryGetValue(key, out (List<T> collection, int alreadySkipped, ulong ToDatasetVersion) cacheValue);
         _memoryCache.Remove(key);
         if (!cacheValueFound || cacheValue.collection is not List<T>)
+        {
+            logger.LogWarning("Requested nextPageToken is no longer valid or does not exist. PageToken={PageToken}, EntityType={EntityType}", key, typeof(TEntity).Name);
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not exist or is no longer valid"));
+        }
         logger.LogDebug($"Cache hit for {key} in dataset reader");
         return (cacheValue.collection, cacheValue.alreadySkipped, cacheValue.ToDatasetVersion);
     }
