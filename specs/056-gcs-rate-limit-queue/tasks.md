@@ -36,17 +36,17 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 
 ## Phase 1: Project Setup
 
-- [ ] T001 Create QueuedWrite.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
+- [x] T001 Create QueuedWrite.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
   - Contains: ObjectKey, Bytes, Stream, IsStreamSource, QueuedAt, SequenceNumber
   - Add XML documentation and validation
   - Reference: data-model.md - Entity: QueuedWrite
 
-- [ ] T002 Create FileWriteQueueState.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
+- [x] T002 Create FileWriteQueueState.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
   - Contains: ObjectKey, PendingWrites Queue, LastSuccessfulWrite, FlushScheduled, FlushTask, Lock
   - Implement IsFlushEligible() and GetMillisecondsUntilFlushEligible() helper methods
   - Reference: data-model.md - Entity: FileWriteQueueState
 
-- [ ] T003 Create WriteQueueManager.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
+- [x] T003 Create WriteQueueManager.cs internal class in src/RxDatasets.StorageProvider.GoogleCloud/
   - Contains: _queues (ConcurrentDictionary), _sequenceNumber, _isDisposing, _logger, _flushAction
   - Implement TryQueueWrite(objectKey, bytes/stream), MarkSuccessfulWrite(), ScheduleFlush(), ExecuteFlush(), FlushAndDisposeAsync()
   - Reference: data-model.md - Entity: WriteQueueManager
@@ -55,33 +55,33 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 
 ## Phase 2: Foundational Infrastructure
 
-- [ ] T004 [P] Modify GoogleCloudStorage<T> constructor in src/RxDatasets.StorageProvider.GoogleCloud/GoogleCloudStorage.cs
+- [x] T004 [P] Modify GoogleCloudStorage<T> constructor in src/RxDatasets.StorageProvider.GoogleCloud/GoogleCloudStorage.cs
   - Add _writeQueueManager initialization
   - Pass _logger and FlushQueuedWriteAsync delegate to manager
   - Ensure _disposed volatile field is added
 
-- [ ] T005 [P] Implement FlushQueuedWriteAsync() helper method in GoogleCloudStorage.cs
+- [x] T005 [P] Implement FlushQueuedWriteAsync() helper method in GoogleCloudStorage.cs
   - Private async Task method that executes queued write (calls UploadBytes or UploadFileStream)
   - Used as delegate for WriteQueueManager
 
-- [ ] T006 [P] Add IAsyncDisposable implementation to GoogleCloudStorage<T> in GoogleCloudStorage.cs
+- [x] T006 [P] Add IAsyncDisposable implementation to GoogleCloudStorage<T> in GoogleCloudStorage.cs
   - Implement ValueTask DisposeAsync() method
   - Set _disposed flag, call _writeQueueManager.FlushAndDisposeAsync(), dispose _storageClient, GC.SuppressFinalize()
 
-- [ ] T007 Add disposal guards to public methods in GoogleCloudStorage.cs
+- [x] T007 Add disposal guards to public methods in GoogleCloudStorage.cs
   - Add check at start of UploadBytes(): if (_disposed) throw ObjectDisposedException
   - Add check at start of UploadFileStream(): if (_disposed) throw ObjectDisposedException
   - Prevents use after disposal
 
-- [ ] T008 [P] Modify UploadBytes() in GoogleCloudStorage.cs to integrate queue check
+- [x] T008 [P] Modify UploadBytes() in GoogleCloudStorage.cs to integrate queue check
   - Before existing rate-limit retry loop: if (_writeQueueManager.TryQueueWrite(objectKey, bytes)) return;
   - After successful write: _writeQueueManager.MarkSuccessfulWrite(objectKey);
 
-- [ ] T009 [P] Modify UploadFileStream() in GoogleCloudStorage.cs to integrate queue check
+- [x] T009 [P] Modify UploadFileStream() in GoogleCloudStorage.cs to integrate queue check
   - Before existing write logic: if (_writeQueueManager.TryQueueWrite(objectKey, stream)) return;
   - After successful write: _writeQueueManager.MarkSuccessfulWrite(objectKey);
 
-- [ ] T010 [P] Update RxDatasets.StorageProvider.GoogleCloud.csproj if needed
+- [x] T010 [P] Update RxDatasets.StorageProvider.GoogleCloud.csproj if needed
   - Verify dependencies: Google.Cloud.Storage.V1, System.Reactive, Microsoft.Extensions.Logging
   - Add .NET 8.0 target if not already present
   - Verify no new NuGet packages needed (all types are in BCL/existing dependencies)
@@ -98,14 +98,14 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 - Flush occurs automatically after 2-second window
 - Final data in GCS matches expected state
 
-- [ ] T012 [US1] Create WriteQueueTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
+- [x] T012 [US1] Create WriteQueueTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
   - Test: RapidWritesToSameFileAreQueued() - Verify 2+ writes < 2s apart result in queue behavior
   - Test: WriteQueueBypassesWhenLastWriteOldEnough() - Verify writes > 2s apart don't queue
   - Test: QueuedWritesFlushAfterTwoSeconds() - Verify automatic flush after 2s delay
   - Test: MultipleFilesHaveIndependentQueues() - Verify different files don't block each other
   - Test: QueuedWritesPreserveOrder() - Verify writes are flushed in FIFO order
 
-- [ ] T013 [US1] Implement queue entry logic in TryQueueWrite() method
+- [x] T013 [US1] Implement queue entry logic in TryQueueWrite() method
   - Lock acquisition (EnterReadLock) for checking LastSuccessfulWrite timestamp
   - Create QueuedWrite with sequence number
   - Enqueue to PendingWrites
@@ -113,13 +113,13 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
   - Call ScheduleFlush()
   - Return true to indicate queuing
 
-- [ ] T014 [US1] Implement ScheduleFlush() background task scheduling
+- [x] T014 [US1] Implement ScheduleFlush() background task scheduling
   - Calculate delay: GetMillisecondsUntilFlushEligible()
   - If already scheduled, return early
   - Create Task.Delay() → ContinueWith(ExecuteFlush)
   - Set FlushScheduled flag and FlushTask reference
 
-- [ ] T015 [US1] Implement ExecuteFlush() dequeue and write logic
+- [x] T015 [US1] Implement ExecuteFlush() dequeue and write logic
   - Acquire write lock
   - Dequeue all pending writes in order
   - For each: call _flushAction (executes UploadBytes/FileStream)
@@ -128,7 +128,7 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
   - On failure: log warning with full context, throw to propagate
   - Release flush state (set FlushScheduled = false, FlushTask = null)
 
-- [ ] T016 [P] [US1] Implement rapid write performance test in WriteQueueTests.cs
+- [x] T016 [P] [US1] Implement rapid write performance test in WriteQueueTests.cs
   - Use testcontainer for GCS emulator (gcloud-emulator Docker image or mock)
   - Write 5 rapid updates to same file (< 100ms apart)
   - Assert all calls return in < 50ms (use Stopwatch)
@@ -149,13 +149,13 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 - DisposeAsync waits for in-flight flush tasks
 - No data is lost (final state matches all queued writes)
 
-- [ ] T017 [US2] Create ShutdownFlushTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
+- [x] T017 [US2] Create ShutdownFlushTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
   - Test: DisposalFlushesQueuedWrites() - Queue pending writes and verify all flushed on disposal
   - Test: DisposalWaitsForInFlightFlush() - In-flight flush task completed before disposal returns
   - Test: DisposalFlushesPendingWritesFromMultipleFiles() - Multiple files all flushed
   - Test: DisposalTimingExeedsFlushWindow() - Disposal takes >= 2 seconds due to flush
 
-- [ ] T018 [US2] Implement FlushAndDisposeAsync() in WriteQueueManager
+- [x] T018 [US2] Implement FlushAndDisposeAsync() in WriteQueueManager
   - Set _isDisposing = true to prevent new writes
   - Collect all in-flight FlushTask objects
   - If tasks exist: await Task.WhenAll(tasks)
@@ -164,7 +164,7 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
   - Dispose all FileWriteQueueState.Lock instances
   - Clear _queues dictionary
 
-- [ ] T019 [US2] Implement disposal guard in TryQueueWrite() methods
+- [x] T019 [US2] Implement disposal guard in TryQueueWrite() methods
   - Check if _isDisposing flag is true
   - If true: don't queue, let normal write path handle (will fail with proper error)
   - Alternative: queue but don't schedule flush (write gets flushed by FlushAndDisposeAsync)
@@ -182,13 +182,13 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 - No connection timeouts or hangs during disposal
 - Disposal completes within reasonable time (< 5 seconds)
 
-- [ ] T020 [US3] Create DispatcherCleanupTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
+- [x] T020 [US3] Create DispatcherCleanupTests.cs in tst/RxDatasets.StorageTests/GoogleCloudStorage/
   - Test: ObjectDisposedExceptionThrownAfterDisposal() - Verify ObjectDisposedException on UploadBytes after disposal
   - Test: ClientDisposedBeforeFlagSet() - Verify Google Cloud client is disposed during DisposeAsync
   - Test: DisposalCompletesWithinTimeLimit() - Measure DisposeAsync and verify completes < 5s
   - Test: MultipleDisposalCallsAreIdempotent() - Verify calling DisposeAsync twice is safe
 
-- [ ] T021 [US3] Verify client disposal sequence in DisposeAsync()
+- [x] T021 [US3] Verify client disposal sequence in DisposeAsync()
   - Ensure _writeQueueManager.FlushAndDisposeAsync() completes first
   - Then: _storageClient?.Dispose()
   - Set _disposed = true flag before any operations (or after? depends on threading model)
