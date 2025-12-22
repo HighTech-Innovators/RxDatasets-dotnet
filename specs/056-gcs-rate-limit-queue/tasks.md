@@ -128,12 +128,14 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
   - On failure: log warning with full context, throw to propagate
   - Release flush state (set FlushScheduled = false, FlushTask = null)
 
-- [ ] T016 [US1] Manual testing: Verify rapid writes return immediately
+- [ ] T016 [P] [US1] Implement rapid write performance test in WriteQueueTests.cs
+  - Use testcontainer for GCS emulator (gcloud-emulator Docker image or mock)
   - Write 5 rapid updates to same file (< 100ms apart)
-  - Measure response time - should all be < 50ms
-  - Wait 2.5 seconds
-  - Verify all writes persisted to GCS
-  - Verify logs show "Write queued" entries
+  - Assert all calls return in < 50ms (use Stopwatch)
+  - Wait 2.5 seconds for flush window to elapse
+  - Assert all writes persisted to GCS
+  - Assert logs contain "Write queued" entries
+  - Reference: quickstart.md - Testing Examples
 
 ---
 
@@ -224,41 +226,45 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 
 ### MVP Scope (Minimum Viable Product)
 
-Complete Phase 1 + Phase 2 + Phase 3a:
-- Tasks T001-T019 (excluding US3 - disposal verification tests can come later)
+Complete Phase 1 + Phase 2 + Phase 3a + Phase 3b:
+- Tasks T001-T019 (all queue and shutdown functionality)
+- All automated tests passing via testcontainer (T012-T017 tests)
 - Deliverable: Working queue that reduces client latency for rapid writes
-- Time: 4-5 days
-- MVP Success: Clients get immediate response for queued writes; queue flushes automatically; all data persisted
+- Time: 5-6 days
+- MVP Success: Clients get immediate response for queued writes; queue flushes automatically; all data persisted; safe shutdown; no data loss
 
 ### Incremental Delivery
 
 1. **Iteration 1**: Setup + Foundational (T001-T010)
    - Creates all classes and integrations
-   - Doesn't test yet - just infrastructure
+   - No tests yet - just infrastructure
    - Review: Code structure, API integration
 
 2. **Iteration 2**: User Story 1 - Queueing Logic (T012-T016)
    - Implement queue detection, entry, and flush
-   - Write tests for rapid writes and automatic flush
+   - Automated tests via testcontainer (WriteQueueTests.cs)
+   - Test: Rapid writes, automatic flush, per-file independence
    - Deliverable: Basic queue functionality
    - Review: Queueing behavior, timestamp tracking, flush logic
 
 3. **Iteration 3**: User Story 2 - Shutdown (T017-T019)
    - Add graceful shutdown with queue flushing
-   - Write disposal and shutdown tests
+   - Automated tests via testcontainer (ShutdownFlushTests.cs)
+   - Test: Queue flushing on disposal, in-flight flush coordination
    - Deliverable: Safe shutdown with no data loss
    - Review: Async disposal, queue flushing coordination
 
 4. **Iteration 4**: User Story 3 - Client Disposal (T020-T021)
    - Verify client resource cleanup
-   - Write disposal edge case tests
+   - Automated tests via testcontainer (DispatcherCleanupTests.cs)
+   - Test: Disposal safety, ObjectDisposedException, resource leaks
    - Deliverable: Proper resource management
    - Review: Disposal safety, resource leaks
 
 5. **Iteration 5**: Polish (T022-T023)
    - Add comprehensive logging
    - Write PR description
-   - Final testing and documentation
+   - Final test run
    - Deliverable: Production-ready code
 
 ### Parallelization Opportunities
@@ -271,15 +277,18 @@ After T001-T010 (foundational), these can be done in parallel:
 
 ### Testing Strategy
 
-Tests are NOT required for this feature (TDD not specified), but:
-- Optional integration tests recommended for shutdown scenarios (critical for Kubernetes)
-- Load tests recommended for queue depth / concurrent operations
-- Manual smoke test sufficient for MVP (see T016)
+Tests are **RECOMMENDED** using testcontainers for automated verification:
+- Integration tests with GCS emulator via testcontainer (gcloud-emulator or mock)
+- Load tests for queue depth / concurrent operations
+- Unit tests for queue state management
+- Shutdown scenario tests (critical for Kubernetes)
 
-**Test Files (Optional)**:
+**Test Files (Recommended, Automated via Testcontainer)**:
 - tst/RxDatasets.StorageTests/GoogleCloudStorage/WriteQueueTests.cs
 - tst/RxDatasets.StorageTests/GoogleCloudStorage/ShutdownFlushTests.cs
 - tst/RxDatasets.StorageTests/GoogleCloudStorage/DispatcherCleanupTests.cs
+
+All tests run against testcontainer instance; no manual testing required.
 
 ---
 
@@ -306,8 +315,8 @@ Example:
 
 **Before Merging User Story**:
 - [ ] All story-specific tasks complete (T012-T016 for US1, etc.)
-- [ ] Optional: Tests passing (if implemented)
-- [ ] Manual testing done (at minimum: T016 smoke test)
+- [ ] All automated tests passing (via testcontainer)
+- [ ] Test coverage includes: queue behavior, shutdown flushing, resource cleanup
 - [ ] Logging verified working for all operations
 
 **Before Final Merge**:
