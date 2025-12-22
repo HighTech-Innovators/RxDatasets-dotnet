@@ -308,6 +308,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 {
                     using var stream = new MemoryStream(bytes);
                     await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream);
+                    _logger.LogInformation("Uploaded {ObjectKey} ({Length} bytes) to Google Cloud Storage", objectKey, bytes.Length);
                     SetHealthy();
                     return;
                 }
@@ -335,6 +336,14 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             try
             {
                 await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream);
+                long? length = null;
+                if (stream.CanSeek)
+                {
+                    length = stream.Length;
+                }
+                _logger.LogInformation("Uploaded {ObjectKey}{LengthSuffix} to Google Cloud Storage",
+                    objectKey,
+                    length is null ? string.Empty : $" ({length.Value} bytes)");
                 SetHealthy();
             }
             catch (Exception ex)
