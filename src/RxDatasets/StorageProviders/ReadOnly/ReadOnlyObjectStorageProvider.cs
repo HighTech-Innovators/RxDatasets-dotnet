@@ -164,7 +164,7 @@ public class ReadOnlyObjectStorageProvider<T>(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to initialize/update");
+                logger.LogError(ex, "Failed to initialize/update ReadOnly object storage provider");
             }
         }
     }

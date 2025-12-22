@@ -123,7 +123,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to initialize {typeof(T).Name} Dataset");
+                _logger.LogError(ex, "Failed to initialize Reader for {EntityType} Dataset", typeof(T).Name);
                 await Task.Delay(5 * 1000);
             }
         }
@@ -146,7 +146,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, $"Failed to initialize DataReader Dataset {typeof(T).Name}");
+            _logger.LogCritical(ex, "Failed to initialize Reader for {EntityType} Dataset", typeof(T).Name);
             throw;
         }
     }
