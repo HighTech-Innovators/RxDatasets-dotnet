@@ -34,8 +34,10 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     private CancellationTokenSource? _syncCancellationTokenSource;
     private TaskCompletionSource? _initializationComplete;
     private bool _initialized;
-    private DateTime _initializationStartTime = DateTime.MinValue;
-    private const int InitializationGracePeriodSeconds = 30;
+    private DateTimeOffset _initializationStartTime = DateTimeOffset.MinValue;
+    private static readonly TimeSpan InitializationGracePeriod = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan GracePeriodRetryDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan DefaultRetryDelay = TimeSpan.FromSeconds(5);
 
     public AliasDatasetReader(
         IDatasetReader<T> sourceReader,
@@ -71,9 +73,9 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     private async Task InitializeAndSync(CancellationToken cancellationToken)
     {
         // Record when initialization attempts started
-        if (_initializationStartTime == DateTime.MinValue)
+        if (_initializationStartTime == DateTimeOffset.MinValue)
         {
-            _initializationStartTime = DateTime.UtcNow;
+            _initializationStartTime = _clock.UtcNow;
         }
 
         // Retry loop for initialization - transient failures should not permanently break the reader
@@ -125,14 +127,14 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             }
             catch (Exception ex)
             {
-                var elapsedSinceStart = DateTime.UtcNow - _initializationStartTime;
-                var isWithinGracePeriod = elapsedSinceStart.TotalSeconds < InitializationGracePeriodSeconds;
+                var elapsedSinceStart = _clock.UtcNow - _initializationStartTime;
+                var isWithinGracePeriod = elapsedSinceStart < InitializationGracePeriod;
 
                 if (isWithinGracePeriod)
                 {
                     // During grace period, only log as debug to avoid noise
                     _logger.LogDebug(ex, "Alias reader '{AliasName}' initialization attempt failed (grace period: {ElapsedSeconds}s/{GracePeriodSeconds}s), will retry",
-                        _aliasName, (int)elapsedSinceStart.TotalSeconds, InitializationGracePeriodSeconds);
+                        _aliasName, (int)elapsedSinceStart.TotalSeconds, (int)InitializationGracePeriod.TotalSeconds);
                 }
                 else
                 {
@@ -142,7 +144,8 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
                 try
                 {
-                    await _clock.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    var retryDelay = isWithinGracePeriod ? GracePeriodRetryDelay : DefaultRetryDelay;
+                    await _clock.Delay(retryDelay, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
