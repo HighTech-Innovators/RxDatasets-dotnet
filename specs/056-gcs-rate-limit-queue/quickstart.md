@@ -110,32 +110,51 @@ Result: Three API calls, but only final state written to GCS
 
 ## Testing the Queue Behavior
 
+### Automated Testing with Testcontainers
+
+All testing is automated using testcontainers (GCS emulator). No manual testing required.
+
+Tests use the `IClock` interface (from RxDatasets.BackgroundServices) for time simulation, enabling fast test execution without actual delays:
+
 ### Unit Test: Verify Queuing for Rapid Writes
 
 ```csharp
 [Fact]
 public async Task RapidWritesToSameFileAreQueued()
 {
+    // Use testcontainer for isolated GCS environment
+    using var container = new GcsEmulatorContainer(); // automatically started/stopped
     var logger = new TestLogger();
-    var mockClient = new MockStorageClient();
-    var storage = new GoogleCloudStorage<T>(logger, options);
+    
+    // Create test clock for time simulation (no actual delays)
+    var testClock = new TestClock(); // Allows fast-forwarding time
+    var storage = new GoogleCloudStorage<T>(logger, 
+        new GoogleCloudConfig { BucketName = container.BucketName },
+        clock: testClock);
 
     // Write 1: Succeeds normally
     var data1 = Encoding.UTF8.GetBytes("version 1");
+    var sw = Stopwatch.StartNew();
     await storage.UploadBytes("delta.pb", data1);
-    Assert.Equal(1, mockClient.WriteCount); // One write to GCS
+    sw.Stop();
+    Assert.True(sw.ElapsedMilliseconds < 100);
 
-    // Write 2: Queued (< 2 seconds later)
+    // Write 2: Queued (< 2 seconds later) - should return immediately
     var data2 = Encoding.UTF8.GetBytes("version 2");
+    sw = Stopwatch.StartNew();
     await storage.UploadBytes("delta.pb", data2);
-    Assert.Equal(1, mockClient.WriteCount); // Still 1, write 2 is queued
-
-    // Wait for flush window
-    await Task.Delay(2100);
+    sw.Stop();
+    Assert.True(sw.ElapsedMilliseconds < 50); // Queued writes are fast
     
-    Assert.Equal(2, mockClient.WriteCount); // Flush completed
-    Assert.Equal("delta.pb", mockClient.LastWrittenKey);
-    // Note: mockClient.LastWrittenData == data2 (only last write persisted)
+    // Verify queued write was logged
+    Assert.Contains("Write queued", logger.GetMessages());
+
+    // Fast-forward time to trigger flush (no actual delay)
+    testClock.Advance(TimeSpan.FromSeconds(2.1));
+    
+    // Verify data persisted to GCS
+    var content = await storage.DownloadBytes("delta.pb");
+    Assert.Equal(data2, content); // Final write persisted
 }
 ```
 

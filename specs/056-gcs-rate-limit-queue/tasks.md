@@ -200,7 +200,7 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 
-- [ ] T022 Add comprehensive logging throughout queue operations
+- [ ] T023 Add comprehensive logging throughout queue operations
   - DEBUG: "Write queued for {ObjectKey} ({Sequence}). Last write was {SecondsSince}s ago"
   - DEBUG: "Flush scheduled for {ObjectKey}, delay: {DelayMs}ms"
   - DEBUG: "Flushed queued write for {ObjectKey} ({Sequence})"
@@ -209,16 +209,16 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
   - INFO: "Flushing {Count} remaining writes for {ObjectKey} during shutdown"
   - Ensure all log messages include enough context for debugging (keys, sequence numbers, timings)
 
-- [ ] T023 Create PR description file PULL_REQUEST.md in repository root
+- [ ] T024 Create PR description file PULL_REQUEST.md in repository root (NON-GIT-COMMITTED)
   - Title: "feat: Implement GCS write queue to reduce rate limit latency"
   - Summary: Feature overview (eliminating 5.5s waits via queuing)
   - Changes: Modified files (GoogleCloudStorage.cs), new files (QueuedWrite.cs, FileWriteQueueState.cs, WriteQueueManager.cs)
-  - Testing: How to test (rapid writes, shutdown scenarios)
+  - Testing: Automated tests using testcontainers with IClock for time simulation (WriteQueueTests.cs, ShutdownFlushTests.cs, DispatcherCleanupTests.cs)
   - Performance Impact: Sub-50ms returns, no breaking changes
   - Graceful Shutdown: Explain queue flushing on disposal
   - Backward Compatibility: ✓ No breaking changes
   - Reference: Link to feature branch, spec.md, data-model.md
-  - See quickstart.md for detailed testing and usage patterns
+  - Note: File created in root directory but NOT committed to git (copy content to PR when ready)
 
 ---
 
@@ -228,7 +228,7 @@ Phase 4: Polish & Cross-Cutting (T022-T023)
 
 Complete Phase 1 + Phase 2 + Phase 3a + Phase 3b:
 - Tasks T001-T019 (all queue and shutdown functionality)
-- All automated tests passing via testcontainer (T012-T017 tests)
+- All automated tests passing via testcontainer with IClock time simulation (T012-T017 tests)
 - Deliverable: Working queue that reduces client latency for rapid writes
 - Time: 5-6 days
 - MVP Success: Clients get immediate response for queued writes; queue flushes automatically; all data persisted; safe shutdown; no data loss
@@ -242,26 +242,26 @@ Complete Phase 1 + Phase 2 + Phase 3a + Phase 3b:
 
 2. **Iteration 2**: User Story 1 - Queueing Logic (T012-T016)
    - Implement queue detection, entry, and flush
-   - Automated tests via testcontainer (WriteQueueTests.cs)
-   - Test: Rapid writes, automatic flush, per-file independence
+   - Automated tests via testcontainer with IClock (WriteQueueTests.cs)
+   - Test: Rapid writes, automatic flush, per-file independence (using IClock.Advance() for time simulation)
    - Deliverable: Basic queue functionality
    - Review: Queueing behavior, timestamp tracking, flush logic
 
 3. **Iteration 3**: User Story 2 - Shutdown (T017-T019)
    - Add graceful shutdown with queue flushing
-   - Automated tests via testcontainer (ShutdownFlushTests.cs)
-   - Test: Queue flushing on disposal, in-flight flush coordination
+   - Automated tests via testcontainer with IClock (ShutdownFlushTests.cs)
+   - Test: Queue flushing on disposal, in-flight flush coordination (using IClock.Advance() for timing)
    - Deliverable: Safe shutdown with no data loss
    - Review: Async disposal, queue flushing coordination
 
 4. **Iteration 4**: User Story 3 - Client Disposal (T020-T021)
    - Verify client resource cleanup
-   - Automated tests via testcontainer (DispatcherCleanupTests.cs)
-   - Test: Disposal safety, ObjectDisposedException, resource leaks
+   - Automated tests via testcontainer with IClock (DispatcherCleanupTests.cs)
+   - Test: Disposal safety, ObjectDisposedException, resource leaks (using IClock for timeout simulation)
    - Deliverable: Proper resource management
    - Review: Disposal safety, resource leaks
 
-5. **Iteration 5**: Polish (T022-T023)
+5. **Iteration 5**: Polish (T023-T024)
    - Add comprehensive logging
    - Write PR description
    - Final test run
@@ -277,7 +277,11 @@ After T001-T010 (foundational), these can be done in parallel:
 
 ### Testing Strategy
 
-Tests are **RECOMMENDED** using testcontainers for automated verification:
+Tests use **TESTCONTAINERS** with **ICLOCK** for automated verification (zero manual testing needed):
+- All tests use `IClock` interface from `RxDatasets.BackgroundServices` for time simulation
+- No `Task.Delay()` or actual time waits - use `IClock.Advance(TimeSpan)` to fast-forward
+- Tests complete in milliseconds (not seconds)
+- Reference implementation: `tst/RxDatasets.AliasingTests/TrackingRxSchedulerClock.cs` shows IClock test patterns
 - Integration tests with GCS emulator via testcontainer (gcloud-emulator or mock)
 - Load tests for queue depth / concurrent operations
 - Unit tests for queue state management
