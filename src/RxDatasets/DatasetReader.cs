@@ -596,7 +596,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Prefer the richer deleted entity info when both exist
             foreach (var deletedName in deltaIndex.DeletedNames)
             {
-                if (!deletedEntityNames.Contains(deletedName) && 
+                if (!deletedEntityNames.Contains(deletedName) &&
                     (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
                 {
                     yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
@@ -615,13 +615,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Looking at DeltaIndex proto (not visible here but inferred), it might not have it.
             // But `GetChangedNames` usually iterates.
             // Let's assume sequential for now or check how `GetChangedNames` works.
-            
+
             // Checking `GetChangedNames` implementation might reveal how versions are traversed.
             // But `GetHistory` follows `previousVersion` from the entity change.
-            
+
             // If versions are not sequential (e.g. gaps), simply decrementing might fail with FileNotFound, which is handled.
             // But better if we knew.
-            
+
             currentVersion--;
         }
     }
