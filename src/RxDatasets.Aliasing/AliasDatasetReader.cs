@@ -34,6 +34,8 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     private CancellationTokenSource? _syncCancellationTokenSource;
     private TaskCompletionSource? _initializationComplete;
     private bool _initialized;
+    private DateTime _initializationStartTime = DateTime.MinValue;
+    private const int InitializationGracePeriodSeconds = 30;
 
     public AliasDatasetReader(
         IDatasetReader<T> sourceReader,
@@ -68,6 +70,12 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     private async Task InitializeAndSync(CancellationToken cancellationToken)
     {
+        // Record when initialization attempts started
+        if (_initializationStartTime == DateTime.MinValue)
+        {
+            _initializationStartTime = DateTime.UtcNow;
+        }
+
         // Retry loop for initialization - transient failures should not permanently break the reader
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -117,10 +125,21 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error initializing alias reader '{AliasName}', will retry in 5 seconds", _aliasName);
+                var elapsedSinceStart = DateTime.UtcNow - _initializationStartTime;
+                var isWithinGracePeriod = elapsedSinceStart.TotalSeconds < InitializationGracePeriodSeconds;
 
-                // Don't set the exception on _initializationComplete - instead, retry
-                // This prevents the reader from being permanently stuck
+                if (isWithinGracePeriod)
+                {
+                    // During grace period, only log as debug to avoid noise
+                    _logger.LogDebug(ex, "Alias reader '{AliasName}' initialization attempt failed (grace period: {ElapsedSeconds}s/{GracePeriodSeconds}s), will retry",
+                        _aliasName, (int)elapsedSinceStart.TotalSeconds, InitializationGracePeriodSeconds);
+                }
+                else
+                {
+                    // After grace period, log as error
+                    _logger.LogError(ex, "Error initializing alias reader '{AliasName}' (beyond grace period), will continue retrying", _aliasName);
+                }
+
                 try
                 {
                     await _clock.Delay(TimeSpan.FromSeconds(5), cancellationToken);
