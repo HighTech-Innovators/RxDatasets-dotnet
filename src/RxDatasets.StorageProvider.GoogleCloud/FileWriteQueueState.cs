@@ -18,10 +18,10 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public string ObjectKey { get; }
 
         /// <summary>
-        /// Queue of pending writes waiting to be flushed.
+        /// The single pending write waiting to be flushed (latest write replaces previous).
         /// Accessed under write lock.
         /// </summary>
-        public Queue<QueuedWrite> PendingWrites { get; } = new();
+        public QueuedWrite? PendingWrite { get; set; }
 
         /// <summary>
         /// The timestamp of the last successful write to this object (UTC).
