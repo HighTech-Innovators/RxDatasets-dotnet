@@ -1,12 +1,14 @@
 using System;
 using System.IO.Pipelines;
 using System.Net.Http.Headers;
+using System.Reactive.Concurrency;
 using System.Threading.Tasks;
 using Google.Cloud.Storage.V1;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 
 namespace RxDatasets.StorageProvider.GoogleCloud
 {
@@ -20,7 +22,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private volatile bool _disposed;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, bool retryInitialization = true)
+        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, IClock clock, IScheduler scheduler, bool retryInitialization = true)
         {
             _logger = logger;
             _bucketName = googleCloudConfig.Value.BucketName;
@@ -42,8 +44,8 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             _storageClient = clientBuilder.Build();
 
-            // Initialize write queue manager with flush action
-            _writeQueueManager = new WriteQueueManager(_logger, FlushQueuedWriteAsync);
+            // Initialize write queue manager with flush action, clock, and scheduler
+            _writeQueueManager = new WriteQueueManager(_logger, FlushQueuedWriteAsync, clock, scheduler);
 
             _ = retryInitialization ? InitializationLoop() : Initialize();
         }
