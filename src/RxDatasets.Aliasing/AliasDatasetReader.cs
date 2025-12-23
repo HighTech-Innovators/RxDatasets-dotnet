@@ -34,6 +34,10 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     private CancellationTokenSource? _syncCancellationTokenSource;
     private TaskCompletionSource? _initializationComplete;
     private bool _initialized;
+    private DateTimeOffset _initializationStartTime = DateTimeOffset.MinValue;
+    private static readonly TimeSpan InitializationGracePeriod = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan GracePeriodRetryDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan DefaultRetryDelay = TimeSpan.FromSeconds(5);
 
     public AliasDatasetReader(
         IDatasetReader<T> sourceReader,
@@ -68,6 +72,12 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     private async Task InitializeAndSync(CancellationToken cancellationToken)
     {
+        // Record when initialization attempts started
+        if (_initializationStartTime == DateTimeOffset.MinValue)
+        {
+            _initializationStartTime = _clock.UtcNow;
+        }
+
         // Retry loop for initialization - transient failures should not permanently break the reader
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -105,7 +115,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
                 // Background sync: continuously watch for changes
                 await SyncChangesInBackground(initialChanges.ToVersion, cancellationToken);
-                
+
                 // If SyncChangesInBackground returns normally (e.g., due to cancellation), exit the loop
                 break;
             }
@@ -117,13 +127,25 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error initializing alias reader '{AliasName}', will retry in 5 seconds", _aliasName);
-                
-                // Don't set the exception on _initializationComplete - instead, retry
-                // This prevents the reader from being permanently stuck
+                var elapsedSinceStart = _clock.UtcNow - _initializationStartTime;
+                var isWithinGracePeriod = elapsedSinceStart < InitializationGracePeriod;
+
+                if (isWithinGracePeriod)
+                {
+                    // During grace period, only log as debug to avoid noise
+                    _logger.LogDebug(ex, "Alias reader '{AliasName}' initialization attempt failed (grace period: {ElapsedSeconds}s/{GracePeriodSeconds}s), will retry",
+                        _aliasName, (int)elapsedSinceStart.TotalSeconds, (int)InitializationGracePeriod.TotalSeconds);
+                }
+                else
+                {
+                    // After grace period, log as error
+                    _logger.LogError(ex, "Error initializing alias reader '{AliasName}' (beyond grace period), will continue retrying", _aliasName);
+                }
+
                 try
                 {
-                    await _clock.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    var retryDelay = isWithinGracePeriod ? GracePeriodRetryDelay : DefaultRetryDelay;
+                    await _clock.Delay(retryDelay, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -351,6 +373,11 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         return GetWithCancellation(id, CancellationToken.None);
     }
 
+    public Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
+    }
+
     private async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetWithCancellation(string id, CancellationToken cancellationToken)
     {
         await EnsureInitialized(cancellationToken);
@@ -478,6 +505,21 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
             return count;
         }
+    }
+
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
+    }
+
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    {
+        throw new InvalidOperationException("Can't provide history by alias");
+    }
+
+    public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException("TailHistory is not supported for alias datasets");
     }
 
     public void Dispose()

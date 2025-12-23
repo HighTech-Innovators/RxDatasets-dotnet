@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.CompilerServices;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.InMemoryDataset;
@@ -363,6 +364,42 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
     }
 
+    public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
+    {
+        using (await Lock(ct))
+        {
+            if (version > LatestVersion)
+            {
+                throw new ArgumentOutOfRangeException(nameof(version), "Version is in the future");
+            }
+
+            var delta = _deltas.FirstOrDefault(d => d.DatasetVersion == version);
+            if (delta == null)
+            {
+                throw new ArgumentException("Delta not found", nameof(version));
+            }
+
+            var change = delta.Changes.FirstOrDefault(c => c.Name == name);
+
+            if (change.Name == null)
+            {
+                throw new ArgumentException($"Entity {name} was not changed in version {version}");
+            }
+
+            if (change.Change == ChangeType.Deleted)
+            {
+                return null;
+            }
+
+            if (change.Entity == null)
+            {
+                return null;
+            }
+
+            return (name, new ReadOnlyMemory<byte>(change.Entity));
+        }
+    }
+
     public async Task<ICollection<(string, ReadOnlyMemory<byte>?)>> BatchGet(IEnumerable<string> names, string? parent)
     {
         (string name, ReadOnlyMemory<byte>? entityBytes)[] entities;
@@ -404,7 +441,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         // Always count all descendants under parent, regardless of nesting level
         // (different from List() which has backwards-compatibility asymmetric behavior)
         using var _ = await Lock(cancellationToken);
-        
+
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
             // For root path, count all entities
@@ -487,6 +524,21 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     public Task StopAsync(CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
+    }
+
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
     }
 
     private record Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion);

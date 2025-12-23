@@ -301,9 +301,9 @@ public class AzStorage<T> : IDiskStorage<T>
                 results.AddRange(page.Values.Select(blobItem =>
                 (
                     ObjectKey: blobItem.Name,
-                    DateTime: blobItem.Properties.CreatedOn.HasValue
-                        ? new DateTimeOffset(blobItem.Properties.CreatedOn.Value.UtcDateTime, TimeSpan.Zero)
-                        : DateTimeOffset.MinValue // Handle cases where CreatedOn is null
+                    DateTime: blobItem.Properties.LastModified.HasValue
+                        ? new DateTimeOffset(blobItem.Properties.LastModified.Value.UtcDateTime, TimeSpan.Zero)
+                        : DateTimeOffset.MinValue // Handle cases where LastModified is null
                 )));
             }
 

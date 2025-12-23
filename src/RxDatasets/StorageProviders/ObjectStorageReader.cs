@@ -105,11 +105,36 @@ public class ObjectStorageReader<T>(
             var deltaInfo = await deltaTask;
             var snapshotInfo = await snapshotTask;
 
+            var fallbackUsed = false;
+
+            var performDirectoryListingFallback = false;
+            string? fallbackReason = null;
+
             if (VersionsAreCorrupted(deltaInfo, snapshotInfo))
+            {
+                performDirectoryListingFallback = true;
+                fallbackReason = "DeltaInfo/SnapshotInfo corruption detected";
+            }
+            else if (!await LatestDeltaIndexExists(deltaInfo.LatestDeltaVersion))
+            {
+                performDirectoryListingFallback = true;
+                fallbackReason = $"Missing delta index for version {deltaInfo.LatestDeltaVersion}";
+            }
+
+            if (performDirectoryListingFallback)
+            {
+                logger.LogWarning(
+                    "Falling back to directory listing to rebuild version info for {DatasetName}: {Reason}",
+                    typeof(T).Name,
+                    fallbackReason ?? "unspecified reason");
                 (deltaInfo, snapshotInfo) = await CreateLatestVersionFromObjectLists();
+                fallbackUsed = true;
+            }
 
 
-            logger.LogDebug($"loaded DeltaInfo " +
+            var versionSourceDescription = fallbackUsed ? "determined" : "loaded";
+
+            logger.LogDebug($"{versionSourceDescription} DeltaInfo " +
                             $"(oldest v = {deltaInfo.EarliestDeltaVersion}, latest v = {deltaInfo.LatestDeltaVersion} )" +
                             $" and SnapshotInfo [{string.Join(",", snapshotInfo.SnapshotVersions.Select(s => s.Version))}] " +
                             $"files for {typeof(T).Name}.");
@@ -118,8 +143,14 @@ public class ObjectStorageReader<T>(
         }
         catch (FileNotFoundException ex)
         {
-            logger.LogDebug($"FileNotFoundException: {ex.FileName}. Delta or Snapshot file not found.");
-            return await TryGetVersionFromFallbacks();
+            logger.LogWarning(ex,
+                "Version metadata files missing for {DatasetName}; attempting fallbacks.",
+                typeof(T).Name);
+            var fallbackVersions = await TryGetVersionFromFallbacks();
+            logger.LogDebug($"determined DeltaInfo (oldest v = {fallbackVersions.deltaInfo.EarliestDeltaVersion}, latest v = {fallbackVersions.deltaInfo.LatestDeltaVersion}) " +
+                            $"and SnapshotInfo [{string.Join(", ", fallbackVersions.snapshotInfo.SnapshotVersions.Select(s => s.Version))}] " +
+                            $"files for {typeof(T).Name} via fallbacks.");
+            return fallbackVersions;
         }
     }
 
@@ -151,7 +182,8 @@ public class ObjectStorageReader<T>(
             return CreateVersionFromV1Data(versionV1);
         }
 
-        logger.LogInformation($"No valid fallback versions found. Creating new latest version for {typeof(T).Name}.");
+        logger.LogWarning("No valid fallback versions found. Performing directory listing for {DatasetName}.",
+            typeof(T).Name);
         return await CreateLatestVersionFromObjectLists();
     }
 
@@ -226,6 +258,30 @@ public class ObjectStorageReader<T>(
     {
         var fileBytes = await diskStorage.DownloadBytes(filename);
         return parser.ParseFrom(fileBytes.Span);
+    }
+
+    private async Task<bool> LatestDeltaIndexExists(ulong version)
+    {
+        if (version == 0)
+            return true;
+
+        var indexObjectName = DatasetHelper.GetObjectName<T>(version, ObjectNameIndexOrDataEnum.Index,
+            ObjectNameTypeEnum.Delta, storageConfig.Value);
+
+        return await ObjectExists(indexObjectName);
+    }
+
+    private async Task<bool> ObjectExists(string objectName)
+    {
+        try
+        {
+            await diskStorage.GetObjectContentLength(objectName);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
     }
 
     private async Task<(DeltaInfo deltaInfo, SnapshotInfo snapshotInfo)> CreateLatestVersionFromObjectLists()
