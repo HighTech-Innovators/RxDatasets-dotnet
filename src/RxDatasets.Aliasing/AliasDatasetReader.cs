@@ -512,9 +512,14 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         throw new InvalidOperationException("Can't provide history by alias");
     }
 
-    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
     {
         throw new InvalidOperationException("Can't provide history by alias");
+    }
+
+    public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException("TailHistory is not supported for alias datasets");
     }
 
     public void Dispose()

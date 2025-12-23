@@ -529,7 +529,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return history;
     }
 
-    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, [EnumeratorCancellation] CancellationToken ct = default)
+    public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (_initializationTask == null || _initializationTask.IsFaulted)
             ThrowIfNotInitialized();
@@ -537,10 +537,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         if (!_initializationTask!.IsCompleted)
             await _initializationTask;
 
-        // Wait for version to advance beyond minVersion if requested
+        // Wait for version to advance beyond sinceVersion if requested
         if (waitIfNone)
         {
-            while (minVersion >= ThrowIfNotInitialized().LatestVersion)
+            while (sinceVersion >= ThrowIfNotInitialized().LatestVersion)
             {
                 await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
             }
@@ -549,7 +549,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var indexRef = ThrowIfNotInitialized();
         var currentVersion = maxVersion > 0 ? maxVersion : indexRef.LatestVersion;
 
-        while (currentVersion > 0 && currentVersion > minVersion)
+        while (currentVersion > 0 && currentVersion > sinceVersion)
         {
             ct.ThrowIfCancellationRequested();
             DeltaIndex deltaIndex;
@@ -623,6 +623,93 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // But better if we knew.
 
             currentVersion--;
+        }
+    }
+
+    public async IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        // TailHistory yields history from older -> newer (ascending version order).
+        // It starts at (sinceVersion + 1) and yields entries up to the latest version.
+        // If `follow` is true, it will wait for new versions and continue yielding.
+
+        if (_initializationTask == null || _initializationTask.IsFaulted)
+            ThrowIfNotInitialized();
+
+        if (!_initializationTask!.IsCompleted)
+            await _initializationTask;
+
+        var indexRef = ThrowIfNotInitialized();
+        var nextVersion = sinceVersion == 0 ? 1UL : sinceVersion + 1;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var currentLatest = ThrowIfNotInitialized().LatestVersion;
+
+            if (nextVersion > currentLatest)
+            {
+                if (!follow)
+                    yield break;
+
+                // Wait for the dataset to advance
+                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+                continue;
+            }
+
+            // Read delta for nextVersion and yield its changes (new -> changed -> deleted)
+            DeltaIndex deltaIndex;
+            try
+            {
+                var deltaBytes = await _storageProvider.ReadDeltaIndex(nextVersion);
+                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            }
+            catch (FileNotFoundException)
+            {
+                // If no delta found for this version, skip forward
+                nextVersion++;
+                continue;
+            }
+
+            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+
+            // Yield in a stable order: New, Changed, DeletedEntities, DeletedNames (avoid duplicates)
+            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
+
+            foreach (var newEntity in deltaIndex.NewEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(nextVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                }
+            }
+
+            foreach (var changedEntity in deltaIndex.ChangedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(nextVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                }
+            }
+
+            foreach (var deletedEntity in deltaIndex.DeletedEntities)
+            {
+                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                {
+                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                }
+            }
+
+            foreach (var deletedName in deltaIndex.DeletedNames)
+            {
+                if (!deletedEntityNames.Contains(deletedName) &&
+                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
+                {
+                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                }
+            }
+
+            nextVersion++;
         }
     }
 
