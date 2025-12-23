@@ -77,11 +77,12 @@ The Google Cloud Storage client must be properly disposed with verification befo
 - **FR-008**: All queue management operations MUST be thread-safe
 - **FR-009**: The system MUST track the timestamp of the last successful write for each file to determine when 2 seconds have passed
 - **FR-010**: Failed flush operations MUST be logged with appropriate context for debugging
+- **FR-011**: Only small, byte-array based writes participate in the queue; any stream-based upload MUST bypass the queue and execute immediately
 
 ### Key Entities
 
 - **WriteQueue**: A queue structure holding pending writes for a specific file, with metadata about the last write timestamp and pending operations
-- **QueuedWrite**: A single queued write operation containing the object key and byte content (or stream reference)
+- **QueuedWrite**: A single queued write operation containing the object key and byte content. Stream-based uploads bypass the queue entirely and always write immediately.
 - **FlushTimer**: A mechanism to trigger queue flushing when the 2-second window has elapsed since the last successful write
 
 ## Success Criteria
@@ -102,6 +103,7 @@ The Google Cloud Storage client must be properly disposed with verification befo
 - The GoogleCloudStorage class is responsible for all queue management - no external queue system is used
 - Write requests should maintain the same error handling semantics as before (failures are propagated after flush attempts)
 - The disposal sequence occurs during graceful shutdown, allowing time for queue flushing without strict timeout constraints
+- Queueing targets small metadata files (e.g., DeltaInfo, ProcessedVersions) that are written via byte arrays. Larger or streaming uploads continue to write directly without queueing.
 
 ## Constraints & Dependencies
 
