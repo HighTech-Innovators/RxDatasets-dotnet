@@ -302,9 +302,14 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return await GetDataset(aliasName).GetHistory(id, limit, minVersion, cancellationToken);
     }
 
-    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, string aliasName, ulong minVersion, ulong maxVersion, bool waitIfNone, CancellationToken cancellationToken)
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, string aliasName, ulong sinceVersion, ulong maxVersion, bool waitIfNone, CancellationToken cancellationToken)
     {
-        return GetDataset(aliasName).StreamHistory(parent, minVersion, maxVersion, waitIfNone, cancellationToken);
+        return GetDataset(aliasName).StreamHistory(parent, sinceVersion, maxVersion, waitIfNone, cancellationToken);
+    }
+
+    public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, string aliasName, ulong sinceVersion, bool follow, CancellationToken cancellationToken)
+    {
+        return GetDataset(aliasName).TailHistory(parent, sinceVersion, follow, cancellationToken);
     }
 
     private readonly int _defaultPageSize = AsInt(config["PageSize"]) ?? 1000;

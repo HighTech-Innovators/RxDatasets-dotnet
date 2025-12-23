@@ -531,7 +531,12 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         throw new NotImplementedException();
     }
 
-    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong minVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, CancellationToken ct = default)
     {
         throw new NotImplementedException();
     }
