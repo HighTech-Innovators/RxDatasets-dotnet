@@ -30,12 +30,20 @@ message DeltaEntity {
     uint32 crc32 = 5;
 }
 
+message DeltaNode {
+    repeated string deleted_names = 1; // Names of entities deleted at this level (segment only)
+    map<string, DeltaEntity> changed_entities = 2; // Key is segment
+    map<string, DeltaEntity> new_entities = 3; // Key is segment
+    map<string, DeltaNode> children = 4;
+}
+
 message DeltaIndex {
     uint64 delta_version_legacy = 1;
     repeated string deleted_names = 2;
     repeated DeltaEntity changed_entities = 3;
     repeated DeltaEntity new_entities = 4;
     uint64 delta_version = 32;
+    DeltaNode root = 33; // New hierarchical root
 }
 
 message ProcessedVersionsInfo {

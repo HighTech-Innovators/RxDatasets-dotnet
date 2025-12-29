@@ -23,7 +23,7 @@
 **Purpose**: Project initialization and basic structure
 
 - [ ] T001 Create feature branch `056-hierarchical-index` (already done)
-- [ ] T002 Update `DatasetEntities.proto` with `SnapshotNode` and `root` field in `src/RxDatasets/Models/DatasetEntities.proto`
+- [ ] T002 Update `DatasetEntities.proto` with `SnapshotNode`, `DeltaNode`, and `root` fields in `src/RxDatasets/Models/DatasetEntities.proto`
 - [ ] T003 [P] Regenerate Protobuf C# classes
 
 ---
@@ -63,19 +63,19 @@
 
 ## Phase 4: User Story 2 - Hierarchical Disk Format (Priority: P1)
 
-**Goal**: Persist the hierarchical index to disk using the new Protobuf structure.
+**Goal**: Persist the hierarchical index to disk using the new Protobuf structure (Snapshot and Delta).
 
-**Independent Test**: Generate a snapshot and verify the file structure uses `SnapshotNode`.
+**Independent Test**: Generate a snapshot and delta, then verify the file structure uses `SnapshotNode` and `DeltaNode`.
 
 ### Tests for User Story 2
 
-- [ ] T012 [P] [US2] Create test to verify snapshot file structure in `tst/RxDatasets.Tests/Storage/SnapshotFormatTests.cs`
+- [ ] T012 [P] [US2] Create test to verify snapshot and delta file structure in `tst/RxDatasets.Tests/Storage/SnapshotFormatTests.cs`
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement `ToSnapshotNode` conversion logic in `src/RxDatasets/DatasetExtensions.cs` (or helper)
-- [ ] T014 [US2] Update `DatasetWriter` to populate `root` field in `SnapshotIndex` when saving in `src/RxDatasets/DatasetWriter.cs`
-- [ ] T015 [US2] Update `DatasetReader` to prefer reading `root` field if present in `src/RxDatasets/DatasetReader.cs`
+- [ ] T013 [US2] Implement `ToSnapshotNode` and `ToDeltaNode` conversion logic in `src/RxDatasets/DatasetExtensions.cs`
+- [ ] T014 [US2] Update `DatasetWriter` to populate `root` field in `SnapshotIndex` and `DeltaIndex` when saving in `src/RxDatasets/DatasetWriter.cs`
+- [ ] T015 [US2] Update `DatasetReader` to prefer reading `root` field if present (for both snapshots and deltas) in `src/RxDatasets/DatasetReader.cs`
 
 **Checkpoint**: At this point, User Story 2 should be fully functional and testable independently
 

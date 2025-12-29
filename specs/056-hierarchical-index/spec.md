@@ -24,16 +24,17 @@ The system uses a hierarchical structure (Trie-like) for the in-memory index ins
 
 ### User Story 2 - Hierarchical Disk Format (Priority: P1)
 
-The system persists the index to disk using a hierarchical Protobuf message structure. This mirrors the in-memory structure, reducing the snapshot file size and potentially speeding up loading/saving.
+The system persists the index to disk using a hierarchical Protobuf message structure for **both snapshots and deltas**. This mirrors the in-memory structure, reducing file sizes and potentially speeding up loading/saving.
 
 **Why this priority**: Mirrors the in-memory structure to optimize disk space and I/O, and avoids expensive conversion during load/save.
 
-**Independent Test**: Generate a snapshot for a large hierarchical dataset. Inspect the file size and structure (using `protoc --decode`).
+**Independent Test**: Generate a snapshot and a delta for a large hierarchical dataset. Inspect the file size and structure (using `protoc --decode`).
 
 **Acceptance Scenarios**:
 
-1. **Given** a hierarchical in-memory index, **When** a snapshot is created, **Then** the output file uses the nested `SnapshotChildIndex` Protobuf structure.
-2. **Given** the same dataset, **When** comparing the snapshot file size to the legacy flat format, **Then** the new format is smaller (due to prefix deduplication).
+1. **Given** a hierarchical in-memory index, **When** a snapshot is created, **Then** the output file uses the nested `SnapshotChildIndex` (or `SnapshotNode`) Protobuf structure.
+2. **Given** a set of changes, **When** a delta is created, **Then** the output file uses the nested `DeltaNode` Protobuf structure.
+3. **Given** the same dataset, **When** comparing the snapshot/delta file size to the legacy flat format, **Then** the new format is smaller (due to prefix deduplication).
 
 ---
 
@@ -86,8 +87,8 @@ The system applies deltas (changes) to the hierarchical index efficiently. Since
 ### Functional Requirements
 
 - **FR-001**: The system MUST represent the dataset index in memory as a hierarchical structure where path segments are nodes.
-- **FR-002**: The system MUST serialize the index to disk using a hierarchical Protobuf message structure (introducing `SnapshotChildIndex` or similar).
-- **FR-003**: The system MUST deserialize legacy flat `SnapshotIndex` messages and immediately convert them to the hierarchical in-memory structure. The system MUST NOT maintain a flat or hybrid in-memory index state.
+- **FR-002**: The system MUST serialize the index to disk using a hierarchical Protobuf message structure (introducing `SnapshotNode` and `DeltaNode`).
+- **FR-003**: The system MUST deserialize legacy flat `SnapshotIndex` and `DeltaIndex` messages and immediately convert them to the hierarchical in-memory structure. The system MUST NOT maintain a flat or hybrid in-memory index state.
 - **FR-004**: The system MUST support atomic application of deltas to the hierarchical index in a thread-safe manner (likely using immutable data structures or copy-on-write).
 - **FR-005**: The system MUST maintain the same external API for `IDatasetReader` and `IDatasetWriter` to ensure transparency to consumers.
 - **FR-006**: The system MUST use `/` as the default separator for hierarchy, or support a configurable separator if required (assuming `/` based on issue description).
