@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>ProtoScope</RootNamespace>
-    <AssemblyName>protoscope</AssemblyName>
+    <AssemblyName>dtoscope</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
