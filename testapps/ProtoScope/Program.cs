@@ -59,9 +59,10 @@ public class Program
     {
         var assembly = typeof(Program).Assembly;
         var version = assembly.GetName().Version?.ToString() ?? "unknown";
-        var informationalVersion = assembly.GetCustomAttributes(false)
+        var informationalVersionAttr = assembly.GetCustomAttributes(false)
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-            .FirstOrDefault()?.InformationalVersion ?? version;
+            .FirstOrDefault();
+        var informationalVersion = informationalVersionAttr?.InformationalVersion ?? version;
         
         Console.WriteLine($"DtoScope version {informationalVersion}");
     }
