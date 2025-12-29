@@ -395,14 +395,26 @@ public class DataMigrator<T> : IDataMigrator
                 foreach (var changedEntity in deltaIndex.ChangedEntities)
                 {
                     var parts = changedEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                    DistributeEntityToHierarchy(rootNode, parts, changedEntity);
+                    var leafName = parts[parts.Length - 1];
+                    
+                    // Create a copy of the entity with only the leaf name
+                    var entityForHierarchy = changedEntity.Clone();
+                    entityForHierarchy.Name = leafName;
+                    
+                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
                 }
 
                 // Distribute new entities hierarchically
                 foreach (var newEntity in deltaIndex.NewEntities)
                 {
                     var parts = newEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                    DistributeEntityToHierarchy(rootNode, parts, newEntity);
+                    var leafName = parts[parts.Length - 1];
+                    
+                    // Create a copy of the entity with only the leaf name
+                    var entityForHierarchy = newEntity.Clone();
+                    entityForHierarchy.Name = leafName;
+                    
+                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
                 }
 
                 // Set the root node and clear flat entities
