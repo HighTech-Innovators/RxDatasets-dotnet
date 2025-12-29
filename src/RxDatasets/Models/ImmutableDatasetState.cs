@@ -22,7 +22,7 @@ public record ImmutableDatasetState(
     /// </summary>
     public ImmutableDictionary<string, ImmutableSnapshotEntity> GetFlatEntities()
     {
-        if (IndexNode != null && !IndexNode.Entities.IsEmpty)
+        if (IndexNode != null && (!IndexNode.Entities.IsEmpty || !IndexNode.Children.IsEmpty))
         {
             return FlattenIndexNode(IndexNode, "");
         }
