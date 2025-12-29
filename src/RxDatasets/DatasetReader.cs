@@ -529,6 +529,107 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return history;
     }
 
+    /// <summary>
+    /// Enumerates changes from a hierarchical DeltaNode using tree traversal (alloc-free).
+    /// Splits path once and walks the tree structure for O(depth) instead of O(n) performance.
+    /// </summary>
+    private IEnumerable<HistoryEntry> EnumerateHierarchicalDeltaEntries(DeltaNode root, string[] parentPathParts, int depth, ChangeType changeType, ulong version, DateTimeOffset timestamp, HashSet<string>? deletedEntityNames = null)
+    {
+        deletedEntityNames ??= [];
+
+        if (parentPathParts.Length == 0)
+        {
+            // No parent filter - enumerate all entities at this node and recursively in children
+            switch (changeType)
+            {
+                case ChangeType.New:
+                    foreach (var (_, entity) in root.NewEntities)
+                    {
+                        yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                    }
+                    break;
+
+                case ChangeType.Changed:
+                    foreach (var (_, entity) in root.ChangedEntities)
+                    {
+                        yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                    }
+                    break;
+
+                case ChangeType.Deleted:
+                    foreach (var deletedName in root.DeletedNames)
+                    {
+                        if (!deletedEntityNames.Contains(deletedName))
+                        {
+                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                        }
+                    }
+                    break;
+            }
+
+            // Recursively enumerate from all children (breadth of tree)
+            foreach (var (_, child) in root.Children)
+            {
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(child, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
+                {
+                    yield return entry;
+                }
+            }
+        }
+        else if (depth >= parentPathParts.Length)
+        {
+            // Reached target depth - enumerate this subtree
+            switch (changeType)
+            {
+                case ChangeType.New:
+                    foreach (var (_, entity) in root.NewEntities)
+                    {
+                        yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                    }
+                    break;
+
+                case ChangeType.Changed:
+                    foreach (var (_, entity) in root.ChangedEntities)
+                    {
+                        yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                    }
+                    break;
+
+                case ChangeType.Deleted:
+                    foreach (var deletedName in root.DeletedNames)
+                    {
+                        if (!deletedEntityNames.Contains(deletedName))
+                        {
+                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                        }
+                    }
+                    break;
+            }
+
+            // Recursively enumerate from all children
+            foreach (var (_, child) in root.Children)
+            {
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(child, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
+                {
+                    yield return entry;
+                }
+            }
+        }
+        else
+        {
+            // Navigate deeper using array slicing (alloc-free) - no new array allocation
+            var nextPart = parentPathParts[depth];
+            if (root.Children.TryGetValue(nextPart, out var nextNode))
+            {
+                // Recursively navigate with incremented depth (no allocation of new path array)
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(nextNode, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
+                {
+                    yield return entry;
+                }
+            }
+        }
+    }
+
     public async IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0, bool waitIfNone = false, [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (_initializationTask == null || _initializationTask.IsFaulted)
@@ -549,6 +650,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var indexRef = ThrowIfNotInitialized();
         var currentVersion = maxVersion > 0 ? maxVersion : indexRef.LatestVersion;
 
+        // Parse parent path once for hierarchical traversal (alloc-free with index parameters)
+        var parentParts = string.IsNullOrEmpty(parent) ? [] : parent.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
         while (currentVersion > 0 && currentVersion > sinceVersion)
         {
             ct.ThrowIfCancellationRequested();
@@ -568,59 +672,64 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
             var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
 
-            foreach (var newEntity in deltaIndex.NewEntities)
+            // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
+            if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
+                    deltaIndex.Root.ChangedEntities.Count > 0 ||
+                    deltaIndex.Root.DeletedNames.Count > 0 ||
+                    deltaIndex.Root.Children.Count > 0))
             {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                // Hierarchical root available - use tree traversal
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.New, currentVersion, timestamp))
                 {
-                    yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                    yield return entry;
+                }
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Changed, currentVersion, timestamp))
+                {
+                    yield return entry;
+                }
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Deleted, currentVersion, timestamp, deletedEntityNames))
+                {
+                    yield return entry;
                 }
             }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
+            else
             {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                // Fallback to flat structure with StartsWith
+                foreach (var newEntity in deltaIndex.NewEntities)
                 {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                    if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                    }
+                }
+
+                foreach (var changedEntity in deltaIndex.ChangedEntities)
+                {
+                    if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                    }
+                }
+
+                foreach (var deletedEntity in deltaIndex.DeletedEntities)
+                {
+                    if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                    }
+                }
+
+                // Only yield deleted names that don't have a corresponding deleted entity (avoid duplicates)
+                // Prefer the richer deleted entity info when both exist
+                foreach (var deletedName in deltaIndex.DeletedNames)
+                {
+                    if (!deletedEntityNames.Contains(deletedName) &&
+                        (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
+                    {
+                        yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                    }
                 }
             }
-
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-                }
-            }
-
-            // Only yield deleted names that don't have a corresponding deleted entity (avoid duplicates)
-            // Prefer the richer deleted entity info when both exist
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
-                }
-            }
-
-            // We need to find the next version to check.
-            // Since we are streaming all history, we just go to the previous version of the dataset.
-            // However, the DeltaIndex doesn't explicitly store the "previous dataset version".
-            // But we know versions are sequential or we can infer it?
-            // Actually, DatasetReader usually assumes versions are sequential or we can just decrement?
-            // Wait, storage provider ReadDeltaIndex takes a version.
-            // In GetHistory, we follow the entity's previous version.
-            // Here we want ALL changes, so we should probably just go to currentVersion - 1?
-            // Or is there a way to know the previous version from the DeltaIndex?
-            // Looking at DeltaIndex proto (not visible here but inferred), it might not have it.
-            // But `GetChangedNames` usually iterates.
-            // Let's assume sequential for now or check how `GetChangedNames` works.
-
-            // Checking `GetChangedNames` implementation might reveal how versions are traversed.
-            // But `GetHistory` follows `previousVersion` from the entity change.
-
-            // If versions are not sequential (e.g. gaps), simply decrementing might fail with FileNotFound, which is handled.
-            // But better if we knew.
 
             currentVersion--;
         }
@@ -640,6 +749,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
         var indexRef = ThrowIfNotInitialized();
         var nextVersion = sinceVersion == 0 ? 1UL : sinceVersion + 1;
+
+        // Parse parent path once for hierarchical traversal (alloc-free with index parameters)
+        var parentParts = string.IsNullOrEmpty(parent) ? [] : parent.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
         while (true)
         {
@@ -676,36 +788,60 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Yield in a stable order: New, Changed, DeletedEntities, DeletedNames (avoid duplicates)
             var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
 
-            foreach (var newEntity in deltaIndex.NewEntities)
+            // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
+            if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
+                    deltaIndex.Root.ChangedEntities.Count > 0 ||
+                    deltaIndex.Root.DeletedNames.Count > 0 ||
+                    deltaIndex.Root.Children.Count > 0))
             {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                // Hierarchical root available - use tree traversal
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.New, nextVersion, timestamp))
                 {
-                    yield return new HistoryEntry(nextVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                    yield return entry;
+                }
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Changed, nextVersion, timestamp))
+                {
+                    yield return entry;
+                }
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Deleted, nextVersion, timestamp, deletedEntityNames))
+                {
+                    yield return entry;
                 }
             }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
+            else
             {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                // Fallback to flat structure with StartsWith
+                foreach (var newEntity in deltaIndex.NewEntities)
                 {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                    if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(nextVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
+                    }
                 }
-            }
 
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                foreach (var changedEntity in deltaIndex.ChangedEntities)
                 {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                    if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(nextVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
+                    }
                 }
-            }
 
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
+                foreach (var deletedEntity in deltaIndex.DeletedEntities)
                 {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                    if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
+                    {
+                        yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                    }
+                }
+
+                foreach (var deletedName in deltaIndex.DeletedNames)
+                {
+                    if (!deletedEntityNames.Contains(deletedName) &&
+                        (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
+                    {
+                        yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                    }
                 }
             }
 
