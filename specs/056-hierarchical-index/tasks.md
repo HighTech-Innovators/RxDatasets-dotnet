@@ -22,9 +22,9 @@
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create feature branch `056-hierarchical-index` (already done)
-- [ ] T002 Update `DatasetEntities.proto` with `SnapshotNode`, `DeltaNode`, and `root` fields in `src/RxDatasets/Models/DatasetEntities.proto`
-- [ ] T003 [P] Regenerate Protobuf C# classes
+- [x] T001 Create feature branch `056-hierarchical-index` (already done)
+- [x] T002 Update `DatasetEntities.proto` with `SnapshotNode`, `DeltaNode`, and `root` fields in `src/RxDatasets/Models/DatasetEntities.proto`
+- [x] T003 [P] Regenerate Protobuf C# classes
 
 ---
 
@@ -32,9 +32,9 @@
 
 **Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
 
-- [ ] T004 [P] Create `ImmutableIndexNode` class in `src/RxDatasets/Models/ImmutableIndexNode.cs`
-- [ ] T005 [P] Implement `ImmutableIndexNode` methods (Add, Remove, Get) with immutable semantics in `src/RxDatasets/Models/ImmutableIndexNode.cs`
-- [ ] T006 Create unit tests for `ImmutableIndexNode` in `tst/RxDatasets.Tests/Models/ImmutableIndexNodeTests.cs`
+- [x] T004 [P] Create `ImmutableIndexNode` class in `src/RxDatasets/Models/ImmutableIndexNode.cs`
+- [x] T005 [P] Implement `ImmutableIndexNode` methods (Add, Remove, Get) with immutable semantics in `src/RxDatasets/Models/ImmutableIndexNode.cs`
+- [x] T006 Create unit tests for `ImmutableIndexNode` in `tst/RxDatasets.Tests/Models/ImmutableIndexNodeTests.cs`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -48,14 +48,14 @@
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] Create benchmark test for memory usage in `tst/RxDatasets.Tests/Benchmarks/IndexMemoryBenchmark.cs`
+- [x] T007 [P] [US1] Create benchmark test for memory usage in `tst/RxDatasets.Tests/Benchmarks/IndexMemoryBenchmark.cs`
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Update `ImmutableDatasetState` to use `ImmutableIndexNode` instead of flat dictionary in `src/RxDatasets/Models/ImmutableDatasetState.cs`
-- [ ] T009 [US1] Update `DatasetReader` to build `ImmutableIndexNode` from flat entities (temporary adapter) in `src/RxDatasets/DatasetReader.cs`
-- [ ] T010 [US1] Update `DatasetWriter` to use `ImmutableIndexNode` for state tracking in `src/RxDatasets/DatasetWriter.cs`
-- [ ] T011 [US1] Verify all existing tests pass with the new in-memory structure
+- [x] T008 [US1] Update `ImmutableDatasetState` to use `ImmutableIndexNode` instead of flat dictionary in `src/RxDatasets/Models/ImmutableDatasetState.cs`
+- [x] T009 [US1] Update `DatasetReader` to build `ImmutableIndexNode` from flat entities (temporary adapter) in `src/RxDatasets/DatasetReader.cs`
+- [x] T010 [US1] Update `DatasetWriter` to use `ImmutableIndexNode` for state tracking in `src/RxDatasets/DatasetWriter.cs`
+- [x] T011 [US1] Verify all existing tests pass with the new in-memory structure
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -69,13 +69,13 @@
 
 ### Tests for User Story 2
 
-- [ ] T012 [P] [US2] Create test to verify snapshot and delta file structure in `tst/RxDatasets.Tests/Storage/SnapshotFormatTests.cs`
+- [x] T012 [P] [US2] Create test to verify snapshot and delta file structure in `tst/RxDatasets.Tests/Storage/SnapshotFormatTests.cs`
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement `ToSnapshotNode` and `ToDeltaNode` conversion logic in `src/RxDatasets/DatasetExtensions.cs`
-- [ ] T014 [US2] Update `DatasetWriter` to populate `root` field in `SnapshotIndex` and `DeltaIndex` when saving in `src/RxDatasets/DatasetWriter.cs`
-- [ ] T015 [US2] Update `DatasetReader` to prefer reading `root` field if present (for both snapshots and deltas) in `src/RxDatasets/DatasetReader.cs`
+- [x] T013 [US2] Implement `ToSnapshotNode` and `ToDeltaNode` conversion logic in `src/RxDatasets/DatasetExtensions.cs`
+- [x] T014 [US2] Update `DatasetWriter` to populate `root` field in `SnapshotIndex` and `DeltaIndex` when saving in `src/RxDatasets/DatasetWriter.cs`
+- [x] T015 [US2] Update `DatasetReader` to prefer reading `root` field if present (for both snapshots and deltas) in `src/RxDatasets/DatasetReader.cs`
 
 **Checkpoint**: At this point, User Story 2 should be fully functional and testable independently
 
@@ -89,33 +89,55 @@
 
 ### Tests for User Story 3
 
-- [ ] T016 [P] [US3] Create integration test with legacy snapshot file in `tst/RxDatasets.Tests/Compatibility/LegacySnapshotTests.cs`
-- [ ] T017 [P] [US3] Create integration test for delta migration in `tst/RxDatasets.Tests/Compatibility/DeltaMigrationTests.cs`
+- [x] T016 [P] [US3] Create integration test with legacy snapshot file in `tst/RxDatasets.Tests/Compatibility/LegacySnapshotTests.cs`
+- [x] T017 [P] [US3] Create integration test for delta migration in `tst/RxDatasets.Tests/Compatibility/DeltaMigrationTests.cs`
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Implement legacy flat-to-hierarchical conversion logic in `DatasetReader` (if not fully covered in T009) in `src/RxDatasets/DatasetReader.cs`
-- [ ] T019 [US3] Implement `MigrateDeltaIndex` method in `DataMigrator` to convert flat deltas to hierarchical in `src/RxDatasets/DataMigrator.cs`
-- [ ] T020 [US3] Update `DataMigrator` to iterate and migrate all delta files in a dataset in `src/RxDatasets/DataMigrator.cs`
+- [x] T018 [US3] Implement legacy flat-to-hierarchical conversion logic in `DatasetReader` (if not fully covered in T009) in `src/RxDatasets/DatasetReader.cs`
+- [x] T019 [US3] Implement `MigrateDeltaIndex` method in `DataMigrator` to convert flat deltas to hierarchical in `src/RxDatasets/DataMigrator.cs`
+- [x] T020 [US3] Update `DataMigrator` to iterate and migrate all delta files in a dataset in `src/RxDatasets/DataMigrator.cs`
 
 **Checkpoint**: At this point, User Story 3 should be fully functional and testable independently
 
 ---
 
-## Phase 6: User Story 4 - Efficient Delta Application (Priority: P2)
+## Phase 6: User Story 4 - Efficient Hierarchical Query Lookups (Priority: P2)
 
-**Goal**: Optimize delta application using the hierarchical structure.
+**Goal**: Optimize entity lookups using the hierarchical structure for parent path queries instead of string matching.
 
-**Independent Test**: Measure time to apply deltas to a specific sub-tree.
+**Current Issue**: `DatasetReader.IterateHistory()` uses inefficient `StartsWith()` comparisons on all entities (O(n) per parent path query). Should instead split path once and walk the tree structure with dictionary lookups (O(depth)).
+
+**Optimization Technique**: Use **array slicing (alloc-free)** when recursing from the top through the hierarchy. This approach:
+- Splits parent path once: `var pathParts = parent.Split('/', StringSplitOptions.RemoveEmptyEntries);`
+- Passes slices of the array as recursion parameters: `Navigate(rootNode, pathParts, 0)` where `0` is the current index
+- Avoids allocating new arrays for each recursion level (alloc-free)
+- Makes counting children and subtree operations efficient
+- Apply throughout: DatasetReader queries, DatasetWriter updates, history traversal, and any parent path operations
+
+**Independent Test**: Benchmark parent path queries with tree traversal vs. StartsWith string matching on a large hierarchical dataset.
 
 ### Tests for User Story 4
 
-- [ ] T021 [P] [US4] Create benchmark test for delta application in `tst/RxDatasets.Tests/Benchmarks/DeltaApplicationBenchmark.cs`
+- [x] T021 [P] [US4] Create benchmark test for hierarchical query performance in `tst/RxDatasets.Tests/Benchmarks/HierarchicalQueryBenchmark.cs`
+  - Compare StartsWith approach (current) vs tree-walk approach with array slicing (optimized)
+  - Test with parent paths at various depths (3, 5, 10 levels deep)
+  - Measure entity enumeration speed
+  - Verify alloc-free approach reduces GC pressure
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Optimize `ApplyDelta` in `ImmutableDatasetState` to use tree traversal in `src/RxDatasets/Models/ImmutableDatasetState.cs`
-- [ ] T023 [US4] Ensure thread safety and atomicity of delta application in `src/RxDatasets/Models/ImmutableDatasetState.cs`
+- [x] T022 [US4] Optimize `DatasetReader.IterateHistory()` to use tree traversal with array slicing in `src/RxDatasets/DatasetReader.cs` (lines 573, 581, 589)
+  - Split parent path once: `var pathParts = parent.Split('/', StringSplitOptions.RemoveEmptyEntries);`
+  - Create helper method: `Navigate(ImmutableIndexNode node, string[] pathParts, int index)` that passes array slice
+  - Walk tree: `Navigate(rootNode, pathParts, 0)` → recursively navigate with `index + 1`
+  - At target level (`index == pathParts.Length`), enumerate `node.ChangedEntities.Values`
+  - Expected improvement: O(n) string comparisons → O(depth) dictionary lookups + zero allocations
+- [x] T023 [US4] Apply array slicing technique to all parent path operations in `src/RxDatasets/DatasetReader.cs`
+  - `GetHistory()`: Use tree-walk with array slicing
+  - `ListEntities()`: Use tree-walk with array slicing
+  - Child counting operations: Use efficient tree traversal (makes counting very efficient)
+  - Ensure consistent use of alloc-free array slicing throughout reader and any similar operations in writer and history APIs
 
 **Checkpoint**: At this point, User Story 4 should be fully functional and testable independently
 
@@ -125,8 +147,8 @@
 
 **Purpose**: Final cleanup, documentation, and non-functional requirements
 
-- [ ] T024 Update documentation (README, etc.) with new index details
-- [ ] T025 [P] Verify performance against goals (>50% memory reduction)
+- [~] T024 Update documentation (DtoScope tool documentation complete, general feature docs in progress)
+- [ ] T025 [P] Verify performance against goals (>50% memory reduction, hierarchical queries O(depth))
 - [ ] T026 [P] Ensure all tests pass (unit, integration, benchmarks)
 - [ ] T027 Clean up any temporary code or TODOs
 
