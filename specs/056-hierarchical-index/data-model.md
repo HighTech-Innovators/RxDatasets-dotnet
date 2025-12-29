@@ -19,6 +19,25 @@ A node in the hierarchical index tree.
 | `entities` | `map<string, SnapshotEntity>` | Entities at this level (key is the last path segment). |
 | `children` | `map<string, SnapshotNode>` | Child nodes (sub-directories). |
 
+### DeltaIndex (Protobuf)
+The root message for a dataset delta.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `root` | `DeltaNode` | The root node of the hierarchical delta. |
+| `delta_version` | `uint64` | The version number of the delta. |
+| `changed_entities` | `repeated DeltaEntity` | **Legacy**: Flat list of changes. |
+
+### DeltaNode (Protobuf)
+A node in the hierarchical delta tree.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deleted_names` | `repeated string` | Names of entities deleted at this level (segment only). |
+| `changed_entities` | `map<string, DeltaEntity>` | Changed entities at this level. |
+| `new_entities` | `map<string, DeltaEntity>` | New entities at this level. |
+| `children` | `map<string, DeltaNode>` | Child nodes. |
+
 ### ImmutableIndexNode (C#)
 The in-memory representation of `SnapshotNode`.
 
