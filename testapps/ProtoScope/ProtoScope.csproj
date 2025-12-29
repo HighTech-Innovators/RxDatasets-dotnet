@@ -10,7 +10,6 @@
     
     <!-- NuGet Package Configuration -->
     <PackageId>HighTechInnovators.RxDatasets.DtoScope</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
     <Title>DtoScope</Title>
     <PackageDescription>CLI tool for inspecting RxDatasets proto files and converting them to YAML format</PackageDescription>
     <PackageProjectUrl>https://github.com/hightech-innovators/RxDatasets-dotnet</PackageProjectUrl>
