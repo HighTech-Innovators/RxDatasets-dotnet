@@ -164,48 +164,106 @@ Examples:
 
     private static ProtoType AutoDetectByParsing(byte[] bytes)
     {
-        // Try SnapshotIndex first (most common)
+        // Try parsing with each type and score based on data population
+        var candidates = new List<(ProtoType type, IMessage message, int score)>();
+
+        // Try SnapshotIndex
         try
         {
-            _ = SnapshotIndex.Parser.ParseFrom(bytes);
-            return ProtoType.Snapshot;
+            var msg = SnapshotIndex.Parser.ParseFrom(bytes);
+            int score = ScoreSnapshotIndex(msg);
+            if (score > 0)
+                candidates.Add((ProtoType.Snapshot, msg, score));
         }
         catch { }
 
         // Try DeltaIndex
         try
         {
-            _ = DeltaIndex.Parser.ParseFrom(bytes);
-            return ProtoType.Delta;
+            var msg = DeltaIndex.Parser.ParseFrom(bytes);
+            int score = ScoreDeltaIndex(msg);
+            if (score > 0)
+                candidates.Add((ProtoType.Delta, msg, score));
         }
         catch { }
 
         // Try SnapshotInfo
         try
         {
-            _ = SnapshotInfo.Parser.ParseFrom(bytes);
-            return ProtoType.SnapshotInfo;
+            var msg = SnapshotInfo.Parser.ParseFrom(bytes);
+            int score = ScoreSnapshotInfo(msg);
+            if (score > 0)
+                candidates.Add((ProtoType.SnapshotInfo, msg, score));
         }
         catch { }
 
         // Try DeltaInfo
         try
         {
-            _ = DeltaInfo.Parser.ParseFrom(bytes);
-            return ProtoType.DeltaInfo;
+            var msg = DeltaInfo.Parser.ParseFrom(bytes);
+            int score = ScoreDeltaInfo(msg);
+            if (score > 0)
+                candidates.Add((ProtoType.DeltaInfo, msg, score));
         }
         catch { }
 
         // Try ProcessedVersionsInfo
         try
         {
-            _ = ProcessedVersionsInfo.Parser.ParseFrom(bytes);
-            return ProtoType.ProcessedInfo;
+            var msg = ProcessedVersionsInfo.Parser.ParseFrom(bytes);
+            int score = ScoreProcessedVersionsInfo(msg);
+            if (score > 0)
+                candidates.Add((ProtoType.ProcessedInfo, msg, score));
         }
         catch { }
 
-        throw new InvalidOperationException(
-            "Could not auto-detect proto type. Use -s, -d, -S, -D, or -P flags to specify type.");
+        if (candidates.Count == 0)
+            throw new InvalidOperationException(
+                "Could not auto-detect proto type. Use -s, -d, -S, -D, or -P flags to specify type.");
+
+        // Return the candidate with the highest score
+        var best = candidates.OrderByDescending(c => c.score).First();
+        return best.type;
+    }
+
+    private static int ScoreSnapshotIndex(SnapshotIndex msg)
+    {
+        int score = 0;
+        if (msg.SnapshotVersion != 0) score += 10;
+        if (msg.Entities.Count > 0) score += 20;
+        if (msg.Root != null && msg.Root.Children.Count > 0) score += 15;
+        return score;
+    }
+
+    private static int ScoreDeltaIndex(DeltaIndex msg)
+    {
+        int score = 0;
+        if (msg.DeltaVersion != 0) score += 10;
+        if (msg.ChangedEntities.Count > 0) score += 20;
+        if (msg.NewEntities.Count > 0) score += 20;
+        if (msg.DeletedNames.Count > 0) score += 15;
+        if (msg.DeletedEntities.Count > 0) score += 15;
+        if (msg.Root != null && msg.Root.Children.Count > 0) score += 15;
+        return score;
+    }
+
+    private static int ScoreSnapshotInfo(SnapshotInfo msg)
+    {
+        // SnapshotInfo has a repeated field snapshotVersions
+        return msg.SnapshotVersions.Count > 0 ? 20 : 0;
+    }
+
+    private static int ScoreDeltaInfo(DeltaInfo msg)
+    {
+        int score = 0;
+        if (msg.EarliestDeltaVersion != 0) score += 10;
+        if (msg.LatestDeltaVersion != 0) score += 10;
+        return score;
+    }
+
+    private static int ScoreProcessedVersionsInfo(ProcessedVersionsInfo msg)
+    {
+        return msg.ProcessedVersions.Count > 0 ? 20 : 0;
     }
 
     private static string DecodeToYaml(byte[] bytes, ProtoType type)
