@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
-using System.Reactive.Concurrency;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -19,7 +20,6 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private readonly ILogger _logger;
         private readonly Func<QueuedWrite, Task> _flushAction;
         private readonly IClock _clock;
-        private readonly IScheduler _scheduler;
         private readonly ConcurrentDictionary<string, FileWriteQueueState> _queues = new();
         private long _sequenceNumber;
         private volatile bool _isDisposing;
@@ -30,13 +30,11 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         /// <param name="logger">Logger for queue operations.</param>
         /// <param name="flushAction">Async delegate called to flush a single queued write.</param>
         /// <param name="clock">Clock for time-based decisions (uses IClock for testability).</param>
-        /// <param name="scheduler">Scheduler for background flush scheduling.</param>
-        public WriteQueueManager(ILogger logger, Func<QueuedWrite, Task> flushAction, IClock clock, IScheduler scheduler)
+        public WriteQueueManager(ILogger logger, Func<QueuedWrite, Task> flushAction, IClock clock)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _flushAction = flushAction ?? throw new ArgumentNullException(nameof(flushAction));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         }
 
         /// <summary>
@@ -49,51 +47,47 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             var queue = _queues.GetOrAdd(objectKey, key => new FileWriteQueueState(key));
 
-            queue.Lock.EnterReadLock();
+            queue.Lock.EnterUpgradeableReadLock();
             try
             {
-                var now = _clock.UtcNow;
-
-                // Check if queue is eligible to be flushed (last write > 2 seconds ago)
-                if (queue.LastSuccessfulWrite != DateTimeOffset.MinValue &&
-                    now.Subtract(queue.LastSuccessfulWrite).TotalSeconds >= 2.0)
+                var lastWrite = queue.LastSuccessfulWrite;
+                if (lastWrite == DateTimeOffset.MinValue)
                 {
-                    // Not queuing - write now
-                    _logger.LogDebug("Write eligible for {ObjectKey}. Last successful write was {SecondsSince}s ago",
-                        objectKey, now.Subtract(queue.LastSuccessfulWrite).TotalSeconds);
+                    return false; // No prior writes to compare against
+                }
+
+                var now = _clock.UtcNow;
+                var secondsSinceLastWrite = (now - lastWrite).TotalSeconds;
+
+                if (secondsSinceLastWrite >= 2.0)
+                {
+                    _logger.LogDebug("Bypassing queue for {ObjectKey}; last write was {SecondsSince:F2}s ago",
+                        objectKey, secondsSinceLastWrite);
                     return false;
                 }
 
-                // Will queue this write
+                queue.Lock.EnterWriteLock();
+                try
+                {
+                    var sequenceNum = Interlocked.Increment(ref _sequenceNumber);
+                    var queuedWrite = new QueuedWrite(objectKey, bytes, now, sequenceNum);
+                    queue.PendingWrite = queuedWrite;
+
+                    _logger.LogDebug(
+                        "Write queued for {ObjectKey} (Sequence: {SequenceNumber}). Last successful write was {SecondsSince:F2}s ago",
+                        objectKey, sequenceNum, secondsSinceLastWrite);
+
+                    ScheduleFlush(queue, objectKey);
+                    return true;
+                }
+                finally
+                {
+                    queue.Lock.ExitWriteLock();
+                }
             }
             finally
             {
-                queue.Lock.ExitReadLock();
-            }
-
-            // Acquire write lock to queue the write (replace any pending write)
-            queue.Lock.EnterWriteLock();
-            try
-            {
-                var sequenceNum = Interlocked.Increment(ref _sequenceNumber);
-                var queuedWrite = new QueuedWrite(objectKey, bytes, _clock.UtcNow, sequenceNum);
-                queue.PendingWrite = queuedWrite;
-
-                var now = _clock.UtcNow;
-                var secondsSinceLastWrite = queue.LastSuccessfulWrite == DateTimeOffset.MinValue
-                    ? 0.0
-                    : now.Subtract(queue.LastSuccessfulWrite).TotalSeconds;
-
-                _logger.LogDebug(
-                    "Write queued for {ObjectKey} (Sequence: {SequenceNumber}). Last successful write was {SecondsSince:F2}s ago",
-                    objectKey, sequenceNum, secondsSinceLastWrite);
-
-                ScheduleFlush(queue, objectKey);
-                return true;
-            }
-            finally
-            {
-                queue.Lock.ExitWriteLock();
+                queue.Lock.ExitUpgradeableReadLock();
             }
         }
 
@@ -102,57 +96,8 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         /// </summary>
         public bool TryQueueWrite(string objectKey, Stream stream)
         {
-            if (_isDisposing)
-                return false;
-
-            var queue = _queues.GetOrAdd(objectKey, key => new FileWriteQueueState(key));
-
-            queue.Lock.EnterReadLock();
-            try
-            {
-                var now = _clock.UtcNow;
-
-                // Check if queue is eligible to be flushed (last write > 2 seconds ago)
-                if (queue.LastSuccessfulWrite != DateTimeOffset.MinValue &&
-                    now.Subtract(queue.LastSuccessfulWrite).TotalSeconds >= 2.0)
-                {
-                    // Not queuing - write now
-                    _logger.LogDebug("Stream write eligible for {ObjectKey}. Last successful write was {SecondsSince}s ago",
-                        objectKey, now.Subtract(queue.LastSuccessfulWrite).TotalSeconds);
-                    return false;
-                }
-
-                // Will queue this write
-            }
-            finally
-            {
-                queue.Lock.ExitReadLock();
-            }
-
-            // Acquire write lock to queue the write (replace any pending write)
-            queue.Lock.EnterWriteLock();
-            try
-            {
-                var sequenceNum = Interlocked.Increment(ref _sequenceNumber);
-                var queuedWrite = new QueuedWrite(objectKey, stream, _clock.UtcNow, sequenceNum);
-                queue.PendingWrite = queuedWrite;
-
-                var now = _clock.UtcNow;
-                var secondsSinceLastWrite = queue.LastSuccessfulWrite == DateTimeOffset.MinValue
-                    ? 0.0
-                    : now.Subtract(queue.LastSuccessfulWrite).TotalSeconds;
-
-                _logger.LogDebug(
-                    "Stream write queued for {ObjectKey} (Sequence: {SequenceNumber}). Last successful write was {SecondsSince:F2}s ago",
-                    objectKey, sequenceNum, secondsSinceLastWrite);
-
-                ScheduleFlush(queue, objectKey);
-                return true;
-            }
-            finally
-            {
-                queue.Lock.ExitWriteLock();
-            }
+            _logger.LogDebug("Stream writes bypass the queue for {ObjectKey}", objectKey);
+            return false;
         }
 
         /// <summary>
@@ -193,16 +138,28 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             _logger.LogDebug("Flush scheduled for {ObjectKey}, delay: {DelayMs}ms", objectKey, delayMs);
 
-            // Schedule flush action using IScheduler (supports IClock for tests)
-            var flushTask = _scheduler.ScheduleRelative(TimeSpan.FromMilliseconds(delayMs), () =>
-            {
-                return _scheduler.ScheduleAsync(async (scheduler, cancellationToken) =>
-                {
-                    await ExecuteFlush(queue, objectKey);
-                });
-            });
+            var delay = TimeSpan.FromMilliseconds(delayMs);
+            queue.FlushTask = Task.Run(() => ExecuteFlushAfterDelay(queue, objectKey, delay));
+        }
 
-            queue.FlushTask = flushTask;
+        private Task ExecuteFlushAfterDelay(FileWriteQueueState queue, string objectKey, TimeSpan delay)
+        {
+            return PerformFlushAsync();
+
+            async Task PerformFlushAsync()
+            {
+                if (delay > TimeSpan.Zero)
+                {
+                    await _clock.Delay(delay);
+                }
+                else
+                {
+                    // Ensure flush happens outside the scheduling lock when no delay is required.
+                    await Task.Yield();
+                }
+
+                await ExecuteFlush(queue, objectKey);
+            }
         }
 
         /// <summary>

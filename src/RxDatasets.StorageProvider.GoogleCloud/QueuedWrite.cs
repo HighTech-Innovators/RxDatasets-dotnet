@@ -14,19 +14,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public string ObjectKey { get; }
 
         /// <summary>
-        /// The bytes to write (null if writing from stream).
+        /// The bytes to write.
         /// </summary>
-        public byte[]? Bytes { get; }
-
-        /// <summary>
-        /// The stream to write (null if writing from bytes).
-        /// </summary>
-        public Stream? Stream { get; }
-
-        /// <summary>
-        /// True if this write comes from a stream source; false if from bytes.
-        /// </summary>
-        public bool IsStreamSource { get; }
+        public byte[] Bytes { get; }
 
         /// <summary>
         /// When this write was queued (UTC).
@@ -45,21 +35,6 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         {
             ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
             Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
-            Stream = null;
-            IsStreamSource = false;
-            QueuedAt = queuedAt;
-            SequenceNumber = sequenceNumber;
-        }
-
-        /// <summary>
-        /// Creates a queued write for stream-based content.
-        /// </summary>
-        public QueuedWrite(string objectKey, Stream stream, DateTimeOffset queuedAt, long sequenceNumber)
-        {
-            ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
-            Stream = stream ?? throw new ArgumentNullException(nameof(stream));
-            Bytes = null;
-            IsStreamSource = true;
             QueuedAt = queuedAt;
             SequenceNumber = sequenceNumber;
         }

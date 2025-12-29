@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,7 +89,11 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
-        IDiskStorage<object> googleCloudStorage = new GoogleCloudStorage<object>(storageLogger.Object, _googleCloudConfig, false);
+        IDiskStorage<object> googleCloudStorage = new GoogleCloudStorage<object>(
+            storageLogger.Object,
+            _googleCloudConfig,
+            retryInitialization: false,
+            enableWriteQueue: false);
         IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, googleCloudStorage);
 
         IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, googleCloudStorage, notificationsHub, readOnlyStorage, false);
@@ -107,7 +112,6 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
         _ = datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }
-
 
     [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_GoogleCloud_Storage_After_Initialization()

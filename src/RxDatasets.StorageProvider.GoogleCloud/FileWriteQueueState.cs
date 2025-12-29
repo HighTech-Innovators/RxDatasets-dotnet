@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace RxDatasets.StorageProvider.GoogleCloud
 {
@@ -68,13 +68,12 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         }
 
         /// <summary>
-        /// Gets milliseconds until this queue becomes flush-eligible (0 if already eligible).
+        /// Gets milliseconds until this queue becomes flush-eligible (0 if already eligible or no writes yet).
         /// </summary>
         public int GetMillisecondsUntilFlushEligible(DateTimeOffset now)
         {
-            // If never written, not eligible (return max time)
             if (LastSuccessfulWrite == DateTimeOffset.MinValue)
-                return int.MaxValue;
+                return 0;
 
             var elapsed = now - LastSuccessfulWrite;
             var needed = TimeSpan.FromSeconds(2.0);
