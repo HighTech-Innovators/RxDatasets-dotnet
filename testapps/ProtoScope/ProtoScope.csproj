@@ -7,11 +7,29 @@
     <Nullable>enable</Nullable>
     <RootNamespace>ProtoScope</RootNamespace>
     <AssemblyName>dtoscope</AssemblyName>
+    
+    <!-- NuGet Package Configuration -->
+    <PackageId>HighTechInnovators.RxDatasets.DtoScope</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Title>DtoScope</Title>
+    <PackageDescription>CLI tool for inspecting RxDatasets proto files and converting them to YAML format</PackageDescription>
+    <Authors>HighTech Innovators</Authors>
+    <PackageProjectUrl>https://github.com/hightech-innovators/RxDatasets-dotnet</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/hightech-innovators/RxDatasets-dotnet</RepositoryUrl>
+    
+    <!-- dotnet tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>dtoscope</ToolCommandName>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile></PackageReadmeFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/RxDatasets/RxDatasets.csproj" />
     <PackageReference Include="YamlDotNet" />
+    <None Include="../../icon.png" Pack="true" PackagePath="/"/>
   </ItemGroup>
 
 </Project>
