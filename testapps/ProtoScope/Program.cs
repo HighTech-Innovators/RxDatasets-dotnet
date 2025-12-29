@@ -11,7 +11,14 @@ public class Program
     {
         try
         {
-            // Handle help first
+            // Handle version first
+            if (args.Length > 0 && (args[0] == "--version" || args[0] == "-v"))
+            {
+                PrintVersion();
+                return 0;
+            }
+
+            // Handle help
             if (args.Length == 0 || args[0] == "-h" || args[0] == "--help")
             {
                 PrintUsage();
@@ -48,6 +55,17 @@ public class Program
         }
     }
 
+    private static void PrintVersion()
+    {
+        var assembly = typeof(Program).Assembly;
+        var version = assembly.GetName().Version?.ToString() ?? "unknown";
+        var informationalVersion = assembly.GetCustomAttributes(false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion ?? version;
+        
+        Console.WriteLine($"DtoScope version {informationalVersion}");
+    }
+
     private static void PrintUsage()
     {
         Console.WriteLine(@"
@@ -61,14 +79,16 @@ Options:
   -S, --snapshotinfo  Treat as SnapshotInfo
   -D, --deltainfo     Treat as DeltaInfo
   -P, --processedinfo Treat as ProcessedVersionsInfo
-  -v, --verbose       Show detailed output
+  --verbose           Show detailed output
   --show-all          Show empty arrays and default values (omitted by default)
+  --version           Show version and exit
   -h, --help          Show this help message
 
 Examples:
   protoscope snapshot/0/index.pb
   protoscope deltas/1/index.pb -d
   protoscope snapshot/0/info.pb -S
+  protoscope --version
 ");
     }
 
@@ -111,7 +131,6 @@ Examples:
                 case "--processedinfo":
                     options.ProcessedInfo = true;
                     break;
-                case "-v":
                 case "--verbose":
                     options.Verbose = true;
                     break;

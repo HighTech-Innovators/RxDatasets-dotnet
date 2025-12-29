@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Host;
 
@@ -24,6 +25,11 @@ public static class Program
         var app = builder.Build();
 
         Host.DI.ConfigureApp(app);
+
+        var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+        var logger = loggerFactory.CreateLogger("RxDatasets.Host");
+        var version = VersionInfo.GetVersion();
+        logger.LogInformation("RxDatasets server version {Version} starting", version);
 
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 
