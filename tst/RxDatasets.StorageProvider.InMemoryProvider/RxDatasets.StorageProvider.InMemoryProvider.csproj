@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>RxDatasets.TestImplementations.InMemoryProvider</AssemblyName>
     <RootNamespace>RxDatasets.TestImplementations.InMemoryProvider</RootNamespace>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
