@@ -13,9 +13,7 @@
     <PackageVersion>1.0.0</PackageVersion>
     <Title>DtoScope</Title>
     <PackageDescription>CLI tool for inspecting RxDatasets proto files and converting them to YAML format</PackageDescription>
-    <Authors>HighTech Innovators</Authors>
     <PackageProjectUrl>https://github.com/hightech-innovators/RxDatasets-dotnet</PackageProjectUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/hightech-innovators/RxDatasets-dotnet</RepositoryUrl>
     
     <!-- dotnet tool Configuration -->
