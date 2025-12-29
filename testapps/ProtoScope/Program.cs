@@ -36,7 +36,7 @@ public class Program
             if (options.Verbose)
                 Console.WriteLine($"[File: {file.Name}] [Type: {detectedType}] [Size: {bytes.Length} bytes]\n");
 
-            string yaml = DecodeToYaml(bytes, detectedType);
+            string yaml = DecodeToYaml(bytes, detectedType, options.ShowAll);
             Console.WriteLine(yaml);
 
             return 0;
@@ -62,6 +62,7 @@ Options:
   -D, --deltainfo     Treat as DeltaInfo
   -P, --processedinfo Treat as ProcessedVersionsInfo
   -v, --verbose       Show detailed output
+  --show-all          Show empty arrays and default values (omitted by default)
   -h, --help          Show this help message
 
 Examples:
@@ -79,6 +80,7 @@ Examples:
         public bool? DeltaInfo { get; set; }
         public bool? ProcessedInfo { get; set; }
         public bool Verbose { get; set; }
+        public bool ShowAll { get; set; }  // Show empty arrays and default values
     }
 
     private static Options ParseOptions(string[] args)
@@ -112,6 +114,9 @@ Examples:
                 case "-v":
                 case "--verbose":
                     options.Verbose = true;
+                    break;
+                case "--show-all":
+                    options.ShowAll = true;
                     break;
                 case "-h":
                 case "--help":
@@ -318,7 +323,7 @@ Examples:
         return 0;
     }
 
-    private static string DecodeToYaml(byte[] bytes, ProtoType type)
+    private static string DecodeToYaml(byte[] bytes, ProtoType type, bool showAll = false)
     {
         IMessage message = type switch
         {
@@ -330,10 +335,11 @@ Examples:
             _ => throw new ArgumentException($"Unknown type: {type}")
         };
 
-        var serializer = new SerializerBuilder()
+        var builder = new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build();
-
+            .DisableAliases();  // Disable YAML anchors/aliases (&o1, *o1)
+        
+        var serializer = builder.Build();
         return serializer.Serialize(message);
     }
 }
