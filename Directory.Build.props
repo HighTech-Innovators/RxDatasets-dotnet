@@ -20,6 +20,10 @@
     <Description>A set of libraries that allow the development of Reactive Dataset-servers, using protobuf files a backing storage. Inspired by Netflix Hollow.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
+    <!-- Version properties - set by CI pipeline via -p:VERSION parameter -->
+    <InformationalVersion Condition="'$(VERSION)' != ''">$(VERSION)</InformationalVersion>
+    <FileVersion Condition="'$(VERSION)' != ''">$(VERSION)</FileVersion>
+    <AssemblyVersion Condition="'$(VERSION)' != ''">$(VERSION)</AssemblyVersion>
   </PropertyGroup>
   
   <PropertyGroup>
