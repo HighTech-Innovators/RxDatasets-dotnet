@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+message SnapshotEntity {
+    repeated uint64 last_deleted_version = 1;
+    repeated uint64 last_inserted_version = 2;
+    uint64 last_updated_version = 3;
+    int64 position = 4;
+    int32 length = 5;
+    uint32 crc32 = 7;
+}
+
+message SnapshotNode {
+    map<string, SnapshotEntity> entities = 1;
+    map<string, SnapshotNode> children = 2;
+}
+
+message SnapshotIndex {
+    uint64 snapshot_version_legacy = 1;
+    map<string, SnapshotEntity> entities = 2; // Legacy flat map
+    uint64 snapshot_version = 32;
+    SnapshotNode root = 33; // New hierarchical root
+}
+
+message DeltaEntity {
+    string name = 1;
+    int64 position = 2;
+    int32 length = 3;
+    uint32 crc32 = 5;
+}
+
+message DeltaIndex {
+    uint64 delta_version_legacy = 1;
+    repeated string deleted_names = 2;
+    repeated DeltaEntity changed_entities = 3;
+    repeated DeltaEntity new_entities = 4;
+    uint64 delta_version = 32;
+}
+
+message ProcessedVersionsInfo {
+    map<string, uint64> processed_versions = 1;
+}
+
+message DeltaInfo {
+    uint64 earliest_delta_version = 1;
+    uint64 latest_delta_version = 2;
+}
+
+message SnapshotInfo {
+    repeated snapshotVersion snapshot_versions = 1;
+    message snapshotVersion {
+        uint64 version = 1;
+        google.protobuf.Timestamp timestamp = 2;
+    }
+}
