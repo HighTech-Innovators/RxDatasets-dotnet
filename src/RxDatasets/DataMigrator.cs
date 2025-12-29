@@ -312,28 +312,163 @@ public class DataMigrator<T> : IDataMigrator
             sb.AppendLine(message);
         }
 
+        Log("Starting hierarchical index migration...");
+        Log("This migration converts flat delta files to hierarchical structure.");
+
+        var prefix = DatasetHelper.GetObjectNamePrefix<T>(_config.Value);
+        var deltasPrefix = prefix + FolderNames.DeltasFolderNameWithSlash;
+
         try
         {
-            Log("Starting hierarchical index migration...");
-            Log("Note: This migration converts flat entities to hierarchical structure in memory.");
-            Log("The storage provider will automatically serialize the new structure.");
+            // Get all delta index files
+            var deltaFiles = await _storage.ListObjects(deltasPrefix);
+            var versionFiles = deltaFiles
+                .Where(f => f.ObjectKey.EndsWith("/index.pb", StringComparison.Ordinal))
+                .Select(f => new
+                {
+                    Key = f.ObjectKey,
+                    Version = ParseDeltaVersionFromKey(f.ObjectKey),
+                    Timestamp = f.DateTime
+                })
+                .Where(x => x.Version.HasValue)
+                .OrderBy(x => x.Version!.Value)
+                .ToList();
 
-            // The migration is primarily semantic: the ImmutableDatasetState now supports
-            // hierarchical indexing, and files will be saved with the new structure automatically.
-            // No explicit data transformation is needed at this stage since the system
-            // maintains backward compatibility by keeping flat entities alongside hierarchical roots.
+            Log($"Found {versionFiles.Count} delta files to migrate");
 
-            Log("Hierarchical index support is now active.");
-            Log("New snapshots and deltas will include hierarchical structure alongside legacy flat format.");
-            Log("Migration complete - legacy files remain compatible and new files use optimized structure.");
-            
+            int migratedCount = 0;
+            int skippedCount = 0;
+
+            foreach (var file in versionFiles)
+            {
+                bool wasMigrated = await MigrateHierarchicalDeltaFile(file.Key, Log);
+                if (wasMigrated)
+                    migratedCount++;
+                else
+                    skippedCount++;
+            }
+
+            Log($"Migration complete: {migratedCount} files converted, {skippedCount} files already hierarchical");
             return sb.ToString();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Migration failed");
+            _logger.LogError(ex, "Hierarchical index migration failed");
             Log($"Migration failed: {ex.Message}");
             return sb.ToString();
         }
+    }
+
+    private async Task<bool> MigrateHierarchicalDeltaFile(string deltaFilePath, Action<string> log)
+    {
+        try
+        {
+            var bytes = await _storage.DownloadBytes(deltaFilePath);
+            var deltaIndex = DeltaIndex.Parser.ParseFrom(bytes.ToArray());
+
+            // Check if already migrated to hierarchical format
+            if (deltaIndex.Root != null && (deltaIndex.Root.DeletedNames.Count > 0 || 
+                                             deltaIndex.Root.ChangedEntities.Count > 0 || 
+                                             deltaIndex.Root.NewEntities.Count > 0 || 
+                                             deltaIndex.Root.Children.Count > 0))
+            {
+                log($"  {deltaFilePath}: Already hierarchical, skipping");
+                return false;
+            }
+
+            // If flat entities exist, convert to hierarchical
+            if (deltaIndex.DeletedNames.Count > 0 || deltaIndex.ChangedEntities.Count > 0 || deltaIndex.NewEntities.Count > 0)
+            {
+                log($"  {deltaFilePath}: Converting to hierarchical format");
+
+                // Create hierarchical root node
+                var rootNode = new DeltaNode();
+
+                // Distribute deleted names hierarchically
+                foreach (var deletedName in deltaIndex.DeletedNames)
+                {
+                    var parts = deletedName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    DistributeDeletedNameToHierarchy(rootNode, parts, deletedName);
+                }
+
+                // Distribute changed entities hierarchically
+                foreach (var changedEntity in deltaIndex.ChangedEntities)
+                {
+                    var parts = changedEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    DistributeEntityToHierarchy(rootNode, parts, changedEntity);
+                }
+
+                // Distribute new entities hierarchically
+                foreach (var newEntity in deltaIndex.NewEntities)
+                {
+                    var parts = newEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    DistributeEntityToHierarchy(rootNode, parts, newEntity);
+                }
+
+                // Set the root node and clear flat entities
+                deltaIndex.Root = rootNode;
+                deltaIndex.DeletedNames.Clear();
+                deltaIndex.ChangedEntities.Clear();
+                deltaIndex.NewEntities.Clear();
+
+                // Save the migrated delta file
+                await _storage.UploadBytes(deltaFilePath, deltaIndex.ToByteArray());
+                log($"    Successfully migrated {deltaFilePath}");
+                return true;
+            }
+
+            log($"  {deltaFilePath}: No flat entities to migrate, skipping");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error migrating hierarchical delta file {deltaFilePath}");
+            log($"  Error migrating {deltaFilePath}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void DistributeEntityToHierarchy(DeltaNode node, string[] pathParts, DeltaEntity entity)
+    {
+        if (pathParts.Length == 0)
+            return;
+
+        // Navigate/create path to leaf
+        var current = node;
+        for (int i = 0; i < pathParts.Length - 1; i++)
+        {
+            var part = pathParts[i];
+            if (!current.Children.ContainsKey(part))
+            {
+                current.Children[part] = new DeltaNode();
+            }
+            current = current.Children[part];
+        }
+
+        // Add entity to the leaf node
+        var leafName = pathParts[pathParts.Length - 1];
+        current.ChangedEntities[leafName] = entity;
+    }
+
+    private void DistributeDeletedNameToHierarchy(DeltaNode node, string[] pathParts, string deletedName)
+    {
+        if (pathParts.Length == 0)
+            return;
+
+        // Navigate/create path to leaf
+        var current = node;
+        for (int i = 0; i < pathParts.Length - 1; i++)
+        {
+            var part = pathParts[i];
+            if (!current.Children.ContainsKey(part))
+            {
+                current.Children[part] = new DeltaNode();
+            }
+            current = current.Children[part];
+        }
+
+        // Add deleted name to the leaf node
+        var leafName = pathParts[pathParts.Length - 1];
+        current.DeletedNames.Add(leafName);
     }
 }
