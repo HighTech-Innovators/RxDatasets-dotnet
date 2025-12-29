@@ -10,6 +10,8 @@ Auto-generated from all feature plans. Last updated: 2025-09-17
 - Google Cloud Storage (GCS) (056-gcs-rate-limit-queue)
 - C# .NET 8.0 + `RxDatasets.Abstractions`, `Microsoft.Extensions.Hosting`, `Microsoft.Extensions.Logging` (001-lock-handover)
 - `IDiskStorage<TEntity>` (File-based storage abstraction) (001-lock-handover)
+- C# .NET 8.0 + Google.Protobuf, System.Reactive, Microsoft.Extensions.Hosting, Grpc.Core.Api (056-hierarchical-index)
+- Protobuf files (Snapshot/Delta) on disk (Local, S3, Azure Blob, etc.) (056-hierarchical-index)
 
 ## Project Structure
 ```
@@ -26,8 +28,8 @@ C# .NET 8.0  : Follow standard conventions
 ## Recent Changes
 - 056-gcs-rate-limit-queue: Added C# .NET 8.0 + Google.Cloud.Storage.V1, System.Reactive, Microsoft.Extensions.Logging
 - 001-lock-handover: Added C# .NET 8.0 + `RxDatasets.Abstractions`, `Microsoft.Extensions.Hosting`, `Microsoft.Extensions.Logging`
+- 056-hierarchical-index: Added C# .NET 8.0 + Google.Protobuf, System.Reactive, Microsoft.Extensions.Hosting, Grpc.Core.Api
 - 55-countchildren-support: Added C# .NET 8.0 + Google.Protobuf, System.Reactive, Microsoft.Extensions.Hosting, Grpc.Core.Api
-- 002-putordeletemany-corner-cases: Added C# .NET 8.0   + Google.Protobuf, System.Reactive, Microsoft.Extensions.Hosting, Grpc.Core.Api  
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
