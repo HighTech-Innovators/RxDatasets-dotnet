@@ -21,11 +21,15 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <!-- Version properties - set by CI pipeline via -p:VERSION parameter -->
-    <!-- InformationalVersion uses the full semantic version string -->
-    <InformationalVersion Condition="'$(VERSION)' != ''">$(VERSION)</InformationalVersion>
+    <!-- InformationalVersion uses the semantic version (without commit metadata) -->
+    <!-- Extract version before any '+' metadata suffix (git-flow-version adds commit hash) -->
+    <_VersionSemver Condition="'$(VERSION)' != ''">$([System.Text.RegularExpressions.Regex]::Replace($(VERSION), '\+.*$', ''))</_VersionSemver>
+    <InformationalVersion Condition="'$(_VersionSemver)' != ''">$(_VersionSemver)</InformationalVersion>
+    <!-- Prevent SDK from appending git commit hash to InformationalVersion -->
+    <IncludeSourceRevisionInInformationalVersion Condition="'$(VERSION)' != ''">false</IncludeSourceRevisionInInformationalVersion>
     <!-- AssemblyVersion and FileVersion must be numeric only (major.minor.patch.revision) -->
     <!-- Extract numeric part before any pre-release identifier (dash) -->
-    <_VersionNumericPart Condition="'$(VERSION)' != ''">$(VERSION.Split('-')[0])</_VersionNumericPart>
+    <_VersionNumericPart Condition="'$(_VersionSemver)' != ''">$([System.Text.RegularExpressions.Regex]::Match($(_VersionSemver), '^\d+(\.\d+)?(\.\d+)?(\.\d+)?').Value)</_VersionNumericPart>
     <FileVersion Condition="'$(_VersionNumericPart)' != ''">$(_VersionNumericPart)</FileVersion>
     <AssemblyVersion Condition="'$(_VersionNumericPart)' != ''">$(_VersionNumericPart)</AssemblyVersion>
   </PropertyGroup>
