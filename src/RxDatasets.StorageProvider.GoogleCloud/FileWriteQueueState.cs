@@ -10,7 +10,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
     /// </summary>
     internal sealed class FileWriteQueueState : IDisposable
     {
-        private readonly ReaderWriterLockSlim _lock = new();
+        private readonly SemaphoreSlim _lock = new(1, 1);
 
         /// <summary>
         /// The GCS object key this queue is managing.
@@ -43,10 +43,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         public Task? FlushTask { get; set; }
 
         /// <summary>
-        /// Reader-writer lock for synchronizing access to queue state.
-        /// Allows multiple readers for LastSuccessfulWrite checks, exclusive writer for updates.
+        /// Semaphore for synchronizing access to queue state.
         /// </summary>
-        public ReaderWriterLockSlim Lock => _lock;
+        public SemaphoreSlim Lock => _lock;
 
         public FileWriteQueueState(string objectKey)
         {

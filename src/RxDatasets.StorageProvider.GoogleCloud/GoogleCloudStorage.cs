@@ -361,7 +361,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 throw new ObjectDisposedException(typeof(GoogleCloudStorage<T>).FullName);
 
             // Try to queue the write if it's within 2 seconds of the last write
-            if (_enableWriteQueue && _writeQueueManager.TryQueueWrite(objectKey, bytes))
+            if (_enableWriteQueue && await _writeQueueManager.TryQueueWriteAsync(objectKey, bytes))
             {
                 return;
             }
@@ -378,7 +378,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                     // Mark this write as successful for queue timing purposes
                     if (_enableWriteQueue)
                     {
-                        _writeQueueManager.MarkSuccessfulWrite(objectKey);
+                        await _writeQueueManager.MarkSuccessfulWriteAsync(objectKey);
                     }
                     
                     SetHealthy();
@@ -423,7 +423,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 // Mark this write as successful for queue timing purposes
                 if (_enableWriteQueue)
                 {
-                    _writeQueueManager.MarkSuccessfulWrite(objectKey);
+                    await _writeQueueManager.MarkSuccessfulWriteAsync(objectKey);
                 }
                 
                 SetHealthy();

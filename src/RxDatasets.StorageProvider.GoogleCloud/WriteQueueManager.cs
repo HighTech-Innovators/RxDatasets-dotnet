@@ -13,7 +13,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
     /// Manages write queuing for Google Cloud Storage to handle the 1-write-per-second rate limit
     /// on individual objects. Maintains per-file queues with automatic flushing after 2-second windows.
     /// 
-    /// Thread-safe. Uses ReaderWriterLockSlim per file for efficient concurrent access patterns.
+    /// Thread-safe. Uses SemaphoreSlim per file for efficient concurrent access patterns.
     /// </summary>
     internal sealed class WriteQueueManager
     {
@@ -40,14 +40,14 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         /// <summary>
         /// Attempts to queue a write. Returns true if queued, false if write should proceed normally.
         /// </summary>
-        public bool TryQueueWrite(string objectKey, byte[] bytes)
+        public async Task<bool> TryQueueWriteAsync(string objectKey, byte[] bytes)
         {
             if (_isDisposing)
                 return false;
 
             var queue = _queues.GetOrAdd(objectKey, key => new FileWriteQueueState(key));
 
-            queue.Lock.EnterUpgradeableReadLock();
+            await queue.Lock.WaitAsync();
             try
             {
                 var lastWrite = queue.LastSuccessfulWrite;
@@ -66,56 +66,48 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                     return false;
                 }
 
-                queue.Lock.EnterWriteLock();
-                try
-                {
-                    var sequenceNum = Interlocked.Increment(ref _sequenceNumber);
-                    var queuedWrite = new QueuedWrite(objectKey, bytes, now, sequenceNum);
-                    queue.PendingWrite = queuedWrite;
+                var sequenceNum = Interlocked.Increment(ref _sequenceNumber);
+                var queuedWrite = new QueuedWrite(objectKey, bytes, now, sequenceNum);
+                queue.PendingWrite = queuedWrite;
 
-                    _logger.LogDebug(
-                        "Write queued for {ObjectKey} (Sequence: {SequenceNumber}). Last successful write was {SecondsSince:F2}s ago",
-                        objectKey, sequenceNum, secondsSinceLastWrite);
+                _logger.LogDebug(
+                    "Write queued for {ObjectKey} (Sequence: {SequenceNumber}). Last successful write was {SecondsSince:F2}s ago",
+                    objectKey, sequenceNum, secondsSinceLastWrite);
 
-                    ScheduleFlush(queue, objectKey);
-                    return true;
-                }
-                finally
-                {
-                    queue.Lock.ExitWriteLock();
-                }
+                ScheduleFlush(queue, objectKey);
+                return true;
             }
             finally
             {
-                queue.Lock.ExitUpgradeableReadLock();
+                queue.Lock.Release();
             }
         }
 
         /// <summary>
         /// Attempts to queue a write from a stream. Returns true if queued, false if write should proceed normally.
         /// </summary>
-        public bool TryQueueWrite(string objectKey, Stream stream)
+        public Task<bool> TryQueueWriteAsync(string objectKey, Stream stream)
         {
             _logger.LogDebug("Stream writes bypass the queue for {ObjectKey}", objectKey);
-            return false;
+            return Task.FromResult(false);
         }
 
         /// <summary>
         /// Marks a write as successful, updating the timestamp for the object's queue.
         /// </summary>
-        public void MarkSuccessfulWrite(string objectKey)
+        public async Task MarkSuccessfulWriteAsync(string objectKey)
         {
             if (!_queues.TryGetValue(objectKey, out var queue))
                 return;
 
-            queue.Lock.EnterWriteLock();
+            await queue.Lock.WaitAsync();
             try
             {
                 queue.LastSuccessfulWrite = _clock.UtcNow;
             }
             finally
             {
-                queue.Lock.ExitWriteLock();
+                queue.Lock.Release();
             }
         }
 
@@ -167,7 +159,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         /// </summary>
         private async Task ExecuteFlush(FileWriteQueueState queue, string objectKey)
         {
-            queue.Lock.EnterWriteLock();
+            await queue.Lock.WaitAsync();
             try
             {
                 // Flush the single pending write (if any)
@@ -202,7 +194,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             }
             finally
             {
-                queue.Lock.ExitWriteLock();
+                queue.Lock.Release();
             }
         }
 
@@ -218,7 +210,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             var flushTasks = new List<Task>();
             foreach (var queue in _queues.Values)
             {
-                queue.Lock.EnterReadLock();
+                await queue.Lock.WaitAsync();
                 try
                 {
                     if (queue.FlushTask != null)
@@ -228,7 +220,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 }
                 finally
                 {
-                    queue.Lock.ExitReadLock();
+                    queue.Lock.Release();
                 }
             }
 
@@ -249,37 +241,49 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 }
             }
 
-            // Flush all remaining pending writes from each queue
+            // Flush all remaining pending writes from each queue in parallel
+            var finalFlushTasks = new List<Task>();
             foreach (var kvp in _queues)
             {
                 var objectKey = kvp.Key;
                 var queue = kvp.Value;
 
-                queue.Lock.EnterReadLock();
-                try
+                finalFlushTasks.Add(Task.Run(async () =>
                 {
-                    if (queue.PendingWrite != null)
+                    bool hadPendingWrite = false;
+                    await queue.Lock.WaitAsync();
+                    try
                     {
-                        _logger.LogInformation(
-                            "Flushing remaining write for {ObjectKey} during shutdown",
-                            objectKey);
+                        if (queue.PendingWrite != null)
+                        {
+                            hadPendingWrite = true;
+                            _logger.LogInformation(
+                                "Flushing remaining write for {ObjectKey} during shutdown",
+                                objectKey);
+                        }
                     }
-                }
-                finally
-                {
-                    queue.Lock.ExitReadLock();
-                }
+                    finally
+                    {
+                        queue.Lock.Release();
+                    }
 
-                // Execute flush (acquires write lock internally)
-                try
-                {
-                    await ExecuteFlush(queue, objectKey);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to flush remaining writes for {ObjectKey} during shutdown", objectKey);
-                }
+                    // Execute flush (acquires write lock internally)
+                    try
+                    {
+                        await ExecuteFlush(queue, objectKey);
+                        if (hadPendingWrite)
+                        {
+                            _logger.LogInformation("Successfully flushed remaining write for {ObjectKey} during shutdown", objectKey);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to flush remaining writes for {ObjectKey} during shutdown", objectKey);
+                    }
+                }));
             }
+
+            await Task.WhenAll(finalFlushTasks);
 
             // Clean up all locks
             foreach (var queue in _queues.Values)
