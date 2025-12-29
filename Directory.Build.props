@@ -21,9 +21,13 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <!-- Version properties - set by CI pipeline via -p:VERSION parameter -->
+    <!-- InformationalVersion uses the full semantic version string -->
     <InformationalVersion Condition="'$(VERSION)' != ''">$(VERSION)</InformationalVersion>
-    <FileVersion Condition="'$(VERSION)' != ''">$(VERSION)</FileVersion>
-    <AssemblyVersion Condition="'$(VERSION)' != ''">$(VERSION)</AssemblyVersion>
+    <!-- AssemblyVersion and FileVersion must be numeric only (major.minor.patch.revision) -->
+    <!-- Extract numeric part before any pre-release identifier (dash) -->
+    <_VersionNumericPart Condition="'$(VERSION)' != ''">$(VERSION.Split('-')[0])</_VersionNumericPart>
+    <FileVersion Condition="'$(_VersionNumericPart)' != ''">$(_VersionNumericPart)</FileVersion>
+    <AssemblyVersion Condition="'$(_VersionNumericPart)' != ''">$(_VersionNumericPart)</AssemblyVersion>
   </PropertyGroup>
   
   <PropertyGroup>
