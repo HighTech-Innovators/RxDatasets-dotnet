@@ -107,6 +107,23 @@ public sealed record ImmutableIndexNode(
     }
 
     /// <summary>
+    /// Navigates to a child node using a path. Path segments should be split by '/'.
+    /// Returns null if the path doesn't exist.
+    /// </summary>
+    public ImmutableIndexNode? NavigateNode(IEnumerable<string> pathSegments)
+    {
+        var current = this;
+        foreach (var segment in pathSegments)
+        {
+            var child = current.GetChild(segment);
+            if (child == null)
+                return null;
+            current = child;
+        }
+        return current;
+    }
+
+    /// <summary>
     /// Converts the Protobuf SnapshotNode to an ImmutableIndexNode.
     /// Recursively converts the entire tree structure.
     /// </summary>

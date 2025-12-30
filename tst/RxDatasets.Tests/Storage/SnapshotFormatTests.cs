@@ -135,8 +135,8 @@ public class SnapshotFormatTests
         Assert.NotNull(protoIndex.Root);
         Assert.NotEmpty(protoIndex.Root.Children);
 
-        // Verify legacy flat entities are also populated for compatibility
-        Assert.NotEmpty(protoIndex.Entities);
+        // Verify legacy flat entities are NOT populated anymore
+        Assert.Empty(protoIndex.Entities);
     }
 
     [Fact]

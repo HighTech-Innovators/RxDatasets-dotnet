@@ -133,18 +133,19 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
-        if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+        var entity = _index!.GetEntity(name);
+        if (entity == null || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index!.LatestVersion
             };
         }
 
-        var delta = new Delta([(name, null, ChangeType.Deleted)], _index.LatestVersion + 1);
+        var delta = new Delta([(name, null, ChangeType.Deleted)], _index!.LatestVersion + 1);
         await ApplyDelta(delta);
 
-        _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index.LatestVersion);
+        _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index!.LatestVersion);
         return WriteResponseFor(delta);
     }
 
@@ -153,17 +154,53 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
 
-        var deletedNames = new List<string>(_index!.Entities.Count);
+        var deletedNames = new List<string>();
 
         await foreach (var name in names.WithCancellation(ct))
         {
-            if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
+            var existingEntity = _index!.GetEntity(name);
+            if (existingEntity == null ||
                 existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 continue;
             }
 
             deletedNames.Add(name);
+        }
+
+        if (!deletedNames.Any())
+        {
+            return new IDatasetWriter<T>.WriteResponse()
+            {
+                NewDatasetVersion = _index!.LatestVersion
+            };
+        }
+
+        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+
+        var delta = new Delta(deleteChanges, _index!.LatestVersion + 1);
+        await ApplyDelta(delta);
+
+        _logger.LogInformation("Deleted {Count} entities; version {NewVersion}", deleteChanges.Length, _index!.LatestVersion);
+        return WriteResponseFor(delta);
+    }
+
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    {
+        using var slot = await Lock(ct);
+        ThrowIfNotInitialized();
+
+        var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
+        var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
+            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
+
+        var deletedNames = new List<string>();
+
+        var ancestorNode = _index!.IndexNode.NavigateNode(splitAncestor);
+        if (ancestorNode != null)
+        {
+            CollectAllEntities(ancestorNode, prefix.TrimEnd('/'), deletedNames);
         }
 
         if (!deletedNames.Any())
@@ -183,44 +220,21 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    private void CollectAllEntities(ImmutableIndexNode node, string prefix, List<string> results)
     {
-        using var slot = await Lock(ct);
-        ThrowIfNotInitialized();
-
-        var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
-        var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
-            throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
-
-        var deletedNames = new List<string>(_index!.Entities.Count);
-
-        foreach (var (name, entity) in _index!.Entities)
+        foreach (var entityKvp in node.Entities)
         {
-            if (!name.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
-
-            if (entity.GetLatestChangeType() == ChangeType.Deleted)
-                continue;
-
-            deletedNames.Add(name);
-        }
-
-        if (!deletedNames.Any())
-        {
-            return new IDatasetWriter<T>.WriteResponse()
+            if (entityKvp.Value.GetLatestChangeType() != ChangeType.Deleted)
             {
-                NewDatasetVersion = _index.LatestVersion
-            };
+                var fullPath = string.IsNullOrEmpty(prefix) ? entityKvp.Key : $"{prefix}/{entityKvp.Key}";
+                results.Add(fullPath);
+            }
         }
-
-        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
-
-        var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
-        await ApplyDelta(delta);
-
-        _logger.LogInformation("Deleted {Count} descendants of '{Prefix}'; version {NewVersion}", deleteChanges.Length, prefix, _index.LatestVersion);
-        return WriteResponseFor(delta);
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+            CollectAllEntities(childKvp.Value, childPrefix, results);
+        }
     }
 
     private void EnsureNameIsValid(string entityName)
@@ -245,7 +259,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         EnsureNameIsValid(name);
         Delta delta;
 
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+        var existingEntity = _index!.GetEntity(name);
+        if (existingEntity == null || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             delta = new Delta([(name, entityBytes, ChangeType.New)], _index.LatestVersion + 1);
 
         else if (await IsByteArrayUpdated(name, entityBytes))
@@ -303,7 +318,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
             foreach (var name in implicitDeletes)
             {
-                if (_index!.Entities.TryGetValue(name, out var existingEntity))
+                var existingEntity = _index!.GetEntity(name);
+                if (existingEntity != null)
                 {
                     deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = existingEntity.GetLatestEntityVersion() });
                 }
@@ -409,7 +425,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         foreach (var (name, finalState) in entityFinalStates)
         {
             // Get original state from index
-            var hasExistingEntity = index.Entities.TryGetValue(name, out var existingEntity);
+            var existingEntity = index.GetEntity(name);
+            var hasExistingEntity = existingEntity != null;
             var existingIsDeleted = hasExistingEntity && existingEntity!.GetLatestChangeType() == ChangeType.Deleted;
             ulong previousVersion = hasExistingEntity ? existingEntity!.GetLatestEntityVersion() : 0;
 
@@ -466,7 +483,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
     {
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) ||
+        var existingEntity = _index!.GetEntity(name);
+        if (existingEntity == null ||
             existingEntity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return ChangeType.New;
@@ -477,7 +495,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
     {
-        var existingEntity = _index!.Entities[name];
+        var existingEntity = _index!.GetEntity(name)!;
         if (existingEntity.Length != entityBytes.Length)
             return true;
 
@@ -495,7 +513,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
         // Precondition: calling method MUST have checked it exists AND is not deleted.
-        var entityInMainIndex = _index!.Entities[name];
+        var entityInMainIndex = _index!.GetEntity(name)!;
         var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
@@ -505,7 +523,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             // At this point, we KNOW it must be in there and be the latest version in existence,
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
+            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.GetEntity(name)!;
             sources.Add((ObjectNameTypeEnum.Snapshot, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
@@ -540,7 +558,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         foreach (var (name, entityBytes, change, crc32) in delta.Changes)
         {
             ulong previousVersion = 0;
-            if (_index!.Entities.TryGetValue(name, out var existingEntity))
+            var existingEntity = _index!.GetEntity(name);
+            if (existingEntity != null)
             {
                 previousVersion = existingEntity.GetLatestEntityVersion();
             }

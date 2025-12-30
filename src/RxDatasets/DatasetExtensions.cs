@@ -48,12 +48,12 @@ public static class DatasetExtensions
     /// <param name="delta"></param>
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
-        var tempSnapshotEntities = index.Entities;
-        var tempIndexNode = index.IndexNode ?? ImmutableIndexNode.Empty;
+        var tempIndexNode = index.IndexNode;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
         foreach (var newEntity in delta.NewEntities)
         {
-            if (!index.Entities.TryGetValue(newEntity.Name, out var existingEntity))
+            var existingEntity = index.GetEntity(newEntity.Name);
+            if (existingEntity == null)
             {
                 existingEntity = ImmutableSnapshotEntity.FromProto(new SnapshotEntity());
             }
@@ -66,13 +66,12 @@ public static class DatasetExtensions
                 newEntity.Length,
                 newEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(newEntity.Name, updatedEntity);
             tempIndexNode = SetEntityRecursive(tempIndexNode, newEntity.Name.Split('/'), 0, updatedEntity);
         }
 
         foreach (var changedEntity in delta.ChangedEntities)
         {
-            var existingEntity = index.Entities[changedEntity.Name];
+            var existingEntity = index.GetEntity(changedEntity.Name) ?? throw new KeyNotFoundException($"Entity {changedEntity.Name} not found for update");
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
@@ -82,13 +81,12 @@ public static class DatasetExtensions
                 changedEntity.Length,
                 changedEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(changedEntity.Name, updatedEntity);
             tempIndexNode = SetEntityRecursive(tempIndexNode, changedEntity.Name.Split('/'), 0, updatedEntity);
         }
 
         foreach (var deletedName in delta.DeletedNames)
         {
-            var existingEntity = index.Entities[deletedName];
+            var existingEntity = index.GetEntity(deletedName) ?? throw new KeyNotFoundException($"Entity {deletedName} not found for delete");
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion.Add(deltaVersion),
@@ -98,13 +96,12 @@ public static class DatasetExtensions
                 0,
                 existingEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
             tempIndexNode = SetEntityRecursive(tempIndexNode, deletedName.Split('/'), 0, updatedEntity);
         }
 
         foreach (var deletedEntity in delta.DeletedEntities)
         {
-            var existingEntity = index.Entities[deletedEntity.Name];
+            var existingEntity = index.GetEntity(deletedEntity.Name) ?? throw new KeyNotFoundException($"Entity {deletedEntity.Name} not found for delete");
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion.Add(deltaVersion),
@@ -114,11 +111,10 @@ public static class DatasetExtensions
                 0,
                 existingEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedEntity.Name, updatedEntity);
             tempIndexNode = SetEntityRecursive(tempIndexNode, deletedEntity.Name.Split('/'), 0, updatedEntity);
         }
 
-        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion, tempIndexNode);
+        return new ImmutableDatasetState(tempIndexNode, index.SnapshotVersion, deltaVersion);
     }
 
     private static ImmutableIndexNode SetEntityRecursive(ImmutableIndexNode node, string[] pathParts, int index, ImmutableSnapshotEntity entity)
