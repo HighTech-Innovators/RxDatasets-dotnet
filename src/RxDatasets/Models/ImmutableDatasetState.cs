@@ -11,8 +11,8 @@ namespace RxDatasets.Models;
 /// and is automatically generated from the hierarchical structure when needed.
 /// </summary>
 public record ImmutableDatasetState(
-    ImmutableDictionary<string, ImmutableSnapshotEntity> Entities, 
-    ulong SnapshotVersion, 
+    ImmutableDictionary<string, ImmutableSnapshotEntity> Entities,
+    ulong SnapshotVersion,
     ulong LatestVersion,
     ImmutableIndexNode? IndexNode = null)
 {
@@ -33,7 +33,7 @@ public record ImmutableDatasetState(
     /// Recursively flattens the hierarchical index into a flat dictionary.
     /// </summary>
     private static ImmutableDictionary<string, ImmutableSnapshotEntity> FlattenIndexNode(
-        ImmutableIndexNode node, 
+        ImmutableIndexNode node,
         string prefix)
     {
         var result = new Dictionary<string, ImmutableSnapshotEntity>();
@@ -65,19 +65,19 @@ public record ImmutableDatasetState(
     /// </summary>
     public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
     {
-        var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 
-            ? snapshotIndex.SnapshotVersion 
+        var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0
+            ? snapshotIndex.SnapshotVersion
             : snapshotIndex.SnapshotVersionLegacy;
 
         // Check if hierarchical root is present and populated
-        if (snapshotIndex.Root != null && 
+        if (snapshotIndex.Root != null &&
             (snapshotIndex.Root.Entities.Count > 0 || snapshotIndex.Root.Children.Count > 0))
         {
             var indexNode = ImmutableIndexNode.FromProto(snapshotIndex.Root);
             var flatEntities = FlattenIndexNode(indexNode, "");
             return new ImmutableDatasetState(
-                flatEntities, 
-                snapshotIndexSnapshotVersion, 
+                flatEntities,
+                snapshotIndexSnapshotVersion,
                 snapshotIndexSnapshotVersion,
                 indexNode);
         }
@@ -90,8 +90,8 @@ public record ImmutableDatasetState(
         }
 
         return new ImmutableDatasetState(
-            entities.ToImmutableDictionary(), 
-            snapshotIndexSnapshotVersion, 
+            entities.ToImmutableDictionary(),
+            snapshotIndexSnapshotVersion,
             snapshotIndexSnapshotVersion,
             null);
     }

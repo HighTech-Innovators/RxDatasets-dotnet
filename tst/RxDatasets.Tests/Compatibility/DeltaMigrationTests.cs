@@ -331,7 +331,7 @@ public class DeltaMigrationTests
 
         // Create a complex delta with mixed operations
         var delta = new DeltaIndex { DeltaVersion = 2 };
-        
+
         // New entity
         delta.NewEntities.Add(new DeltaEntity
         {

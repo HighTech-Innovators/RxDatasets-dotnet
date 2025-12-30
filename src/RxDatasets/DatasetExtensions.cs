@@ -307,9 +307,9 @@ public static class DatasetExtensions
 
         // Add the deleted name at the final level
         var fileName = pathSegments[^1];
-        if (!current.DeletedNames.Contains(fileName))
+        if (!current.DeletedEntities.ContainsKey(fileName))
         {
-            current.DeletedNames.Add(fileName);
+            current.DeletedEntities[fileName] = new DeletedEntity { Name = fileName, PreviousVersion = 0 };
         }
     }
 }

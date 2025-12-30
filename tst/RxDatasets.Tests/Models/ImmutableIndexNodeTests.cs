@@ -1,5 +1,5 @@
-using RxDatasets.Models;
 using System.Collections.Immutable;
+using RxDatasets.Models;
 
 namespace RxDatasets.Tests.Models;
 

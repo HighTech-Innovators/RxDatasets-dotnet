@@ -15,7 +15,7 @@ public class DataReaderCountChildrenTests
     private const string ChildName1 = "departments/engineering/employees/alice";
     private const string ChildName2 = "departments/engineering/employees/bob";
     private const string ChildName3 = "departments/engineering/employees/charlie";
-    
+
     private static readonly Demodto ChildEntity1 = new() { Name = ChildName1 };
     private static readonly Demodto ChildEntity2 = new() { Name = ChildName2 };
     private static readonly Demodto ChildEntity3 = new() { Name = ChildName3 };
@@ -36,7 +36,7 @@ public class DataReaderCountChildrenTests
             Substitute.For<IHostApplicationLifetime>(),
             configuration,
             _dataset,
-            default!);  
+            default!);
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class DataReaderCountChildrenTests
         // Given - populate dataset with 10,000 children
         const int childCount = 10000;
         const string parentPath = "org/teams/developers";
-        
+
         for (int i = 0; i < childCount; i++)
         {
             var childName = $"{parentPath}/member{i}";
@@ -153,7 +153,7 @@ public class DataReaderCountChildrenTests
 
         // Then - verify accuracy and performance
         count.Should().Be(childCount);
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(100, 
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(100,
             because: "CountChildren should complete within 100ms for 10,000 children");
     }
 
@@ -165,10 +165,10 @@ public class DataReaderCountChildrenTests
         const string parentPath = "department-team_01/sub.section";
         const string childWithSpecialChars1 = "department-team_01/sub.section/resource-1";
         const string childWithSpecialChars2 = "department-team_01/sub.section/resource_2";
-        
+
         var entity1 = new Demodto { Name = childWithSpecialChars1 };
         var entity2 = new Demodto { Name = childWithSpecialChars2 };
-        
+
         await _dataset.Put(childWithSpecialChars1, entity1.ToByteArray(), null, null);
         await _dataset.Put(childWithSpecialChars2, entity2.ToByteArray(), null, null);
 
@@ -187,11 +187,11 @@ public class DataReaderCountChildrenTests
         const string childWithUnicode1 = "部門/チーム/メンバー1";
         const string childWithUnicode2 = "部門/チーム/メンバー2";
         const string childWithUnicode3 = "部門/チーム/成員3";
-        
+
         var entity1 = new Demodto { Name = childWithUnicode1 };
         var entity2 = new Demodto { Name = childWithUnicode2 };
         var entity3 = new Demodto { Name = childWithUnicode3 };
-        
+
         await _dataset.Put(childWithUnicode1, entity1.ToByteArray(), null, null);
         await _dataset.Put(childWithUnicode2, entity2.ToByteArray(), null, null);
         await _dataset.Put(childWithUnicode3, entity3.ToByteArray(), null, null);
@@ -210,10 +210,10 @@ public class DataReaderCountChildrenTests
         var longPath = string.Join("/", Enumerable.Range(0, 30).Select(i => $"segment{i:D2}"));
         var childPath1 = $"{longPath}/child1";
         var childPath2 = $"{longPath}/child2";
-        
+
         var entity1 = new Demodto { Name = childPath1 };
         var entity2 = new Demodto { Name = childPath2 };
-        
+
         await _dataset.Put(childPath1, entity1.ToByteArray(), null, null);
         await _dataset.Put(childPath2, entity2.ToByteArray(), null, null);
 
@@ -231,10 +231,10 @@ public class DataReaderCountChildrenTests
         const string parentPath = "department name/team section";
         const string childWithSpace1 = "department name/team section/resource 1";
         const string childWithSpace2 = "department name/team section/resource 2";
-        
+
         var entity1 = new Demodto { Name = childWithSpace1 };
         var entity2 = new Demodto { Name = childWithSpace2 };
-        
+
         await _dataset.Put(childWithSpace1, entity1.ToByteArray(), null, null);
         await _dataset.Put(childWithSpace2, entity2.ToByteArray(), null, null);
 
@@ -254,12 +254,12 @@ public class DataReaderCountChildrenTests
         const string directChild2 = "org/division/team2";
         const string sibling = "org/otherDivision";
         const string grandchild = "org/division/team1/member";
-        
+
         var entity1 = new Demodto { Name = directChild1 };
         var entity2 = new Demodto { Name = directChild2 };
         var entity3 = new Demodto { Name = sibling };
         var entity4 = new Demodto { Name = grandchild };
-        
+
         await _dataset.Put(directChild1, entity1.ToByteArray(), null, null);
         await _dataset.Put(directChild2, entity2.ToByteArray(), null, null);
         await _dataset.Put(sibling, entity3.ToByteArray(), null, null);
@@ -279,11 +279,11 @@ public class DataReaderCountChildrenTests
         const string topLevel1 = "department/info";
         const string topLevel2 = "team/info";
         const string nested = "department/team/member";
-        
+
         var entity1 = new Demodto { Name = topLevel1 };
         var entity2 = new Demodto { Name = topLevel2 };
         var entity3 = new Demodto { Name = nested };
-        
+
         await _dataset.Put(topLevel1, entity1.ToByteArray(), null, null);
         await _dataset.Put(topLevel2, entity2.ToByteArray(), null, null);
         await _dataset.Put(nested, entity3.ToByteArray(), null, null);

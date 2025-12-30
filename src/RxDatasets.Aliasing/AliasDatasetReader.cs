@@ -32,7 +32,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     private Task? _syncTask;
     private CancellationTokenSource? _syncCancellationTokenSource;
-    private TaskCompletionSource? _initializationComplete;
+    private readonly TaskCompletionSource? _initializationComplete;
     private bool _initialized;
     private DateTimeOffset _initializationStartTime = DateTimeOffset.MinValue;
     private static readonly TimeSpan InitializationGracePeriod = TimeSpan.FromSeconds(30);

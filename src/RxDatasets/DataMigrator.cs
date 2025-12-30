@@ -367,9 +367,9 @@ public class DataMigrator<T> : IDataMigrator
             var deltaIndex = DeltaIndex.Parser.ParseFrom(bytes.ToArray());
 
             // Check if already migrated to hierarchical format
-            if (deltaIndex.Root != null && (deltaIndex.Root.DeletedNames.Count > 0 || 
-                                             deltaIndex.Root.ChangedEntities.Count > 0 || 
-                                             deltaIndex.Root.NewEntities.Count > 0 || 
+            if (deltaIndex.Root != null && (deltaIndex.Root.ChangedEntities.Count > 0 ||
+                                             deltaIndex.Root.NewEntities.Count > 0 ||
+                                             deltaIndex.Root.DeletedEntities.Count > 0 ||
                                              deltaIndex.Root.Children.Count > 0))
             {
                 log($"  {deltaFilePath}: Already hierarchical, skipping");
@@ -377,18 +377,46 @@ public class DataMigrator<T> : IDataMigrator
             }
 
             // If flat entities exist, convert to hierarchical
-            if (deltaIndex.DeletedNames.Count > 0 || deltaIndex.ChangedEntities.Count > 0 || deltaIndex.NewEntities.Count > 0)
+            if (deltaIndex.DeletedNames.Count > 0 || deltaIndex.ChangedEntities.Count > 0 || deltaIndex.NewEntities.Count > 0 || deltaIndex.DeletedEntities.Count > 0)
             {
                 log($"  {deltaFilePath}: Converting to hierarchical format");
 
                 // Create hierarchical root node
                 var rootNode = new DeltaNode();
 
-                // Distribute deleted names hierarchically
-                foreach (var deletedName in deltaIndex.DeletedNames)
+                // If we have richer deleted entities, use those. Otherwise fall back to deleted names.
+                // If both are present, we assume DeletedEntities is the source of truth and DeletedNames is just legacy duplication.
+                if (deltaIndex.DeletedEntities.Count > 0)
                 {
-                    var parts = deletedName.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                    DistributeDeletedNameToHierarchy(rootNode, parts, deletedName);
+                    // Distribute deleted entities hierarchically
+                    foreach (var deletedEntity in deltaIndex.DeletedEntities)
+                    {
+                        var parts = deletedEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        var leafName = parts[parts.Length - 1];
+
+                        // Create a copy of the entity with only the leaf name
+                        var entityForHierarchy = deletedEntity.Clone();
+                        entityForHierarchy.Name = leafName;
+
+                        DistributeDeletedEntityToHierarchy(rootNode, parts, entityForHierarchy);
+                    }
+                }
+                else
+                {
+                    // Distribute deleted names hierarchically (convert to DeletedEntity with version 0)
+                    foreach (var deletedName in deltaIndex.DeletedNames)
+                    {
+                        var parts = deletedName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        var leafName = parts[parts.Length - 1];
+
+                        var entityForHierarchy = new DeletedEntity
+                        {
+                            Name = leafName,
+                            PreviousVersion = 0
+                        };
+
+                        DistributeDeletedEntityToHierarchy(rootNode, parts, entityForHierarchy);
+                    }
                 }
 
                 // Distribute changed entities hierarchically
@@ -396,11 +424,11 @@ public class DataMigrator<T> : IDataMigrator
                 {
                     var parts = changedEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
                     var leafName = parts[parts.Length - 1];
-                    
+
                     // Create a copy of the entity with only the leaf name
                     var entityForHierarchy = changedEntity.Clone();
                     entityForHierarchy.Name = leafName;
-                    
+
                     DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
                 }
 
@@ -409,17 +437,18 @@ public class DataMigrator<T> : IDataMigrator
                 {
                     var parts = newEntity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
                     var leafName = parts[parts.Length - 1];
-                    
+
                     // Create a copy of the entity with only the leaf name
                     var entityForHierarchy = newEntity.Clone();
                     entityForHierarchy.Name = leafName;
-                    
+
                     DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
                 }
 
                 // Set the root node and clear flat entities
                 deltaIndex.Root = rootNode;
                 deltaIndex.DeletedNames.Clear();
+                deltaIndex.DeletedEntities.Clear();
                 deltaIndex.ChangedEntities.Clear();
                 deltaIndex.NewEntities.Clear();
 
@@ -462,7 +491,7 @@ public class DataMigrator<T> : IDataMigrator
         current.ChangedEntities[leafName] = entity;
     }
 
-    private void DistributeDeletedNameToHierarchy(DeltaNode node, string[] pathParts, string deletedName)
+    private void DistributeDeletedEntityToHierarchy(DeltaNode node, string[] pathParts, DeletedEntity entity)
     {
         if (pathParts.Length == 0)
             return;
@@ -479,8 +508,8 @@ public class DataMigrator<T> : IDataMigrator
             current = current.Children[part];
         }
 
-        // Add deleted name to the leaf node
+        // Add entity to the leaf node
         var leafName = pathParts[pathParts.Length - 1];
-        current.DeletedNames.Add(leafName);
+        current.DeletedEntities[leafName] = entity;
     }
 }

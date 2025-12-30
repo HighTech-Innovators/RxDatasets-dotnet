@@ -41,10 +41,10 @@ message DeletedEntity {
 }
 
 message DeltaNode {
-	repeated string deleted_names = 1;
 	map<string, DeltaEntity> changed_entities = 2;
 	map<string, DeltaEntity> new_entities = 3;
 	map<string, DeltaNode> children = 4;
+	map<string, DeletedEntity> deleted_entities = 5;
 }
 
 message DeltaIndex {
