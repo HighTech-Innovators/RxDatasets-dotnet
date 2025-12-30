@@ -44,8 +44,8 @@ public class DeltaMigrationTests
         var updated = baseState.ApplyDelta(delta);
 
         // Verify the new entity was added
-        Assert.Equal(2, updated.Entities.Count);
-        Assert.Contains("file2.txt", updated.Entities.Keys);
+        Assert.Equal(2, updated.IndexNode.Count);
+        Assert.NotNull(updated.GetEntity("file2.txt"));
         Assert.Equal(2uL, updated.LatestVersion);
     }
 
@@ -84,8 +84,9 @@ public class DeltaMigrationTests
         var updated = baseState.ApplyDelta(delta);
 
         // Verify the entity was updated
-        Assert.Single(updated.Entities);
-        var entity = updated.Entities["file.txt"];
+        Assert.Equal(1, updated.IndexNode.Count);
+        var entity = updated.GetEntity("file.txt");
+        Assert.NotNull(entity);
         Assert.Equal(100L, entity.Position);
         Assert.Equal(200, entity.Length);
         Assert.Equal(2uL, updated.LatestVersion);
@@ -119,8 +120,9 @@ public class DeltaMigrationTests
         var updated = baseState.ApplyDelta(delta);
 
         // Verify the entity was marked as deleted
-        Assert.Single(updated.Entities);
-        var entity = updated.Entities["file_to_delete.txt"];
+        Assert.Equal(1, updated.IndexNode.Count);
+        var entity = updated.GetEntity("file_to_delete.txt");
+        Assert.NotNull(entity);
         Assert.NotEmpty(entity.LastDeletedVersion);
         Assert.Contains(2uL, entity.LastDeletedVersion);
     }
@@ -157,8 +159,9 @@ public class DeltaMigrationTests
         var updated = baseState.ApplyDelta(delta);
 
         // Verify the entity was marked as deleted
-        Assert.Single(updated.Entities);
-        var entity = updated.Entities["file.txt"];
+        Assert.Equal(1, updated.IndexNode.Count);
+        var entity = updated.GetEntity("file.txt");
+        Assert.NotNull(entity);
         Assert.NotEmpty(entity.LastDeletedVersion);
         Assert.Contains(2uL, entity.LastDeletedVersion);
     }
@@ -234,9 +237,11 @@ public class DeltaMigrationTests
         state = state.ApplyDelta(delta3);
 
         // Verify final state
-        Assert.Equal(2, state.Entities.Count);
+        Assert.Equal(2, state.IndexNode.Count);
         Assert.Equal(4uL, state.LatestVersion);
-        Assert.Equal(150, state.Entities["file1.txt"].Length);
+        var file1 = state.GetEntity("file1.txt");
+        Assert.NotNull(file1);
+        Assert.Equal(150, file1.Length);
     }
 
     [Fact]
@@ -271,9 +276,9 @@ public class DeltaMigrationTests
         var updated = state.ApplyDeltas(new[] { delta1, delta2 });
 
         // Verify both deltas were applied
-        Assert.Equal(2, updated.Entities.Count);
-        Assert.Contains("file1.txt", updated.Entities.Keys);
-        Assert.Contains("file2.txt", updated.Entities.Keys);
+        Assert.Equal(2, updated.IndexNode.Count);
+        Assert.NotNull(updated.GetEntity("file1.txt"));
+        Assert.NotNull(updated.GetEntity("file2.txt"));
         Assert.Equal(3uL, updated.LatestVersion);
     }
 
@@ -311,7 +316,9 @@ public class DeltaMigrationTests
         var updated = state.ApplyDelta(delta);
 
         // Verify it was applied correctly
-        Assert.Equal(200, updated.Entities["file.txt"].Length);
+        var entity = updated.GetEntity("file.txt");
+        Assert.NotNull(entity);
+        Assert.Equal(200, entity.Length);
         Assert.Equal(2uL, updated.LatestVersion);
     }
 
@@ -357,10 +364,16 @@ public class DeltaMigrationTests
         var updated = state.ApplyDelta(delta);
 
         // Verify results
-        Assert.Equal(4, updated.Entities.Count);
-        Assert.Equal(150, updated.Entities["file1.txt"].Length);
-        Assert.NotEmpty(updated.Entities["file3.txt"].LastDeletedVersion);
-        Assert.Contains("file4.txt", updated.Entities.Keys);
+        Assert.Equal(4, updated.IndexNode.Count);
+        var file1 = updated.GetEntity("file1.txt");
+        Assert.NotNull(file1);
+        Assert.Equal(150, file1.Length);
+        
+        var file3 = updated.GetEntity("file3.txt");
+        Assert.NotNull(file3);
+        Assert.NotEmpty(file3.LastDeletedVersion);
+        
+        Assert.NotNull(updated.GetEntity("file4.txt"));
     }
 
     [Fact]
@@ -396,6 +409,6 @@ public class DeltaMigrationTests
         Assert.True(updated.IndexNode.Children["dir1"].Children["dir2"].Entities.ContainsKey("file.txt"));
         
         // Verify flat entities are also updated (backward compatibility)
-        Assert.True(updated.Entities.ContainsKey("dir1/dir2/file.txt"));
+        Assert.NotNull(updated.GetEntity("dir1/dir2/file.txt"));
     }
 }

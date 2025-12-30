@@ -6,20 +6,13 @@ namespace RxDatasets.Models;
 /// Represents the immutable state of a dataset.
 /// This record supports both flat (legacy) and hierarchical index structures.
 /// 
-/// The hierarchical structure (IndexNode) is preferred for memory efficiency,
-/// but the flat Entities dictionary is maintained for backward compatibility
-/// and is automatically generated from the hierarchical structure when needed.
+/// The hierarchical structure (IndexNode) is preferred for memory efficiency.
 /// </summary>
 public record ImmutableDatasetState
 {
     public ImmutableIndexNode IndexNode { get; init; }
     public ulong SnapshotVersion { get; init; }
     public ulong LatestVersion { get; init; }
-
-    // Backward compatibility: Computed property that flattens the index.
-    // WARNING: This is expensive (O(N)) and should be avoided in performance-critical paths.
-    [Obsolete("Use IndexNode or GetEntity() instead. This property is expensive and will be removed in future versions.")]
-    public ImmutableDictionary<string, ImmutableSnapshotEntity> Entities => FlattenIndexNode(IndexNode, "");
 
     public ImmutableDatasetState(
         ImmutableDictionary<string, ImmutableSnapshotEntity> entities, // Ignored, kept for compat if needed but we prefer IndexNode
@@ -83,46 +76,6 @@ public record ImmutableDatasetState
         var updatedChild = SetEntityRecursive(childNode, pathParts, index + 1, entity);
         
         return node.SetChild(childKey, updatedChild);
-    }
-
-    /// <summary>
-    /// Gets a flattened view of all entities by traversing the hierarchical index.
-    /// This is computed on-the-fly from IndexNode if available, otherwise returns Entities.
-    /// </summary>
-    [Obsolete("Use IndexNode or GetEntity() instead. This method is expensive and will be removed in future versions.")]
-    public ImmutableDictionary<string, ImmutableSnapshotEntity> GetFlatEntities()
-    {
-        return Entities;
-    }
-
-    /// <summary>
-    /// Recursively flattens the hierarchical index into a flat dictionary.
-    /// </summary>
-    private static ImmutableDictionary<string, ImmutableSnapshotEntity> FlattenIndexNode(
-        ImmutableIndexNode node,
-        string prefix)
-    {
-        var result = new Dictionary<string, ImmutableSnapshotEntity>();
-
-        // Add entities at this level
-        foreach (var entity in node.Entities)
-        {
-            var key = string.IsNullOrEmpty(prefix) ? entity.Key : $"{prefix}/{entity.Key}";
-            result[key] = entity.Value;
-        }
-
-        // Recursively flatten children
-        foreach (var child in node.Children)
-        {
-            var childPrefix = string.IsNullOrEmpty(prefix) ? child.Key : $"{prefix}/{child.Key}";
-            var flatChild = FlattenIndexNode(child.Value, childPrefix);
-            foreach (var kvp in flatChild)
-            {
-                result[kvp.Key] = kvp.Value;
-            }
-        }
-
-        return result.ToImmutableDictionary();
     }
 
     /// <summary>

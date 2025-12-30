@@ -52,9 +52,9 @@ public class LegacySnapshotTests
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
 
         // Verify all entities are loaded
-        Assert.Equal(2, state.Entities.Count);
-        Assert.Contains("entity1", state.Entities.Keys);
-        Assert.Contains("entity2", state.Entities.Keys);
+        Assert.Equal(2, state.IndexNode.Count);
+        Assert.NotNull(state.GetEntity("entity1"));
+        Assert.NotNull(state.GetEntity("entity2"));
     }
 
     [Fact]
@@ -90,9 +90,9 @@ public class LegacySnapshotTests
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
 
         // Verify paths are preserved as-is
-        Assert.Equal(2, state.Entities.Count);
-        Assert.Contains("dir1/dir2/file.txt", state.Entities.Keys);
-        Assert.Contains("dir1/file2.txt", state.Entities.Keys);
+        Assert.Equal(2, state.IndexNode.Count);
+        Assert.NotNull(state.GetEntity("dir1/dir2/file.txt"));
+        Assert.NotNull(state.GetEntity("dir1/file2.txt"));
     }
 
     [Fact]
@@ -117,8 +117,9 @@ public class LegacySnapshotTests
 
         // Load and verify data access
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
-        var loaded = state.Entities["data/file.dat"];
+        var loaded = state.GetEntity("data/file.dat");
 
+        Assert.NotNull(loaded);
         Assert.Equal(500L, loaded.Position);
         Assert.Equal(250, loaded.Length);
         Assert.Equal(12345u, loaded.Crc32);
@@ -152,7 +153,8 @@ public class LegacySnapshotTests
         Assert.Equal(20uL, state.LatestVersion);
 
         // Verify entity version history is preserved
-        var entity = state.Entities["entity"];
+        var entity = state.GetEntity("entity");
+        Assert.NotNull(entity);
         Assert.Contains(5uL, entity.LastInsertedVersion);
         Assert.Contains(10uL, entity.LastInsertedVersion);
         Assert.Equal(8uL, entity.LastUpdatedVersion);
@@ -184,8 +186,8 @@ public class LegacySnapshotTests
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
 
         // Verify all entities loaded
-        Assert.Equal(1000, state.Entities.Count);
-        Assert.NotEmpty(state.Entities);
+        Assert.Equal(1000, state.IndexNode.Count);
+        Assert.True(state.IndexNode.Count > 0);
     }
 
     [Fact]
@@ -226,8 +228,7 @@ public class LegacySnapshotTests
         var state = ImmutableDatasetState.FromProto(snapshotIndex);
 
         // The flat view should come from the hierarchical root, not legacy
-        var flatEntities = state.GetFlatEntities();
-        Assert.Contains("newdir/newfile.txt", flatEntities.Keys);
+        Assert.NotNull(state.GetEntity("newdir/newfile.txt"));
     }
 
     [Fact]
@@ -251,13 +252,13 @@ public class LegacySnapshotTests
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
 
         // Verify it loads correctly as flat
-        Assert.Contains("legacy/file.txt", state.Entities.Keys);
+        Assert.NotNull(state.GetEntity("legacy/file.txt"));
 
         // Now serialize and verify it's still valid
         var serialized = state.ToProto();
         var reloaded = ImmutableDatasetState.FromProto(serialized);
 
         // Should still have the data
-        Assert.NotEmpty(reloaded.Entities);
+        Assert.True(reloaded.IndexNode.Count > 0);
     }
 }

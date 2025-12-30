@@ -85,6 +85,32 @@ public sealed record ImmutableIndexNode(
     }
 
     /// <summary>
+    /// Gets the total number of entities in this node and all its children.
+    /// </summary>
+    public int Count => Entities.Count + Children.Values.Sum(c => c.Count);
+
+    /// <summary>
+    /// Recursively yields all entities in this node and its children with their full paths.
+    /// </summary>
+    public IEnumerable<KeyValuePair<string, ImmutableSnapshotEntity>> GetAllEntities(string parentPath = "")
+    {
+        foreach (var kvp in Entities)
+        {
+            var path = string.IsNullOrEmpty(parentPath) ? kvp.Key : $"{parentPath}/{kvp.Key}";
+            yield return new KeyValuePair<string, ImmutableSnapshotEntity>(path, kvp.Value);
+        }
+
+        foreach (var childKvp in Children)
+        {
+            var childPath = string.IsNullOrEmpty(parentPath) ? childKvp.Key : $"{parentPath}/{childKvp.Key}";
+            foreach (var entity in childKvp.Value.GetAllEntities(childPath))
+            {
+                yield return entity;
+            }
+        }
+    }
+
+    /// <summary>
     /// Navigates to an entity using a path. Path segments should be split by '/'.
     /// Returns null if the path doesn't exist.
     /// </summary>

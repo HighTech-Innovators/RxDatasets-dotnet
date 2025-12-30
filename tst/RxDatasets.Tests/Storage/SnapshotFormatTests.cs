@@ -171,7 +171,7 @@ public class SnapshotFormatTests
         Assert.NotEmpty(state.IndexNode.Children);
 
         // Verify flat view is also available
-        Assert.NotEmpty(state.GetFlatEntities());
+        Assert.True(state.IndexNode.Count > 0);
     }
 
     [Fact]
@@ -231,8 +231,8 @@ public class SnapshotFormatTests
         var state = ImmutableDatasetState.FromProto(legacySnapshot);
 
         // Verify it loads correctly
-        Assert.NotEmpty(state.Entities);
-        Assert.Contains("path/to/file.txt", state.Entities.Keys);
+        Assert.True(state.IndexNode.Count > 0);
+        Assert.NotNull(state.GetEntity("path/to/file.txt"));
     }
 
     [Fact]
@@ -274,7 +274,6 @@ public class SnapshotFormatTests
 
         Assert.NotNull(state.IndexNode);
         // Should have the new file, not legacy
-        var flat = state.GetFlatEntities();
-        Assert.Contains("newdir/new_file.txt", flat.Keys);
+        Assert.NotNull(state.GetEntity("newdir/new_file.txt"));
     }
 }
