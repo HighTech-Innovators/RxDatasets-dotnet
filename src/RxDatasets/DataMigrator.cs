@@ -429,7 +429,7 @@ public class DataMigrator<T> : IDataMigrator
                     var entityForHierarchy = changedEntity.Clone();
                     entityForHierarchy.Name = leafName;
 
-                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
+                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy, isNew: false);
                 }
 
                 // Distribute new entities hierarchically
@@ -442,7 +442,7 @@ public class DataMigrator<T> : IDataMigrator
                     var entityForHierarchy = newEntity.Clone();
                     entityForHierarchy.Name = leafName;
 
-                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy);
+                    DistributeEntityToHierarchy(rootNode, parts, entityForHierarchy, isNew: true);
                 }
 
                 // Set the root node and clear flat entities
@@ -469,7 +469,7 @@ public class DataMigrator<T> : IDataMigrator
         }
     }
 
-    private void DistributeEntityToHierarchy(DeltaNode node, string[] pathParts, DeltaEntity entity)
+    private void DistributeEntityToHierarchy(DeltaNode node, string[] pathParts, DeltaEntity entity, bool isNew)
     {
         if (pathParts.Length == 0)
             return;
@@ -488,7 +488,14 @@ public class DataMigrator<T> : IDataMigrator
 
         // Add entity to the leaf node
         var leafName = pathParts[pathParts.Length - 1];
-        current.ChangedEntities[leafName] = entity;
+        if (isNew)
+        {
+            current.NewEntities[leafName] = entity;
+        }
+        else
+        {
+            current.ChangedEntities[leafName] = entity;
+        }
     }
 
     private void DistributeDeletedEntityToHierarchy(DeltaNode node, string[] pathParts, DeletedEntity entity)
