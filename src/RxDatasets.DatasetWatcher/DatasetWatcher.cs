@@ -68,31 +68,57 @@ public class DatasetWatcher<T>(
         var snapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         await datasetObserver.OnDatasetVersionStart(snapshotVersion);
 
-        foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
+        if (snapshotIndex.Root != null && (snapshotIndex.Root.Entities.Count > 0 || snapshotIndex.Root.Children.Count > 0))
         {
-            var entityData = data.Slice((int)snapshotEntity.Position, snapshotEntity.Length);
-            var latestChangeType = snapshotEntity.GetLatestChangeType();
-
-            switch (latestChangeType)
+            await TraverseAndReport(snapshotIndex.Root, "", datasetObserver, data);
+        }
+        else
+        {
+            foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
             {
-                case ChangeType.New:
-                    await datasetObserver.OnCreate(name, entityData);
-                    break;
-                case ChangeType.Changed:
-                    await datasetObserver.OnChange(name, entityData);
-                    break;
-                case ChangeType.Deleted:
-                    await datasetObserver.OnDelete(name);
-                    break;
-                case ChangeType.None:
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(latestChangeType), "We are not sure what this Type is");
+                await ReportEntity(name, snapshotEntity, datasetObserver, data);
             }
         }
 
         await datasetObserver.OnDatasetVersionEnd(snapshotVersion);
+    }
 
+    private static async Task TraverseAndReport(SnapshotNode node, string prefix, IDatasetObserver<T> datasetObserver, ReadOnlyMemory<byte> data)
+    {
+        foreach (var (key, entity) in node.Entities)
+        {
+            var fullName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}/{key}";
+            await ReportEntity(fullName, entity, datasetObserver, data);
+        }
+
+        foreach (var (key, childNode) in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? key : $"{prefix}/{key}";
+            await TraverseAndReport(childNode, childPrefix, datasetObserver, data);
+        }
+    }
+
+    private static async Task ReportEntity(string name, SnapshotEntity snapshotEntity, IDatasetObserver<T> datasetObserver, ReadOnlyMemory<byte> data)
+    {
+        var entityData = data.Slice((int)snapshotEntity.Position, snapshotEntity.Length);
+        var latestChangeType = snapshotEntity.GetLatestChangeType();
+
+        switch (latestChangeType)
+        {
+            case ChangeType.New:
+                await datasetObserver.OnCreate(name, entityData);
+                break;
+            case ChangeType.Changed:
+                await datasetObserver.OnChange(name, entityData);
+                break;
+            case ChangeType.Deleted:
+                await datasetObserver.OnDelete(name);
+                break;
+            case ChangeType.None:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(latestChangeType), "We are not sure what this Type is");
+        }
     }
 
 
