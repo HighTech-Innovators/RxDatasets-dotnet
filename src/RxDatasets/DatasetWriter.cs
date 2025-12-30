@@ -478,6 +478,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 deltaIndex.ChangedEntities.Add(deltaEntity);
         }
 
+        // Convert to hierarchical format
+        deltaIndex.Root = deltaIndex.ToDeltaNode();
+        deltaIndex.NewEntities.Clear();
+        deltaIndex.ChangedEntities.Clear();
+        deltaIndex.DeletedEntities.Clear();
+        deltaIndex.DeletedNames.Clear();
+
         return (deltaIndex, receivedNames, allParents);
     }
 
@@ -603,6 +610,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     break;
             }
         }
+
+        // Convert to hierarchical format
+        deltaIndex.Root = deltaIndex.ToDeltaNode();
+        deltaIndex.NewEntities.Clear();
+        deltaIndex.ChangedEntities.Clear();
+        deltaIndex.DeletedEntities.Clear();
+        deltaIndex.DeletedNames.Clear();
 
         concatenatedByteStream.Position = 0;
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);

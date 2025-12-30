@@ -321,32 +321,25 @@ public static class DatasetExtensions
         // Distribute changed entities into the tree
         foreach (var changedEntity in deltaIndex.ChangedEntities)
         {
-            DistributeDeltaEntity(root, changedEntity.Name.Split('/'), changedEntity, isNew: false, isDeleted: false);
+            DistributeDeltaEntity(root, changedEntity.Name.Split('/'), changedEntity, isNew: false);
         }
 
         // Distribute new entities into the tree
         foreach (var newEntity in deltaIndex.NewEntities)
         {
-            DistributeDeltaEntity(root, newEntity.Name.Split('/'), newEntity, isNew: true, isDeleted: false);
+            DistributeDeltaEntity(root, newEntity.Name.Split('/'), newEntity, isNew: true);
         }
 
         // Distribute deleted names into the tree
         foreach (var deletedName in deltaIndex.DeletedNames)
         {
-            DistributeDeletedName(root, deletedName.Split('/'));
+            DistributeDeletedEntity(root, deletedName.Split('/'), new DeletedEntity { Name = deletedName, PreviousVersion = 0 });
         }
 
         // Distribute deleted entities into the tree
         foreach (var deletedEntity in deltaIndex.DeletedEntities)
         {
-            DistributeDeltaEntity(root, deletedEntity.Name.Split('/'), new DeltaEntity
-            {
-                Name = deletedEntity.Name,
-                Position = 0,
-                Length = 0,
-                Crc32 = 0,
-                PreviousVersion = deletedEntity.PreviousVersion
-            }, isNew: false, isDeleted: true);
+            DistributeDeletedEntity(root, deletedEntity.Name.Split('/'), deletedEntity);
         }
 
         return root;
@@ -359,8 +352,7 @@ public static class DatasetExtensions
         DeltaNode root,
         string[] pathSegments,
         DeltaEntity entity,
-        bool isNew,
-        bool isDeleted)
+        bool isNew)
     {
         if (pathSegments.Length == 0)
             return;
@@ -384,10 +376,6 @@ public static class DatasetExtensions
         {
             current.NewEntities[fileName] = entity;
         }
-        else if (isDeleted)
-        {
-            current.ChangedEntities[fileName] = entity;
-        }
         else
         {
             current.ChangedEntities[fileName] = entity;
@@ -395,9 +383,9 @@ public static class DatasetExtensions
     }
 
     /// <summary>
-    /// Helper to distribute a deleted name into a node tree.
+    /// Helper to distribute a deleted entity into a node tree.
     /// </summary>
-    private static void DistributeDeletedName(DeltaNode root, string[] pathSegments)
+    private static void DistributeDeletedEntity(DeltaNode root, string[] pathSegments, DeletedEntity entity)
     {
         if (pathSegments.Length == 0)
             return;
@@ -415,11 +403,8 @@ public static class DatasetExtensions
             current = current.Children[segment];
         }
 
-        // Add the deleted name at the final level
+        // Add the deleted entity at the final level
         var fileName = pathSegments[^1];
-        if (!current.DeletedEntities.ContainsKey(fileName))
-        {
-            current.DeletedEntities[fileName] = new DeletedEntity { Name = fileName, PreviousVersion = 0 };
-        }
+        current.DeletedEntities[fileName] = entity;
     }
 }
