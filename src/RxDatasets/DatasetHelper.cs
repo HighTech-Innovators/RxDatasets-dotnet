@@ -213,6 +213,11 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
             .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
 
+        if (lastEntityInDataFile == null && mutableSnapshotIndex.Root != null)
+        {
+            lastEntityInDataFile = FindLastEntityInHierarchy(mutableSnapshotIndex.Root);
+        }
+
         if (lastEntityInDataFile is not null)
         {
             var actualSnapshotDataLength = await storageProvider.GetSnapshotDataContentLength(snapshotVersion);
@@ -237,6 +242,24 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
         return snapshotIndex;
     }
+
+    private SnapshotEntity? FindLastEntityInHierarchy(SnapshotNode node)
+    {
+        var maxEntity = node.Entities.Values
+            .Where(e => e.GetLatestChangeType() != ChangeType.Deleted)
+            .MaxBy(e => e.Position);
+
+        foreach (var child in node.Children.Values)
+        {
+            var childMax = FindLastEntityInHierarchy(child);
+            if (childMax != null && (maxEntity == null || childMax.Position > maxEntity.Position))
+            {
+                maxEntity = childMax;
+            }
+        }
+        return maxEntity;
+    }
+
     public static string GetObjectNamePrefix<T>(StorageConfig storageConfig) =>
         $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
     public static string GetObjectName<T>(ulong version, ObjectNameIndexOrDataEnum indexOrData,
