@@ -64,7 +64,7 @@ public class ImmutableDatasetStateTests
     }
 
     [Fact]
-    public void GetFlatEntities_ReturnsCorrectDictionary()
+    public void GetAllEntities_ReturnsCorrectDictionary()
     {
         var entities = new Dictionary<string, ImmutableSnapshotEntity>
         {
@@ -74,7 +74,7 @@ public class ImmutableDatasetStateTests
 
         var state = new ImmutableDatasetState(entities, 1, 1);
 
-        var flat = state.GetFlatEntities();
+        var flat = state.IndexNode.GetAllEntities().ToDictionary(x => x.Key, x => x.Value);
 
         Assert.Equal(2, flat.Count);
         Assert.True(flat.ContainsKey("a/b"));

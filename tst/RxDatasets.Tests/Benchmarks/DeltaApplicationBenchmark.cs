@@ -49,7 +49,7 @@ public class DeltaApplicationBenchmark
         stopwatch.Stop();
 
         // Verify
-        Assert.Equal(1100, updated.Entities.Count);
+        Assert.Equal(1100, updated.IndexNode.Count);
         Assert.Equal(2uL, updated.LatestVersion);
 
         // Output for manual observation
@@ -90,7 +90,7 @@ public class DeltaApplicationBenchmark
         stopwatch.Stop();
 
         // Verify
-        Assert.Equal(1000, currentState.Entities.Count);
+        Assert.Equal(1000, currentState.IndexNode.Count);
         Assert.Equal(11uL, currentState.LatestVersion);
 
         System.Diagnostics.Debug.WriteLine($"10 sequential deltas (100 entities each) applied in {stopwatch.ElapsedMilliseconds}ms");
@@ -156,7 +156,7 @@ public class DeltaApplicationBenchmark
         // Verify
         // Note: ApplyDelta doesn't remove entities, it marks them as deleted
         // So all 500 original + 100 new entities remain in the dictionary
-        Assert.Equal(600, updated.Entities.Count);
+        Assert.Equal(600, updated.IndexNode.Count);
         Assert.Equal(2uL, updated.LatestVersion);
 
         System.Diagnostics.Debug.WriteLine($"Mixed delta (100 new, 100 changed, 50 deleted) applied in {stopwatch.ElapsedMilliseconds}ms");
@@ -202,7 +202,7 @@ public class DeltaApplicationBenchmark
         }
 
         // Verify all deltas were applied
-        Assert.Equal(6, finalState.Entities.Count);  // 1 initial + 5 new
+        Assert.Equal(6, finalState.IndexNode.Count);  // 1 initial + 5 new
         Assert.Equal(6uL, finalState.LatestVersion);
     }
 
@@ -236,11 +236,11 @@ public class DeltaApplicationBenchmark
         var state2 = state1.ApplyDelta(delta);
 
         // Verify original state is unchanged
-        Assert.Single(state1.Entities);
+        Assert.Equal(1, state1.IndexNode.Count);
         Assert.Equal(1uL, state1.LatestVersion);
 
         // Verify new state has the change
-        Assert.Equal(2, state2.Entities.Count);
+        Assert.Equal(2, state2.IndexNode.Count);
         Assert.Equal(2uL, state2.LatestVersion);
 
         // Verify they are different objects
@@ -285,7 +285,7 @@ public class DeltaApplicationBenchmark
         stopwatch.Stop();
 
         // Verify
-        Assert.Equal(100000, updated.Entities.Count);
+        Assert.Equal(100000, updated.IndexNode.Count);
         Assert.Equal(2uL, updated.LatestVersion);
 
         System.Diagnostics.Debug.WriteLine($"Applied delta to 100K entity dataset in {stopwatch.ElapsedMilliseconds}ms");
