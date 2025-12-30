@@ -199,11 +199,11 @@ public class SnapshotFormatTests
         Assert.NotNull(restoredState.IndexNode);
         Assert.NotEmpty(restoredState.IndexNode.Children);
         Assert.Contains("level1", restoredState.IndexNode.Children.Keys);
-        
+
         var level1Child = restoredState.IndexNode.GetChild("level1");
         Assert.NotNull(level1Child);
         Assert.NotEmpty(level1Child.Children);
-        
+
         var level2Child = level1Child.GetChild("level2");
         Assert.NotNull(level2Child);
         Assert.NotEmpty(level2Child.Entities);

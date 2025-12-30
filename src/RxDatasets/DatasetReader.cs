@@ -551,7 +551,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         // Split the entity name by path separator
         var pathParts = entityName.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        
+
         // Navigate to the correct node in the hierarchy
         var currentNode = root;
         for (int i = 0; i < pathParts.Length - 1; i++)
@@ -578,10 +578,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             return (ChangeType.Changed, changedEntity.PreviousVersion);
         }
 
-        // Check deleted names
-        if (currentNode.DeletedNames.Contains(finalSegment))
+        // Check deleted entities
+        if (currentNode.DeletedEntities.TryGetValue(finalSegment, out var deletedEntity))
         {
-            return (ChangeType.Deleted, 0); // Legacy deletion without previous version
+            return (ChangeType.Deleted, deletedEntity.PreviousVersion);
         }
 
         return null;
@@ -615,11 +615,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     break;
 
                 case ChangeType.Deleted:
-                    foreach (var deletedName in root.DeletedNames)
+                    foreach (var (_, deletedEntity) in root.DeletedEntities)
                     {
-                        if (!deletedEntityNames.Contains(deletedName))
+                        if (!deletedEntityNames.Contains(deletedEntity.Name))
                         {
-                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
                         }
                     }
                     break;
@@ -654,11 +654,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     break;
 
                 case ChangeType.Deleted:
-                    foreach (var deletedName in root.DeletedNames)
+                    foreach (var (_, deletedEntity) in root.DeletedEntities)
                     {
-                        if (!deletedEntityNames.Contains(deletedName))
+                        if (!deletedEntityNames.Contains(deletedEntity.Name))
                         {
-                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
+                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
                         }
                     }
                     break;
@@ -733,7 +733,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
             if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
                     deltaIndex.Root.ChangedEntities.Count > 0 ||
-                    deltaIndex.Root.DeletedNames.Count > 0 ||
+                    deltaIndex.Root.DeletedEntities.Count > 0 ||
                     deltaIndex.Root.Children.Count > 0))
             {
                 // Hierarchical root available - use tree traversal
@@ -849,7 +849,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
             if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
                     deltaIndex.Root.ChangedEntities.Count > 0 ||
-                    deltaIndex.Root.DeletedNames.Count > 0 ||
+                    deltaIndex.Root.DeletedEntities.Count > 0 ||
                     deltaIndex.Root.Children.Count > 0))
             {
                 // Hierarchical root available - use tree traversal

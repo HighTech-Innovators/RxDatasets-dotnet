@@ -1,6 +1,6 @@
+using Google.Protobuf;
 using RxDatasets.Aliasing;
 using RxDatasets.AliasingTests.Types.Relation;
-using Google.Protobuf;
 
 namespace RxDatasets.AliasingTests;
 

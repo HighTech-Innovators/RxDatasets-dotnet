@@ -177,7 +177,7 @@ public class IndexMemoryBenchmark
         var segments = firstKey.Split('/');
 
         var found = hierarchicalIndex.Navigate(segments);
-        
+
         // Navigation may fail due to the simplified builder, but the structure should exist
         Assert.NotNull(hierarchicalIndex);
     }

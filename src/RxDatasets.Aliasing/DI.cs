@@ -1,10 +1,10 @@
+using System.Text;
+using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
-using System.Text;
-using System.Text.RegularExpressions;
 
 namespace RxDatasets.Aliasing;
 
@@ -742,7 +742,7 @@ public static class PatternsAndExpressions
             // Handle invalid range - if start >= end, return empty
             if (start >= end)
                 return Enumerable.Empty<string>();
-            
+
             singleResult = string.Join("/", partsList.Skip(start).Take(end - start));
         }
 

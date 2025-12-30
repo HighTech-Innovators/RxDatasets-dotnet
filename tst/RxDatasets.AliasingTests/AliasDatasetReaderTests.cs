@@ -1,4 +1,3 @@
-using RxDatasets.AliasingTests.Types;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -6,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Reactive.Testing;
 using RxDatasets.Abstractions;
 using RxDatasets.Aliasing;
+using RxDatasets.AliasingTests.Types;
 using RxDatasets.InMemoryDataset;
 
 namespace RxDatasets.AliasingTests;
@@ -1151,12 +1151,12 @@ public class AliasDatasetReaderTests : IAsyncLifetime
         // The reader should still be trying to initialize (via retries)
         // Calling Get should wait for initialization and eventually work after retries
         // (or timeout if we set a reasonable timeout)
-        
+
         // For now, just verify the reader doesn't throw immediately on construction
         // and that multiple StartInitialization calls don't cause issues
         reader.StartInitialization(); // Should be idempotent
-        
-        alwaysFailingReader.GetChangedNamesCallCount.Should().BeGreaterThan(0, 
+
+        alwaysFailingReader.GetChangedNamesCallCount.Should().BeGreaterThan(0,
             "reader should have attempted initialization");
     }
 }

@@ -15,7 +15,7 @@ public class CrcTrustTests
         _writer = _dataset;
     }
 
-    private static byte[] GenerateTestData(string name, int version = 1) => 
+    private static byte[] GenerateTestData(string name, int version = 1) =>
         System.Text.Encoding.UTF8.GetBytes($"{name}_v{version}");
 
     [Fact]

@@ -1,8 +1,8 @@
+using System.Collections;
 using Google.Protobuf;
 using RxDatasets.Models;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using System.Collections;
 
 namespace ProtoScope;
 
@@ -64,7 +64,7 @@ public class Program
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
             .FirstOrDefault();
         var informationalVersion = informationalVersionAttr?.InformationalVersion ?? version;
-        
+
         Console.WriteLine($"DtoScope version {informationalVersion}");
     }
 
@@ -158,11 +158,16 @@ Examples:
     private static ProtoType DetermineType(FileInfo file, Options options, byte[] bytes)
     {
         // Check explicit flags first (highest priority)
-        if (options.Snapshot == true) return ProtoType.Snapshot;
-        if (options.Delta == true) return ProtoType.Delta;
-        if (options.SnapshotInfo == true) return ProtoType.SnapshotInfo;
-        if (options.DeltaInfo == true) return ProtoType.DeltaInfo;
-        if (options.ProcessedInfo == true) return ProtoType.ProcessedInfo;
+        if (options.Snapshot == true)
+            return ProtoType.Snapshot;
+        if (options.Delta == true)
+            return ProtoType.Delta;
+        if (options.SnapshotInfo == true)
+            return ProtoType.SnapshotInfo;
+        if (options.DeltaInfo == true)
+            return ProtoType.DeltaInfo;
+        if (options.ProcessedInfo == true)
+            return ProtoType.ProcessedInfo;
 
         // Auto-detect from filename pattern
         var fileName = file.Name;
@@ -255,80 +260,91 @@ Examples:
     private static int ScoreSnapshotIndex(SnapshotIndex msg)
     {
         int score = 0;
-        if (msg.SnapshotVersion != 0) score += 10;
-        if (msg.Entities.Count > 0) score += 20;
-        if (msg.Root != null && msg.Root.Children.Count > 0) score += 15;
-        
+        if (msg.SnapshotVersion != 0)
+            score += 10;
+        if (msg.Entities.Count > 0)
+            score += 20;
+        if (msg.Root != null && msg.Root.Children.Count > 0)
+            score += 15;
+
         // Heavily penalize unknown fields - indicates wrong type
         int unknownSize = GetUnknownFieldsSize(msg);
         if (unknownSize > 100)
             score -= unknownSize / 10;  // Strong negative signal
-            
+
         return Math.Max(0, score);
     }
 
     private static int ScoreDeltaIndex(DeltaIndex msg)
     {
         int score = 0;
-        if (msg.DeltaVersion != 0) score += 10;
-        if (msg.ChangedEntities.Count > 0) score += 20;
-        if (msg.NewEntities.Count > 0) score += 20;
-        if (msg.DeletedNames.Count > 0) score += 15;
-        if (msg.DeletedEntities.Count > 0) score += 15;
-        if (msg.Root != null && msg.Root.Children.Count > 0) score += 15;
-        
+        if (msg.DeltaVersion != 0)
+            score += 10;
+        if (msg.ChangedEntities.Count > 0)
+            score += 20;
+        if (msg.NewEntities.Count > 0)
+            score += 20;
+        if (msg.DeletedNames.Count > 0)
+            score += 15;
+        if (msg.DeletedEntities.Count > 0)
+            score += 15;
+        if (msg.Root != null && msg.Root.Children.Count > 0)
+            score += 15;
+
         // Heavily penalize unknown fields - indicates wrong type
         int unknownSize = GetUnknownFieldsSize(msg);
         if (unknownSize > 100)
             score -= unknownSize / 10;
-            
+
         return Math.Max(0, score);
     }
 
     private static int ScoreSnapshotInfo(SnapshotInfo msg)
     {
         int score = msg.SnapshotVersions.Count > 0 ? 20 : 0;
-        
+
         // Heavily penalize unknown fields
         int unknownSize = GetUnknownFieldsSize(msg);
         if (unknownSize > 100)
             score -= unknownSize / 10;
-            
+
         return Math.Max(0, score);
     }
 
     private static int ScoreDeltaInfo(DeltaInfo msg)
     {
         int score = 0;
-        if (msg.EarliestDeltaVersion != 0) score += 10;
-        if (msg.LatestDeltaVersion != 0) score += 10;
-        
+        if (msg.EarliestDeltaVersion != 0)
+            score += 10;
+        if (msg.LatestDeltaVersion != 0)
+            score += 10;
+
         // Heavily penalize unknown fields
         int unknownSize = GetUnknownFieldsSize(msg);
         if (unknownSize > 100)
             score -= unknownSize / 10;
-            
+
         return Math.Max(0, score);
     }
 
     private static int ScoreProcessedVersionsInfo(ProcessedVersionsInfo msg)
     {
         int score = msg.ProcessedVersions.Count > 0 ? 20 : 0;
-        
+
         // Heavily penalize unknown fields
         int unknownSize = GetUnknownFieldsSize(msg);
         if (unknownSize > 100)
             score -= unknownSize / 10;
-            
+
         return Math.Max(0, score);
     }
 
     private static int GetUnknownFieldsSize(IMessage msg)
     {
         // Access the message's UnknownFields via reflection
-        var unknownFieldsField = msg.GetType().GetProperty("UnknownFields", 
+        var unknownFieldsField = msg.GetType().GetProperty("UnknownFields",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
+
         if (unknownFieldsField?.GetValue(msg) is UnknownFieldSet unknownFieldSet)
         {
             // Use CalculateSize method if available
@@ -340,7 +356,7 @@ Examples:
                 return result != null ? (int)result : 0;
             }
         }
-        
+
         return 0;
     }
 
@@ -369,7 +385,7 @@ Examples:
         var serializer = new SerializerBuilder()
             .DisableAliases()
             .Build();
-        
+
         return serializer.Serialize(yamlObject);
     }
 }

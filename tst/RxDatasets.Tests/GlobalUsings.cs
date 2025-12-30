@@ -1,5 +1,5 @@
 global using FluentAssertions;
-global using NSubstitute;
-global using Xunit;
-global using RxDatasets.Abstractions;
 global using Google.Protobuf.WellKnownTypes;
+global using NSubstitute;
+global using RxDatasets.Abstractions;
+global using Xunit;

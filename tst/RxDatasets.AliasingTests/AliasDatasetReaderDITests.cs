@@ -1,10 +1,10 @@
-using RxDatasets.AliasingTests.Types;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Aliasing;
+using RxDatasets.AliasingTests.Types;
 using RxDatasets.InMemoryDataset;
 
 namespace RxDatasets.AliasingTests;
