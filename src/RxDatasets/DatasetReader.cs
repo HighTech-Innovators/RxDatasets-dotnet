@@ -20,7 +20,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _mostRecentSnapshotIndex;
-    private readonly ParentsIndex _parentsIndex = new();
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -186,7 +185,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var indexRef = ThrowIfNotInitialized();
         var tasks = names.Select(async name =>
         {
-            if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+            var entity = indexRef.GetEntity(name);
+            if (entity == null || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
             }
@@ -200,7 +200,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
         // Precondition: calling method MUST have checked it exists AND is not deleted.
-        var entityInMainIndex = _index!.Entities[name];
+        var entityInMainIndex = _index!.GetEntity(name)!;
         var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
@@ -210,7 +210,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // At this point, we KNOW it must be in there and be the latest version in existence,
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _mostRecentSnapshotIndex.Entities[name];
+            var entityFromSnapshot = _mostRecentSnapshotIndex.GetEntity(name)!;
             sources.Add((ObjectNameTypeEnum.Snapshot, _mostRecentSnapshotIndex.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
@@ -250,7 +250,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         var indexRef = ThrowIfNotInitialized();
 
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        var entity = indexRef.GetEntity(name);
+        if (entity == null)
             return null;
 
         if (entity.GetLatestChangeType() == ChangeType.Deleted)
@@ -281,55 +282,79 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
     {
-        List<(string key, ChangeType change)> changedNames = [];
-
-        indexRef.Entities
-            .Where(x => x.Value.GetLatestEntityVersion() > fromVersion && x.Value.GetLatestEntityVersion() <= toVersion)
-            .ToList()
-            .ForEach(x =>
-            {
-                var relativeChangeType = x.Value.LastDeletedVersion.Select(y => (y, ChangeType.Deleted))
-                    .Concat(x.Value.LastInsertedVersion.Select(y => (y, ChangeType.New)))
-                    .Append((x.Value.LastUpdatedVersion, ChangeType.Changed))
-                    .Where(x => x.Item1 > fromVersion)
-                    .OrderBy(x => x.Item1)
-                    .Select(x => x.Item2)
-                    .Aggregate((current, next) =>
-                    {
-                        return next switch
-                        {
-                            ChangeType.New => current == ChangeType.Deleted ? ChangeType.Changed : ChangeType.New,
-                            ChangeType.Changed => current == ChangeType.New ? ChangeType.New : ChangeType.Changed,
-                            ChangeType.Deleted => current == ChangeType.New ? ChangeType.None : ChangeType.Deleted,
-                            _ => next,
-                        };
-                    });
-
-                if (relativeChangeType != ChangeType.None)
-                {
-                    changedNames.Add((x.Key, relativeChangeType));
-                }
-            });
+        var changedNames = new List<(string key, ChangeType change)>();
+        TraverseAndFindChanges(indexRef.IndexNode, "", fromVersion, toVersion, changedNames);
         return changedNames;
+    }
+
+    private void TraverseAndFindChanges(ImmutableIndexNode node, string pathPrefix, ulong fromVersion, ulong toVersion, List<(string key, ChangeType change)> results)
+    {
+        foreach (var entityKvp in node.Entities)
+        {
+            var entity = entityKvp.Value;
+            if (entity.GetLatestEntityVersion() > fromVersion && entity.GetLatestEntityVersion() <= toVersion)
+            {
+                var fullPath = string.IsNullOrEmpty(pathPrefix) ? entityKvp.Key : $"{pathPrefix}/{entityKvp.Key}";
+                var changeType = CalculateChangeType(entity, fromVersion);
+                if (changeType != ChangeType.None)
+                {
+                    results.Add((fullPath, changeType));
+                }
+            }
+        }
+
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(pathPrefix) ? childKvp.Key : $"{pathPrefix}/{childKvp.Key}";
+            TraverseAndFindChanges(childKvp.Value, childPrefix, fromVersion, toVersion, results);
+        }
+    }
+
+    private ChangeType CalculateChangeType(ImmutableSnapshotEntity entity, ulong fromVersion)
+    {
+        return entity.LastDeletedVersion.Select(y => (y, ChangeType.Deleted))
+            .Concat(entity.LastInsertedVersion.Select(y => (y, ChangeType.New)))
+            .Append((entity.LastUpdatedVersion, ChangeType.Changed))
+            .Where(x => x.Item1 > fromVersion)
+            .OrderBy(x => x.Item1)
+            .Select(x => x.Item2)
+            .Aggregate((current, next) =>
+            {
+                return next switch
+                {
+                    ChangeType.New => current == ChangeType.Deleted ? ChangeType.Changed : ChangeType.New,
+                    ChangeType.Changed => current == ChangeType.New ? ChangeType.New : ChangeType.Changed,
+                    ChangeType.Deleted => current == ChangeType.New ? ChangeType.None : ChangeType.Deleted,
+                    _ => next,
+                };
+            });
     }
 
     public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
 
+        var pathParts = string.IsNullOrEmpty(parent) || parent == "/" 
+            ? Array.Empty<string>() 
+            : parent.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        if (string.IsNullOrEmpty(parent) || parent is "/")
+        var currentNode = indexRef.IndexNode;
+        foreach (var part in pathParts)
         {
-            return (allNamesGetter.ToList(), indexRef.LatestVersion);
+            currentNode = currentNode.GetChild(part);
+            if (currentNode == null)
+            {
+                return (new List<string>(), indexRef.LatestVersion);
+            }
         }
 
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (childrenIndex.ToList(), indexRef.LatestVersion);
+        var prefix = string.IsNullOrEmpty(parent) || parent == "/" ? "" : parent + "/";
 
+        var names = currentNode.Children.Keys.Select(k => prefix + k)
+            .Concat(currentNode.Entities.Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted).Select(x => prefix + x.Key))
+            .ToList();
+
+        return (names, indexRef.LatestVersion);
     }
 
     public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
@@ -337,19 +362,31 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         cancellationToken.ThrowIfCancellationRequested();
         var indexRef = ThrowIfNotInitialized();
 
-        if (string.IsNullOrEmpty(parent) || parent is "/")
+        var pathParts = string.IsNullOrEmpty(parent) || parent == "/" 
+            ? Array.Empty<string>() 
+            : parent.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        var currentNode = indexRef.IndexNode;
+        foreach (var part in pathParts)
         {
-            // For root path, count all non-deleted entities
-            return (uint)indexRef.Entities
-                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
+            currentNode = currentNode.GetChild(part);
+            if (currentNode == null)
+            {
+                return 0;
+            }
         }
 
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
+        return (uint)CountEntitiesRecursive(currentNode);
+    }
 
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (uint)childrenIndex.Count();
+    private int CountEntitiesRecursive(ImmutableIndexNode node)
+    {
+        var count = node.Entities.Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
+        foreach (var child in node.Children.Values)
+        {
+            count += CountEntitiesRecursive(child);
+        }
+        return count;
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
@@ -360,26 +397,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
             tempState = tempState.ApplyDeltas(deltas);
-            var thereIsStillData = await _parentsIndex.CleanIndex();
-            if (thereIsStillData)
-            {
-                foreach (DeltaIndex delta in deltas)
-                {
-                    foreach (var newEntity in delta.NewEntities)
-                    {
-                        await _parentsIndex.OnNew(newEntity.Name);
-                    }
-
-                    foreach (var deletedEntity in delta.DeletedNames)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity);
-                    }
-                    foreach (var deletedEntity in delta.DeletedEntities)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity.Name);
-                    }
-                }
-            }
 
             _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
         }
@@ -450,7 +467,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        var entity = indexRef.GetEntity(name);
+        if (entity == null)
         {
             return [];
         }

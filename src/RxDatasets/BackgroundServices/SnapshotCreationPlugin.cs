@@ -161,34 +161,49 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        foreach (var entity in currentIndex.Entities.Where(x =>
-                     x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        return await TraverseAndCopyDeltas(currentIndex.IndexNode, "", currentIndex.SnapshotVersion, newSnapshotEntities, targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
+    }
+
+    private async Task<long> TraverseAndCopyDeltas(ImmutableIndexNode node, string prefix, ulong snapshotVersion,
+        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
+    {
+        foreach (var entityKvp in node.Entities)
         {
-            stoppingToken.ThrowIfCancellationRequested();
-
-            if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+            var entity = entityKvp.Value;
+            if (entity.GetLatestEntityVersion() > snapshotVersion)
             {
-                var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
-            }
-            else
-            {
-                var entityLength = entity.Value.Length;
+                stoppingToken.ThrowIfCancellationRequested();
+                var fullPath = string.IsNullOrEmpty(prefix) ? entityKvp.Key : $"{prefix}/{entityKvp.Key}";
 
-                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                var targetEntityPosition = targetSnapshotStreamPosition;
+                if (entity.GetLatestChangeType() == ChangeType.Deleted)
+                {
+                    var newSnapshotEntity = entity with { Position = 0, Length = 0 };
+                    newSnapshotEntities.Add(fullPath, newSnapshotEntity);
+                }
+                else
+                {
+                    var entityLength = entity.Length;
+                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+                    var targetEntityPosition = targetSnapshotStreamPosition;
 
-                var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
+                    var latestEntityVersion = entity.GetLatestEntityVersion();
+                    var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Position)], entity.Length);
 
-                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
-                targetSnapshotStreamPosition += entityLength;
+                    await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
+                    targetSnapshotStreamPosition += entityLength;
 
-                var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                    var newSnapshotEntity = entity with { Position = targetEntityPosition, Length = entityLength };
+                    newSnapshotEntities.Add(fullPath, newSnapshotEntity);
+                }
             }
         }
 
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+            targetSnapshotStreamPosition = await TraverseAndCopyDeltas(childKvp.Value, childPrefix, snapshotVersion, newSnapshotEntities, targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
+        }
         return targetSnapshotStreamPosition;
     }
 
@@ -196,30 +211,35 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
+        // Collect all entities that need to be copied from old snapshot
+        var entitiesToCopy = new List<(string Key, ImmutableSnapshotEntity Value)>();
+        CollectEntitiesFromSnapshot(currentIndex.IndexNode, "", currentIndex.SnapshotVersion, entitiesToCopy);
+        
+        // Sort by position to optimize reading
+        entitiesToCopy.Sort((a, b) => a.Value.Position.CompareTo(b.Value.Position));
+
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {
             long sourceStreamPosition = 0;
 
-            foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
-                         .OrderBy(x => x.Value.Position))
+            foreach (var (key, entity) in entitiesToCopy)
             {
                 if (stoppingToken.IsCancellationRequested)
                     return;
 
-                if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+                if (entity.GetLatestChangeType() == ChangeType.Deleted)
                 {
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity with { Position = 0, Length = 0 };
+                    newSnapshotEntities.Add(key, newSnapshotSnapshotEntity);
                 }
                 else
                 {
-                    var entityLength = entity.Value.Length;
+                    var entityLength = entity.Length;
 
                     targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
                     var targetEntityPosition = targetSnapshotStreamPosition;
 
-                    var gap = entity.Value.Position - sourceStreamPosition;
+                    var gap = entity.Position - sourceStreamPosition;
                     sourceStreamPosition += SeekForwardBy(sourceStream, gap);
 
                     EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
@@ -227,18 +247,35 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                     sourceStreamPosition += entityLength;
                     targetSnapshotStreamPosition += entityLength;
 
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
+                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity with
                     {
                         Position = targetEntityPosition,
                         Length = entityLength
                     };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    newSnapshotEntities.Add(key, newSnapshotSnapshotEntity);
                 }
             }
         });
 
         stoppingToken.ThrowIfCancellationRequested();
         return targetSnapshotStreamPosition;
+    }
+
+    private void CollectEntitiesFromSnapshot(ImmutableIndexNode node, string prefix, ulong snapshotVersion, List<(string Key, ImmutableSnapshotEntity Value)> results)
+    {
+        foreach (var entityKvp in node.Entities)
+        {
+            if (entityKvp.Value.GetLatestEntityVersion() <= snapshotVersion)
+            {
+                var fullPath = string.IsNullOrEmpty(prefix) ? entityKvp.Key : $"{prefix}/{entityKvp.Key}";
+                results.Add((fullPath, entityKvp.Value));
+            }
+        }
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+            CollectEntitiesFromSnapshot(childKvp.Value, childPrefix, snapshotVersion, results);
+        }
     }
 
     public static long EfficientCopy(Stream sourceStream, Stream targetStream, int numberOfBytesToCopy)

@@ -57,20 +57,71 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
     public static IEnumerable<string> GetImplicitDeletes(ImmutableDatasetState index, HashSet<string> receivedNames)
     {
-        return index.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(x => x.Key)
-            .Except(receivedNames);
+        var activeEntities = new List<string>();
+        CollectActiveEntities(index.IndexNode, "", activeEntities);
+        return activeEntities.Except(receivedNames);
+    }
+
+    private static void CollectActiveEntities(ImmutableIndexNode node, string prefix, List<string> results)
+    {
+        foreach (var entityKvp in node.Entities)
+        {
+            if (entityKvp.Value.GetLatestChangeType() != ChangeType.Deleted)
+            {
+                var fullPath = string.IsNullOrEmpty(prefix) ? entityKvp.Key : $"{prefix}/{entityKvp.Key}";
+                results.Add(fullPath);
+            }
+        }
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+            CollectActiveEntities(childKvp.Value, childPrefix, results);
+        }
     }
 
     public static IEnumerable<string> GetImplicitDeletesForParentNames(ImmutableDatasetState index, HashSet<string> receivedNames,
         HashSet<string> allParents)
     {
-        return index.Entities
-            .Where(entity => entity.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Where(entity => allParents.Contains(FindParentOfEntity(entity.Key) ?? string.Empty))
-            .Select(x => x.Key)
-            .Except(receivedNames);
+        var activeEntities = new List<string>();
+        CollectActiveEntitiesWithParentCheck(index.IndexNode, "", activeEntities, allParents);
+        return activeEntities.Except(receivedNames);
+    }
+
+    private static void CollectActiveEntitiesWithParentCheck(ImmutableIndexNode node, string prefix, List<string> results, HashSet<string> allParents)
+    {
+        // Entities at this level have 'prefix' as their parent path
+        if (allParents.Contains(prefix))
+        {
+            foreach (var entityKvp in node.Entities)
+            {
+                if (entityKvp.Value.GetLatestChangeType() != ChangeType.Deleted)
+                {
+                    var fullPath = string.IsNullOrEmpty(prefix) ? entityKvp.Key : $"{prefix}/{entityKvp.Key}";
+                    results.Add(fullPath);
+                }
+            }
+
+            // Also include entities in immediate children, as they are also considered children of this parent
+            // (e.g. Parent/Child/Entity -> Parent is Parent. Child is Type. Entity is ID.)
+            foreach (var childKvp in node.Children)
+            {
+                var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+                foreach (var entityKvp in childKvp.Value.Entities)
+                {
+                    if (entityKvp.Value.GetLatestChangeType() != ChangeType.Deleted)
+                    {
+                        var fullPath = $"{childPrefix}/{entityKvp.Key}";
+                        results.Add(fullPath);
+                    }
+                }
+            }
+        }
+
+        foreach (var childKvp in node.Children)
+        {
+            var childPrefix = string.IsNullOrEmpty(prefix) ? childKvp.Key : $"{prefix}/{childKvp.Key}";
+            CollectActiveEntitiesWithParentCheck(childKvp.Value, childPrefix, results, allParents);
+        }
     }
 
     public static int WriteProtobufLengthPrefix(Stream stream, int length)
