@@ -143,9 +143,9 @@ public class ObjectStorageReader<T>(
         }
         catch (FileNotFoundException ex)
         {
-            logger.LogWarning(ex,
-                "Version metadata files missing for {DatasetName}; attempting fallbacks.",
-                typeof(T).Name);
+            logger.LogWarning(
+                "Version metadata files missing for {DatasetName}; attempting fallbacks. File: {FileName}",
+                typeof(T).Name, ex.FileName);
             var fallbackVersions = await TryGetVersionFromFallbacks();
             logger.LogDebug($"determined DeltaInfo (oldest v = {fallbackVersions.deltaInfo.EarliestDeltaVersion}, latest v = {fallbackVersions.deltaInfo.LatestDeltaVersion}) " +
                             $"and SnapshotInfo [{string.Join(", ", fallbackVersions.snapshotInfo.SnapshotVersions.Select(s => s.Version))}] " +
