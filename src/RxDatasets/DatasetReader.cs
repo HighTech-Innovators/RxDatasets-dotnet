@@ -480,36 +480,50 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             ChangeType changeType = ChangeType.None;
             ulong previousVersion = 0;
 
-            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-            if (newEntity != null)
+            // Try hierarchical format first (new format with DeltaNode root)
+            if (deltaIndex.Root != null)
             {
-                changeType = ChangeType.New;
-                previousVersion = newEntity.PreviousVersion;
-            }
-
-            if (changeType == ChangeType.None)
-            {
-                var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
-                if (changedEntity != null)
+                var entry = FindEntityInHierarchicalDelta(deltaIndex.Root, name);
+                if (entry != null)
                 {
-                    changeType = ChangeType.Changed;
-                    previousVersion = changedEntity.PreviousVersion;
+                    changeType = entry.Value.changeType;
+                    previousVersion = entry.Value.previousVersion;
                 }
             }
-
-            if (changeType == ChangeType.None)
+            else
             {
-                // Prefer DeletedEntity (with PreviousVersion) over DeletedNames (legacy, without previous version)
-                var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-                if (deletedEntity != null)
+                // Fall back to legacy flat format
+                var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+                if (newEntity != null)
                 {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = deletedEntity.PreviousVersion;
+                    changeType = ChangeType.New;
+                    previousVersion = newEntity.PreviousVersion;
                 }
-                else if (deltaIndex.DeletedNames.Contains(name))
+
+                if (changeType == ChangeType.None)
                 {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = 0;
+                    var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+                    if (changedEntity != null)
+                    {
+                        changeType = ChangeType.Changed;
+                        previousVersion = changedEntity.PreviousVersion;
+                    }
+                }
+
+                if (changeType == ChangeType.None)
+                {
+                    // Prefer DeletedEntity (with PreviousVersion) over DeletedNames (legacy, without previous version)
+                    var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+                    if (deletedEntity != null)
+                    {
+                        changeType = ChangeType.Deleted;
+                        previousVersion = deletedEntity.PreviousVersion;
+                    }
+                    else if (deltaIndex.DeletedNames.Contains(name))
+                    {
+                        changeType = ChangeType.Deleted;
+                        previousVersion = 0;
+                    }
                 }
             }
 
@@ -527,6 +541,50 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
 
         return history;
+    }
+
+    /// <summary>
+    /// Finds an entity in the hierarchical delta structure by walking the tree.
+    /// Returns the change type and previous version if found, null otherwise.
+    /// </summary>
+    private (ChangeType changeType, ulong previousVersion)? FindEntityInHierarchicalDelta(DeltaNode root, string entityName)
+    {
+        // Split the entity name by path separator
+        var pathParts = entityName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        
+        // Navigate to the correct node in the hierarchy
+        var currentNode = root;
+        for (int i = 0; i < pathParts.Length - 1; i++)
+        {
+            if (!currentNode.Children.TryGetValue(pathParts[i], out var childNode))
+            {
+                return null; // Path doesn't exist
+            }
+            currentNode = childNode;
+        }
+
+        // Now look for the entity in the final node
+        var finalSegment = pathParts[^1];
+
+        // Check new entities
+        if (currentNode.NewEntities.TryGetValue(finalSegment, out var newEntity))
+        {
+            return (ChangeType.New, newEntity.PreviousVersion);
+        }
+
+        // Check changed entities
+        if (currentNode.ChangedEntities.TryGetValue(finalSegment, out var changedEntity))
+        {
+            return (ChangeType.Changed, changedEntity.PreviousVersion);
+        }
+
+        // Check deleted names
+        if (currentNode.DeletedNames.Contains(finalSegment))
+        {
+            return (ChangeType.Deleted, 0); // Legacy deletion without previous version
+        }
+
+        return null;
     }
 
     /// <summary>
