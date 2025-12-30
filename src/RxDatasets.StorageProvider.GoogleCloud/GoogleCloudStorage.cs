@@ -20,6 +20,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private readonly WriteQueueManager _writeQueueManager;
         private readonly bool _enableWriteQueue;
         private readonly IClock _clock;
+        private readonly Task _initializationTask;
         private bool _initialized;
         private volatile bool _disposed;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
@@ -56,7 +57,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             // Initialize write queue manager with flush action and clock
             _writeQueueManager = new WriteQueueManager(_logger, FlushQueuedWriteAsync, _clock);
 
-            _ = retryInitialization ? InitializationLoop() : Initialize();
+            _initializationTask = retryInitialization ? InitializationLoop() : Initialize();
         }
 
         public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
@@ -106,6 +107,11 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             for (var i = 0; i < 1000; i++)
             {
+                if (_initializationTask.IsFaulted)
+                {
+                    await _initializationTask;
+                }
+
                 await _clock.Delay(TimeSpan.FromMilliseconds(500));
                 if (_initialized)
                     return;
