@@ -49,6 +49,7 @@ public static class DatasetExtensions
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
         var tempSnapshotEntities = index.Entities;
+        var tempIndexNode = index.IndexNode ?? ImmutableIndexNode.Empty;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
         foreach (var newEntity in delta.NewEntities)
         {
@@ -66,6 +67,7 @@ public static class DatasetExtensions
                 newEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(newEntity.Name, updatedEntity);
+            tempIndexNode = SetEntityRecursive(tempIndexNode, newEntity.Name.Split('/'), 0, updatedEntity);
         }
 
         foreach (var changedEntity in delta.ChangedEntities)
@@ -81,6 +83,7 @@ public static class DatasetExtensions
                 changedEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(changedEntity.Name, updatedEntity);
+            tempIndexNode = SetEntityRecursive(tempIndexNode, changedEntity.Name.Split('/'), 0, updatedEntity);
         }
 
         foreach (var deletedName in delta.DeletedNames)
@@ -96,6 +99,7 @@ public static class DatasetExtensions
                 existingEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
+            tempIndexNode = SetEntityRecursive(tempIndexNode, deletedName.Split('/'), 0, updatedEntity);
         }
 
         foreach (var deletedEntity in delta.DeletedEntities)
@@ -111,9 +115,26 @@ public static class DatasetExtensions
                 existingEntity.Crc32);
 
             tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedEntity.Name, updatedEntity);
+            tempIndexNode = SetEntityRecursive(tempIndexNode, deletedEntity.Name.Split('/'), 0, updatedEntity);
         }
 
-        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion);
+        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion, tempIndexNode);
+    }
+
+    private static ImmutableIndexNode SetEntityRecursive(ImmutableIndexNode node, string[] pathParts, int index, ImmutableSnapshotEntity entity)
+    {
+        if (index >= pathParts.Length) return node;
+
+        if (index == pathParts.Length - 1)
+        {
+            return node.AddEntity(pathParts[index], entity);
+        }
+
+        var childKey = pathParts[index];
+        var childNode = node.GetOrCreateChild(childKey);
+        var updatedChild = SetEntityRecursive(childNode, pathParts, index + 1, entity);
+        
+        return node.SetChild(childKey, updatedChild);
     }
 
     public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState index, IEnumerable<DeltaIndex> deltas)
