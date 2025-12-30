@@ -41,7 +41,8 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
         _googleCloudConfig = Options.Create(new GoogleCloudConfig()
         {
             BucketName = "default-test-bucket", // Will be overridden in SetupStorageAsync
-            ProjectId = "test-project" // Required by GoogleCloudConfig but not used by emulator
+            ProjectId = "test-project", // Required by GoogleCloudConfig but not used by emulator
+            EmulatorHost = emulatorHost
         });
     }
 
@@ -61,7 +62,7 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         // Create a test client to pre-create the bucket for testing
         var testClientBuilder = new Google.Cloud.Storage.V1.StorageClientBuilder();
-        var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+        var emulatorHost = _googleCloudConfig.Value.EmulatorHost ?? Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
         if (!string.IsNullOrEmpty(emulatorHost))
         {
             testClientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";

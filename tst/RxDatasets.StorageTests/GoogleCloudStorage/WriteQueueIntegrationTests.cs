@@ -33,6 +33,7 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
             }
             
             var emulatorHost = _fixture.GetConnectionString().Replace("http://", "").Replace("https://", "").TrimEnd('/');
+            // We still set env vars for other components that might rely on them, but we also pass config explicitly
             Environment.SetEnvironmentVariable("STORAGE_EMULATOR_HOST", emulatorHost);
             Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", "");
             Environment.SetEnvironmentVariable("GCLOUD_PROJECT", ProjectId);
@@ -58,7 +59,8 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
             var config = Options.Create(new GoogleCloudConfig
             {
                 BucketName = _bucketName,
-                ProjectId = ProjectId
+                ProjectId = ProjectId,
+                EmulatorHost = emulatorHost
             });
 
             _loggerMock = new Mock<ILogger<GoogleCloudStorage<object>>>();
@@ -98,13 +100,8 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
 
             // Verify
             // Create a fresh client to read the data
-            // We need to re-set the env var because DisposeAsync clears it, but we are inside the test method
-            // Actually DisposeAsync runs AFTER the test method. So env vars are still set here.
-            // Wait, I am calling _storage.DisposeAsync() manually in the test.
-            // But I also have DisposeAsync() in the class which will be called by xUnit.
-            // Calling it twice should be fine as I implemented a check.
-            
-            var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+            // Use the emulator host from the fixture directly to avoid env var race conditions
+            var emulatorHost = _fixture.GetConnectionString().Replace("http://", "").Replace("https://", "").TrimEnd('/');
             var clientBuilder = new StorageClientBuilder
             {
                 BaseUri = $"http://{emulatorHost}/storage/v1/",

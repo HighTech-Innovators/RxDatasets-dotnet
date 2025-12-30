@@ -21,6 +21,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private readonly WriteQueueManager _writeQueueManager;
         private readonly bool _enableWriteQueue;
         private readonly IClock _clock;
+        private readonly string? _emulatorHost;
         private readonly Task _initializationTask;
         private bool _initialized;
         private volatile bool _disposed;
@@ -42,11 +43,11 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             var clientBuilder = new StorageClientBuilder();
 
             // Check if we're running against an emulator
-            var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
-            if (!string.IsNullOrEmpty(emulatorHost))
+            _emulatorHost = googleCloudConfig.Value.EmulatorHost ?? Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+            if (!string.IsNullOrEmpty(_emulatorHost))
             {
                 // Configure for emulator use
-                clientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";
+                clientBuilder.BaseUri = $"http://{_emulatorHost}/storage/v1/";
                 clientBuilder.UnauthenticatedAccess = true;
             }
             else if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
@@ -268,8 +269,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 {
                     Range = new RangeHeaderValue(position, position + length - 1),
                 };
-                var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
-                if (!string.IsNullOrEmpty(emulatorHost))
+                if (!string.IsNullOrEmpty(_emulatorHost))
                 {
                     // Configure for emulator use
                     options.DownloadValidationMode = DownloadValidationMode.Never;
