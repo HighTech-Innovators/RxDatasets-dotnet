@@ -2,6 +2,7 @@ using Google.Protobuf;
 using RxDatasets.Models;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using System.Collections;
 
 namespace ProtoScope;
 
@@ -336,7 +337,7 @@ Examples:
             if (sizeMethod != null)
             {
                 var result = sizeMethod.Invoke(unknownFieldSet, null);
-                return (int)result;
+                return result != null ? (int)result : 0;
             }
         }
         
@@ -355,12 +356,21 @@ Examples:
             _ => throw new ArgumentException($"Unknown type: {type}")
         };
 
-        var builder = new SerializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .DisableAliases();  // Disable YAML anchors/aliases (&o1, *o1)
+        // Use JsonFormatter to handle default values and empty collections correctly
+        // This ensures we only output what's actually present in the proto file (unless showAll is true)
+        var settings = new JsonFormatter.Settings(showAll);
+        var formatter = new JsonFormatter(settings);
+        string json = formatter.Format(message);
+
+        // Convert JSON to YAML via an intermediate object
+        var deserializer = new DeserializerBuilder().Build();
+        var yamlObject = deserializer.Deserialize(new StringReader(json));
+
+        var serializer = new SerializerBuilder()
+            .DisableAliases()
+            .Build();
         
-        var serializer = builder.Build();
-        return serializer.Serialize(message);
+        return serializer.Serialize(yamlObject);
     }
 }
 
