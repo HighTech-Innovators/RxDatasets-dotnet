@@ -35,7 +35,7 @@ public class DeltaMigrationPluginTests
     /// <summary>
     /// Helper to distribute entities to hierarchy (mirrors DataMigrator logic)
     /// </summary>
-    private void DistributeEntityToHierarchy(DeltaNode node, string[] pathParts, DeltaEntity entity)
+    private void DistributeEntityToHierarchy(DeltaNode node, string[] pathParts, DeltaEntity entity, bool isNew = false)
     {
         if (pathParts.Length == 0)
             return;
@@ -52,7 +52,14 @@ public class DeltaMigrationPluginTests
         }
 
         var leafName = pathParts[pathParts.Length - 1];
-        current.ChangedEntities[leafName] = entity;
+        if (isNew)
+        {
+            current.NewEntities[leafName] = entity;
+        }
+        else
+        {
+            current.ChangedEntities[leafName] = entity;
+        }
     }
 
     [Fact]
@@ -225,5 +232,30 @@ public class DeltaMigrationPluginTests
         Assert.Equal(2, deptNode.ChangedEntities.Count);
         Assert.True(deptNode.ChangedEntities.ContainsKey("emp1"));
         Assert.True(deptNode.ChangedEntities.ContainsKey("emp2"));
+    }
+
+    [Fact]
+    public void MigrateNewEntityToHierarchical_WithSimplePath_ConvertsCorrectly()
+    {
+        // Arrange
+        var rootNode = new DeltaNode();
+        var entity = new DeltaEntity
+        {
+            Name = "company/dept/employee",
+            PreviousVersion = 0
+        };
+        var parts = entity.Name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        // Act
+        DistributeEntityToHierarchy(rootNode, parts, entity, isNew: true);
+
+        // Assert
+        Assert.True(rootNode.Children.ContainsKey("company"));
+        var companyNode = rootNode.Children["company"];
+        Assert.True(companyNode.Children.ContainsKey("dept"));
+        var deptNode = companyNode.Children["dept"];
+        Assert.True(deptNode.NewEntities.ContainsKey("employee"));
+        Assert.False(deptNode.ChangedEntities.ContainsKey("employee"));
+        Assert.Equal("company/dept/employee", deptNode.NewEntities["employee"].Name);
     }
 }
