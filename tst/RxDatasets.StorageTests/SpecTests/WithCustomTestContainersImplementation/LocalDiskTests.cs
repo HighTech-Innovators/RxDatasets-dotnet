@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -16,6 +17,7 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
 {
     private readonly IOptions<LocalDiskStorageConfig> _config;
     private readonly LocalDiskStorage<object> _localStorage;
+    private readonly List<IHostedService> _servicesToStop = new();
 
     public LocalDiskDatasetTests()
     {
@@ -43,6 +45,7 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
 
         var storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, _localStorage, notificationsHub, readOnlyStorage, false);
         storageProvider.StartAsync(CancellationToken.None).Wait();
+        _servicesToStop.Add(storageProvider);
 
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
@@ -54,11 +57,21 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, storageProvider, SnapshotsOptions, new TestScheduler());
         var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
+        _servicesToStop.Add(datasetUpdateConsumingService);
         return (datasetReader, datasetWriter);
     }
 
     public void Dispose()
     {
+        foreach (var service in _servicesToStop)
+        {
+            service.StopAsync(CancellationToken.None).Wait();
+            if (service is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
+
         if (Directory.Exists(_config.Value.RootFolder))
             Directory.Delete(_config.Value.RootFolder, true);
     }
