@@ -11,7 +11,7 @@ using RxDatasets.StorageProviders;
 
 if (args.Length == 0 || args.Contains("--help"))
 {
-    Console.WriteLine("Usage: RxDatasetsGcsBenchmark --bucket <bucket> --project <project> [--count <1000>] [--parallelism <10>] [--prefix <benchmark>]");
+    Console.WriteLine("Usage: RxDatasetsGcsBenchmark --bucket <bucket> --project <project> [--count <1000>] [--parallelism <10>] [--prefix <benchmark>] [--disable-queue]");
     return;
 }
 
@@ -20,6 +20,7 @@ var projectId = GetArg(args, "--project");
 var count = int.Parse(GetArg(args, "--count") ?? "100");
 var parallelism = int.Parse(GetArg(args, "--parallelism") ?? "10");
 var prefix = GetArg(args, "--prefix") ?? "benchmark";
+var disableQueue = args.Contains("--disable-queue");
 
 if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(projectId))
 {
@@ -27,7 +28,7 @@ if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(projectId))
     return;
 }
 
-Console.WriteLine($"Starting benchmark: Bucket={bucketName}, Project={projectId}, Count={count}, Parallelism={parallelism}, Prefix={prefix}");
+Console.WriteLine($"Starting benchmark: Bucket={bucketName}, Project={projectId}, Count={count}, Parallelism={parallelism}, Prefix={prefix}, WriteQueue={!disableQueue}");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (s, e) =>
@@ -43,9 +44,9 @@ try
     using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
 
     // Setup Storage
-    var gcsConfig = Options.Create(new GoogleCloudConfig { BucketName = bucketName, ProjectId = projectId });
+    var gcsConfig = Options.Create(new GoogleCloudConfig { BucketName = bucketName, ProjectId = projectId, EnableWriteQueue = !disableQueue });
     var gcsLogger = loggerFactory.CreateLogger<GoogleCloudStorage<BenchmarkDto>>();
-    await using var storage = new GoogleCloudStorage<BenchmarkDto>(gcsLogger, gcsConfig, retryInitialization: false, enableWriteQueue: true);
+    await using var storage = new GoogleCloudStorage<BenchmarkDto>(gcsLogger, gcsConfig, retryInitialization: false);
 
     var storageConfig = Options.Create(new StorageConfig { CustomRootFolder = prefix });
     var readerLogger = loggerFactory.CreateLogger<ObjectStorageReader<BenchmarkDto>>();

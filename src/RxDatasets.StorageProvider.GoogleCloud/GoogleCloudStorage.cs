@@ -27,18 +27,18 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private volatile bool _disposed;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, bool retryInitialization = true, bool enableWriteQueue = true)
+        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, bool retryInitialization = true, bool? enableWriteQueue = null)
             : this(logger, googleCloudConfig, null, retryInitialization, enableWriteQueue)
         {
         }
 
-        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, IClock? clock, bool retryInitialization = true, bool enableWriteQueue = true)
+        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, IClock? clock, bool retryInitialization = true, bool? enableWriteQueue = null)
         {
             _logger = logger;
             _bucketName = googleCloudConfig.Value.BucketName;
             _projectId = googleCloudConfig.Value.ProjectId;
             _clock = clock ?? new SystemClock();
-            _enableWriteQueue = enableWriteQueue;
+            _enableWriteQueue = enableWriteQueue ?? googleCloudConfig.Value.EnableWriteQueue;
 
             var clientBuilder = new StorageClientBuilder();
 
