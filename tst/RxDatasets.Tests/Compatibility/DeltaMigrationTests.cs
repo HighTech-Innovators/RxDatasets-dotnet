@@ -362,4 +362,40 @@ public class DeltaMigrationTests
         Assert.NotEmpty(updated.Entities["file3.txt"].LastDeletedVersion);
         Assert.Contains("file4.txt", updated.Entities.Keys);
     }
+
+    [Fact]
+    public void ApplyDelta_CreatesHierarchicalIndex_WhenMissing()
+    {
+        // Create a base state with NO hierarchical index (IndexNode = null)
+        var baseState = new ImmutableDatasetState(
+            ImmutableDictionary<string, ImmutableSnapshotEntity>.Empty,
+            0,
+            0,
+            null);
+
+        // Create a delta with hierarchical paths
+        var delta = new DeltaIndex
+        {
+            DeltaVersion = 1
+        };
+        delta.NewEntities.Add(new DeltaEntity
+        {
+            Name = "dir1/dir2/file.txt",
+            Position = 0,
+            Length = 100,
+            Crc32 = 123
+        });
+
+        // Apply the delta
+        var updated = baseState.ApplyDelta(delta);
+
+        // Verify hierarchical index was created
+        Assert.NotNull(updated.IndexNode);
+        Assert.True(updated.IndexNode.Children.ContainsKey("dir1"));
+        Assert.True(updated.IndexNode.Children["dir1"].Children.ContainsKey("dir2"));
+        Assert.True(updated.IndexNode.Children["dir1"].Children["dir2"].Entities.ContainsKey("file.txt"));
+        
+        // Verify flat entities are also updated (backward compatibility)
+        Assert.True(updated.Entities.ContainsKey("dir1/dir2/file.txt"));
+    }
 }
