@@ -17,14 +17,14 @@ message SnapshotNode {
 }
 
 message SnapshotIndex {
-	uint64 snapshot_version_legacy = 1;
-	map<string, SnapshotEntity> entities = 2;
+	uint64 snapshot_version_legacy = 1 [deprecated = true];
+	map<string, SnapshotEntity> entities = 2 [deprecated = true];
 	uint64 snapshot_version = 32;
 	SnapshotNode root = 33;
 }
 
 message DeltaEntity {
-	string name = 1;
+	string name = 1 [deprecated = true];
 	int64 position = 2;
 	int32 length = 3;
 	uint32 crc32 = 5;
@@ -32,7 +32,7 @@ message DeltaEntity {
 }
 
 message DeletedEntity {
-	string name = 1;
+	string name = 1 [deprecated = true];
 	uint64 previous_version = 2;
 }
 
@@ -44,12 +44,12 @@ message DeltaNode {
 }
 
 message DeltaIndex {
-	uint64 delta_version_legacy = 1;
-	repeated string deleted_names = 2; // Obsolete - no previous version
-	repeated DeltaEntity changed_entities = 3;
-	repeated DeltaEntity new_entities = 4;
+	uint64 delta_version_legacy = 1 [deprecated = true];
+	repeated string deleted_names = 2 [deprecated = true]; // Obsolete - no previous version
+	repeated DeltaEntity changed_entities = 3 [deprecated = true];
+	repeated DeltaEntity new_entities = 4 [deprecated = true];
   google.protobuf.Timestamp timestamp = 5;
-  repeated DeletedEntity deleted_entities = 6;
+  repeated DeletedEntity deleted_entities = 6 [deprecated = true];
 	uint64 delta_version = 32;
 	DeltaNode root = 33;
 }

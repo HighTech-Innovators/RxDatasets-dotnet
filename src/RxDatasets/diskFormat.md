@@ -31,9 +31,15 @@ The delimiters used in the data.pbs file denote the number of bytes that the nex
 
 The `index.pb` file contains the following fields:
 - `delta_version`: the version number of the delta file.
-- `deleted_entity_names`: a list of the names of the entities that have been deleted.
-- `updated_entities`: a list of the entities that have been updated in this delta. Each entity is of the type DeltaEntity, a proto message we defined.
-- `created_entities`: a list of the entities that have been created in this delta. Each entity is of the type DeltaEntity.
+- `root`: The root node of the hierarchical index structure (DeltaNode).
+
+The `DeltaNode` contains:
+- `changed_entities`: map of changed entities in this node.
+- `new_entities`: map of new entities in this node.
+- `deleted_entities`: map of deleted entities in this node.
+- `children`: map of child nodes (sub-directories).
+
+(Note: `deleted_entity_names`, `updated_entities`, `created_entities`, and `delta_version_legacy` are deprecated in favor of the hierarchical `root` node and `delta_version`).
 
 The `DeltaEntity` message contains the following fields:
 - `name`: the name of the entity.
@@ -44,10 +50,18 @@ The `DeltaEntity` message contains the following fields:
 ```protobuf
 message DeltaIndex {
       uint64 delta_version_legacy = 1;
-      repeated string deleted_names = 2;
-      repeated DeltaEntity changed_entities = 3;
-      repeated DeltaEntity new_entities = 4;
+      repeated string deleted_names = 2 [deprecated = true];
+      repeated DeltaEntity changed_entities = 3 [deprecated = true];
+      repeated DeltaEntity new_entities = 4 [deprecated = true];
       uint64 delta_version = 32;
+      DeltaNode root = 33;
+}
+
+message DeltaNode {
+	map<string, DeltaEntity> changed_entities = 2;
+	map<string, DeltaEntity> new_entities = 3;
+	map<string, DeltaNode> children = 4;
+	map<string, DeletedEntity> deleted_entities = 5;
 }
 
 message DeltaEntity {
@@ -65,7 +79,13 @@ Snapshots are stored in the `/snapshot/{snapshot_version}/` folder.
 A snapshot consists of two files:
 - `snapshot/{snapshot_version}/index.pb`
 - `snapshot/{snapshot_version}/data.pbs`
+root`: The root node of the hierarchical index structure (SnapshotNode).
 
+The `SnapshotNode` contains:
+- `entities`: map of entities in this node.
+- `children`: map of child nodes (sub-directories).
+
+(Note: The top-level `entities` map and `snapshot_version_legacy` are deprecated in favor of the hierarchical `root` node and `snapshot_version`).
 The index contains the metadata about the snapshot, such as the version number, the entities that have been deleted, created, and updated. 
 The `data.pbs` file contains the actual data of the entities that are part of the snapshot. 
 The `data.pbs` file is a concatenation of **delimited** protobuf streams of the entities that are part of the snapshot. 
@@ -80,8 +100,14 @@ The `SnapshotEntity` message contains the following fields:
 - `created_in_versions`: a list of version at which the entity has been created.
 - `last_updated_in_version`: the last version at which the entity has been updated.
 - `position_in_datafile`: the position of the entity in the `data.pbs` file. **This is the position of the actual entity data in the `data.pbs` file, not the delimiter.** The delimiter bytes are not required here since we already know the length since it is stored in the index file.
-- `number_of_bytes`: the length of the entity in the `data.pbs` file.
-- `crc32`: the crc32 hash of the entity data, this is used to determine if the entity has been updated.
+- `number_of_bytes`: the length of the ent [deprecated = true];
+  uint64 snapshot_version = 32;
+  SnapshotNode root = 33;
+}
+
+message SnapshotNode {
+	map<string, SnapshotEntity> entities = 1;
+	map<string, SnapshotNode> children = the entity data, this is used to determine if the entity has been updated.
 
 ```protobuf
 message SnapshotIndex {
