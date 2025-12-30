@@ -348,13 +348,29 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             }
         }
 
-        var prefix = string.IsNullOrEmpty(parent) || parent == "/" ? "" : parent + "/";
-
-        var names = currentNode.Children.Keys.Select(k => prefix + k)
-            .Concat(currentNode.Entities.Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted).Select(x => prefix + x.Key))
-            .ToList();
+        var prefix = string.IsNullOrEmpty(parent) || parent == "/" ? "" : parent;
+        var names = new List<string>();
+        CollectEntitiesRecursive(currentNode, prefix, names);
 
         return (names, indexRef.LatestVersion);
+    }
+
+    private void CollectEntitiesRecursive(ImmutableIndexNode node, string basePath, List<string> results)
+    {
+        foreach (var entity in node.Entities)
+        {
+            if (entity.Value.GetLatestChangeType() != ChangeType.Deleted)
+            {
+                var fullPath = string.IsNullOrEmpty(basePath) ? entity.Key : $"{basePath}/{entity.Key}";
+                results.Add(fullPath);
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            var childPath = string.IsNullOrEmpty(basePath) ? child.Key : $"{basePath}/{child.Key}";
+            CollectEntitiesRecursive(child.Value, childPath, results);
+        }
     }
 
     public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
@@ -605,54 +621,48 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return null;
     }
 
+    private (DeltaEntity? entity, bool isDeleted) FindEntityDataInHierarchicalDelta(DeltaNode root, string entityName)
+    {
+        var pathParts = entityName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var currentNode = root;
+        for (int i = 0; i < pathParts.Length - 1; i++)
+        {
+            if (!currentNode.Children.TryGetValue(pathParts[i], out var childNode))
+            {
+                return (null, false);
+            }
+            currentNode = childNode;
+        }
+
+        var finalSegment = pathParts[^1];
+
+        if (currentNode.NewEntities.TryGetValue(finalSegment, out var newEntity))
+        {
+            return (newEntity, false);
+        }
+
+        if (currentNode.ChangedEntities.TryGetValue(finalSegment, out var changedEntity))
+        {
+            return (changedEntity, false);
+        }
+
+        if (currentNode.DeletedEntities.ContainsKey(finalSegment))
+        {
+            return (null, true);
+        }
+
+        return (null, false);
+    }
+
     /// <summary>
     /// Enumerates changes from a hierarchical DeltaNode using tree traversal (alloc-free).
     /// Splits path once and walks the tree structure for O(depth) instead of O(n) performance.
     /// </summary>
-    private IEnumerable<HistoryEntry> EnumerateHierarchicalDeltaEntries(DeltaNode root, string[] parentPathParts, int depth, ChangeType changeType, ulong version, DateTimeOffset timestamp, HashSet<string>? deletedEntityNames = null)
+    private IEnumerable<HistoryEntry> EnumerateHierarchicalDeltaEntries(DeltaNode root, string[] parentPathParts, int depth, string currentPath, ChangeType changeType, ulong version, DateTimeOffset timestamp, HashSet<string>? deletedEntityNames = null)
     {
         deletedEntityNames ??= [];
 
-        if (parentPathParts.Length == 0)
-        {
-            // No parent filter - enumerate all entities at this node and recursively in children
-            switch (changeType)
-            {
-                case ChangeType.New:
-                    foreach (var (_, entity) in root.NewEntities)
-                    {
-                        yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = entity.Name };
-                    }
-                    break;
-
-                case ChangeType.Changed:
-                    foreach (var (_, entity) in root.ChangedEntities)
-                    {
-                        yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = entity.Name };
-                    }
-                    break;
-
-                case ChangeType.Deleted:
-                    foreach (var (_, deletedEntity) in root.DeletedEntities)
-                    {
-                        if (!deletedEntityNames.Contains(deletedEntity.Name))
-                        {
-                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-                        }
-                    }
-                    break;
-            }
-
-            // Recursively enumerate from all children (breadth of tree)
-            foreach (var (_, child) in root.Children)
-            {
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(child, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
-                {
-                    yield return entry;
-                }
-            }
-        }
-        else if (depth >= parentPathParts.Length)
+        if (depth >= parentPathParts.Length)
         {
             // Reached target depth - enumerate this subtree
             switch (changeType)
@@ -660,14 +670,16 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 case ChangeType.New:
                     foreach (var (_, entity) in root.NewEntities)
                     {
-                        yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                        var fullPath = string.IsNullOrEmpty(currentPath) ? entity.Name : currentPath + "/" + entity.Name;
+                        yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = fullPath };
                     }
                     break;
 
                 case ChangeType.Changed:
                     foreach (var (_, entity) in root.ChangedEntities)
                     {
-                        yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = entity.Name };
+                        var fullPath = string.IsNullOrEmpty(currentPath) ? entity.Name : currentPath + "/" + entity.Name;
+                        yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = fullPath };
                     }
                     break;
 
@@ -676,16 +688,18 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     {
                         if (!deletedEntityNames.Contains(deletedEntity.Name))
                         {
-                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
+                            var fullPath = string.IsNullOrEmpty(currentPath) ? deletedEntity.Name : currentPath + "/" + deletedEntity.Name;
+                            yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = fullPath };
                         }
                     }
                     break;
             }
 
             // Recursively enumerate from all children
-            foreach (var (_, child) in root.Children)
+            foreach (var (key, child) in root.Children)
             {
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(child, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
+                var childPath = string.IsNullOrEmpty(currentPath) ? key : currentPath + "/" + key;
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(child, parentPathParts, depth + 1, childPath, changeType, version, timestamp, deletedEntityNames))
                 {
                     yield return entry;
                 }
@@ -698,7 +712,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             if (root.Children.TryGetValue(nextPart, out var nextNode))
             {
                 // Recursively navigate with incremented depth (no allocation of new path array)
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(nextNode, parentPathParts, depth + 1, changeType, version, timestamp, deletedEntityNames))
+                var childPath = string.IsNullOrEmpty(currentPath) ? nextPart : currentPath + "/" + nextPart;
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(nextNode, parentPathParts, depth + 1, childPath, changeType, version, timestamp, deletedEntityNames))
                 {
                     yield return entry;
                 }
@@ -755,15 +770,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     deltaIndex.Root.Children.Count > 0))
             {
                 // Hierarchical root available - use tree traversal
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.New, currentVersion, timestamp))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.New, currentVersion, timestamp))
                 {
                     yield return entry;
                 }
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Changed, currentVersion, timestamp))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.Changed, currentVersion, timestamp))
                 {
                     yield return entry;
                 }
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Deleted, currentVersion, timestamp, deletedEntityNames))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.Deleted, currentVersion, timestamp, deletedEntityNames))
                 {
                     yield return entry;
                 }
@@ -871,15 +886,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     deltaIndex.Root.Children.Count > 0))
             {
                 // Hierarchical root available - use tree traversal
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.New, nextVersion, timestamp))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.New, nextVersion, timestamp))
                 {
                     yield return entry;
                 }
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Changed, nextVersion, timestamp))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.Changed, nextVersion, timestamp))
                 {
                     yield return entry;
                 }
-                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, ChangeType.Deleted, nextVersion, timestamp, deletedEntityNames))
+                foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.Deleted, nextVersion, timestamp, deletedEntityNames))
                 {
                     yield return entry;
                 }
@@ -944,26 +959,42 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             throw new ArgumentException("Delta not found", nameof(version));
         }
 
-        // Check if it was deleted in this version
-        var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-        if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+        if (deltaIndex.Root != null)
         {
-            return null;
+            var (entity, isDeleted) = FindEntityDataInHierarchicalDelta(deltaIndex.Root, name);
+            if (isDeleted)
+            {
+                return null;
+            }
+            if (entity != null)
+            {
+                var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, entity.Position)], entity.Length);
+                return (name, data);
+            }
         }
-
-        // Check if it was New or Changed
-        var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-        if (newEntity != null)
+        else
         {
-            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
-            return (name, data);
-        }
+            // Check if it was deleted in this version
+            var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
+            if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+            {
+                return null;
+            }
 
-        var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
-        if (changedEntity != null)
-        {
-            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);
-            return (name, data);
+            // Check if it was New or Changed
+            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
+            if (newEntity != null)
+            {
+                var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
+                return (name, data);
+            }
+
+            var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
+            if (changedEntity != null)
+            {
+                var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);
+                return (name, data);
+            }
         }
 
         throw new ArgumentException($"Entity {name} was not changed in version {version}");
