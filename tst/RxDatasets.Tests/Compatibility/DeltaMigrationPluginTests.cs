@@ -29,7 +29,7 @@ public class DeltaMigrationPluginTests
         }
 
         var leafName = pathParts[pathParts.Length - 1];
-        current.DeletedNames.Add(leafName);
+        current.DeletedEntities[leafName] = new DeletedEntity { Name = leafName, PreviousVersion = 0 };
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public class DeltaMigrationPluginTests
         var companyNode = rootNode.Children["company"];
         Assert.True(companyNode.Children.ContainsKey("dept"));
         var deptNode = companyNode.Children["dept"];
-        Assert.Contains("employee", deptNode.DeletedNames);
+        Assert.True(deptNode.DeletedEntities.ContainsKey("employee"));
     }
 
     [Fact]
@@ -114,9 +114,9 @@ public class DeltaMigrationPluginTests
 
         // Assert
         var deptNode = rootNode.Children["company"].Children["dept"];
-        Assert.Contains("employee1", deptNode.DeletedNames);
-        Assert.Contains("employee2", deptNode.DeletedNames);
-        Assert.Equal(2, deptNode.DeletedNames.Count);
+        Assert.True(deptNode.DeletedEntities.ContainsKey("employee1"));
+        Assert.True(deptNode.DeletedEntities.ContainsKey("employee2"));
+        Assert.Equal(2, deptNode.DeletedEntities.Count);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public class DeltaMigrationPluginTests
         var deptNode = rootNode.Children["store"].Children["section"];
         Assert.True(deptNode.ChangedEntities.ContainsKey("item1"));
         Assert.True(deptNode.NewEntities.ContainsKey("item2"));
-        Assert.Contains("item0", deptNode.DeletedNames);
+        Assert.True(deptNode.DeletedEntities.ContainsKey("item0"));
     }
 
     [Fact]
