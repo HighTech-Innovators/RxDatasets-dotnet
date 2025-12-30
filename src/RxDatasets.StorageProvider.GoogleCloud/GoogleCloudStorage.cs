@@ -17,6 +17,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         private readonly StorageClient _storageClient;
         private readonly ILogger<GoogleCloudStorage<T>> _logger;
         private readonly string _bucketName;
+        private readonly string? _projectId;
         private readonly WriteQueueManager _writeQueueManager;
         private readonly bool _enableWriteQueue;
         private readonly IClock _clock;
@@ -34,6 +35,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         {
             _logger = logger;
             _bucketName = googleCloudConfig.Value.BucketName;
+            _projectId = googleCloudConfig.Value.ProjectId;
             _clock = clock ?? new SystemClock();
             _enableWriteQueue = enableWriteQueue;
 
@@ -211,11 +213,11 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             {
                 try
                 {
-                    var projectId = Environment.GetEnvironmentVariable("GOOGLE_PROJECT_ID");
+                    var projectId = _projectId ?? Environment.GetEnvironmentVariable("GOOGLE_PROJECT_ID");
                     if (string.IsNullOrEmpty(projectId))
                     {
-                        _logger.LogError("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
-                        throw new InvalidOperationException("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
+                        _logger.LogError("GOOGLE_PROJECT_ID environment variable not set and ProjectId not in config. Cannot create bucket.");
+                        throw new InvalidOperationException("GOOGLE_PROJECT_ID environment variable not set and ProjectId not in config. Cannot create bucket.");
                     }
                     await _storageClient.CreateBucketAsync(projectId, new Google.Apis.Storage.v1.Data.Bucket { Name = _bucketName, Location = "eu-north-1" });
                     SetHealthy();
