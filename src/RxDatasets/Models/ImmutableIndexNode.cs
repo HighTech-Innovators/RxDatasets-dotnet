@@ -114,29 +114,28 @@ public sealed record ImmutableIndexNode(
     /// Navigates to an entity using a path. Path segments should be split by '/'.
     /// Returns null if the path doesn't exist.
     /// </summary>
-    public ImmutableSnapshotEntity? Navigate(IEnumerable<string> pathSegments)
+    public ImmutableSnapshotEntity? Navigate(ReadOnlySpan<string> pathSegments)
     {
-        var segments = pathSegments.ToList();
-        if (segments.Count == 0)
+        if (pathSegments.Length == 0)
             return null;
 
         var current = this;
-        for (int i = 0; i < segments.Count - 1; i++)
+        for (int i = 0; i < pathSegments.Length - 1; i++)
         {
-            var child = current.GetChild(segments[i]);
+            var child = current.GetChild(pathSegments[i]);
             if (child == null)
                 return null;
             current = child;
         }
 
-        return current.GetEntity(segments[^1]);
+        return current.GetEntity(pathSegments[^1]);
     }
 
     /// <summary>
     /// Navigates to a child node using a path. Path segments should be split by '/'.
     /// Returns null if the path doesn't exist.
     /// </summary>
-    public ImmutableIndexNode? NavigateNode(IEnumerable<string> pathSegments)
+    public ImmutableIndexNode? NavigateNode(ReadOnlySpan<string> pathSegments)
     {
         var current = this;
         foreach (var segment in pathSegments)
