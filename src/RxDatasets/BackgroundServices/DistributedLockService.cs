@@ -20,6 +20,7 @@ namespace RxDatasets.BackgroundServices
         private readonly TimeSpan _renewalInterval = lockOptions?.Value.RenewalInterval ?? TimeSpan.FromMinutes(5);
         private readonly TimeSpan _pollingInterval = lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5);
         private readonly TimeSpan _renewalThreshold = lockOptions?.Value.RenewalThreshold ?? TimeSpan.FromSeconds(30);
+        private readonly TimeSpan _handoverTimeout = ValidateHandoverTimeout(lockOptions?.Value.HandoverTimeout ?? TimeSpan.FromSeconds(15), lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5));
         private readonly IClock _clock = clock ?? new SystemClock();
         private string? _lockToken;
         private bool _isDisposed;
@@ -27,15 +28,36 @@ namespace RxDatasets.BackgroundServices
         private readonly CancellationTokenSource _cts = new();
         private Task? _loopTask;
         private readonly string _lockName = DatasetHelper.GetObjectNamePrefix<TEntity>(storageConfig.Value) + "lock-file";
+        private readonly string _requestLockName = DatasetHelper.GetObjectNamePrefix<TEntity>(storageConfig.Value) + "request-lock";
+        private readonly string _instanceId = Guid.NewGuid().ToString();
+        private LockServiceState _state = LockServiceState.Idle;
+        private DateTimeOffset _lastYieldTime;
 
         public bool HasLock => !string.IsNullOrEmpty(_lockToken);
+        public LockServiceState State => _state;
 
+        private static TimeSpan ValidateHandoverTimeout(TimeSpan handover, TimeSpan polling)
+        {
+            if (handover <= polling)
+                throw new InvalidOperationException($"HandoverTimeout ({handover}) must be greater than PollingInterval ({polling})");
+            return handover;
+        }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             logger.LogInformation("Starting DistributedLockService...");
             _loopTask = Task.Run(async () =>
             {
+                try
+                {
+                    logger.LogInformation("Writing request-lock file with InstanceId: {InstanceId}", _instanceId);
+                    await storage.UploadBytes(_requestLockName, System.Text.Encoding.UTF8.GetBytes(_instanceId));
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to write request-lock file on startup");
+                }
+
                 var lastLogTime = DateTimeOffset.MinValue;
 
                 while (!_cts.Token.IsCancellationRequested)
@@ -43,7 +65,16 @@ namespace RxDatasets.BackgroundServices
                     //Console.WriteLine($"Poll @ {_clock.UtcNow}");
                     if (!HasLock)
                     {
-                        await AttemptAcquireLockAsync();
+                        if (_state != LockServiceState.Yielded)
+                        {
+                            await AttemptAcquireLockAsync();
+                        }
+                        else if (_clock.UtcNow - _lastYieldTime >= _handoverTimeout)
+                        {
+                            ChangeState(LockServiceState.Idle, "Handover timed out, reclaiming lock");
+                            await AttemptAcquireLockAsync();
+                        }
+
                         if (!HasLock)
                         {
                             // Check if it's time to log (only every 5 minutes)
@@ -56,7 +87,13 @@ namespace RxDatasets.BackgroundServices
                     }
                     else
                     {
-                        if (_clock.UtcNow - _lastRenewalTime >= _renewalInterval - _renewalThreshold)
+                        if (await ShouldYieldAsync())
+                        {
+                            await ReleaseLockAsync();
+                            ChangeState(LockServiceState.Yielded, "Yielding lock due to request from another instance");
+                            _lastYieldTime = _clock.UtcNow;
+                        }
+                        else if (_clock.UtcNow - _lastRenewalTime >= _renewalInterval - _renewalThreshold)
                         {
                             await RenewLockAsync();
                         }
@@ -99,6 +136,18 @@ namespace RxDatasets.BackgroundServices
 
             try
             {
+                // Clean up request file if it matches our instance ID
+                var bytes = await storage.DownloadBytes(_requestLockName);
+                string content = System.Text.Encoding.UTF8.GetString(bytes.Span);
+                if (content == _instanceId)
+                {
+                    await storage.DeleteFile(_requestLockName);
+                }
+            }
+            catch { /* Ignore if file doesn't exist or error */ }
+
+            try
+            {
                 // Ensure the lock is released before the application exits
                 await ReleaseLockAsync();
             }
@@ -138,8 +187,17 @@ namespace RxDatasets.BackgroundServices
 
             if (HasLock)
             {
-                logger.LogInformation("Lock acquired.");
+                ChangeState(LockServiceState.Active, "Lock acquired");
                 _lastRenewalTime = _clock.UtcNow;
+
+                try
+                {
+                    await storage.DeleteFile(_requestLockName);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to delete request-lock file after acquisition.");
+                }
             }
             else
             {
@@ -254,6 +312,15 @@ namespace RxDatasets.BackgroundServices
             }
         }
 
+        private void ChangeState(LockServiceState newState, string reason)
+        {
+            if (_state != newState)
+            {
+                logger.LogInformation("State transition: {OldState} -> {NewState}. Reason: {Reason}", _state, newState, reason);
+                _state = newState;
+            }
+        }
+
         private async Task WriteLockFile(string lockKey, string lockToken, DateTimeOffset expiryTime)
         {
             string lockContent = $"{lockToken}\n{expiryTime:o}";
@@ -283,6 +350,29 @@ namespace RxDatasets.BackgroundServices
             }
 
             return null; // Invalid lock file
+        }
+
+        private async Task<bool> ShouldYieldAsync()
+        {
+            try
+            {
+                var bytes = await storage.DownloadBytes(_requestLockName);
+                if (bytes.IsEmpty) return false;
+
+                var content = System.Text.Encoding.UTF8.GetString(bytes.Span).Trim();
+                if (string.IsNullOrEmpty(content)) return false;
+
+                return content != _instanceId;
+            }
+            catch (FileNotFoundException)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error checking for lock request.");
+                return false;
+            }
         }
     }
 }

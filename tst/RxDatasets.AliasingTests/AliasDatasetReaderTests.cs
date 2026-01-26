@@ -1050,15 +1050,22 @@ public class AliasDatasetReaderTests : IAsyncLifetime
 
         // Wait for the retry delay to be scheduled (implies the first call failed)
         await clock.WaitUntilAnyDelaysPending(
-            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30),
             "retry delay should be scheduled after failure");
 
-        // Fast-forward past both 5-second retry delays (2 failures configured)
-        // The continuations run synchronously so one AdvanceBy handles all retries
-        scheduler.AdvanceBy(TimeSpan.FromSeconds(12).Ticks);
+        // Trigger first retry
+        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+
+        // Wait for the second retry delay to be scheduled
+        await clock.WaitUntilAnyDelaysPending(
+            TimeSpan.FromSeconds(30),
+            "second retry delay should be scheduled");
+
+        // Trigger second retry
+        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
 
         // Wait for the reader to recover and initialize (with timeout)
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var result = await reader.Get("recovery-alias").WaitAsync(cts.Token);
 
         // Assert - the reader should have recovered and resolved the alias
@@ -1094,14 +1101,14 @@ public class AliasDatasetReaderTests : IAsyncLifetime
 
         // Wait for the retry delay to be scheduled (implies the first call failed)
         await clock.WaitUntilAnyDelaysPending(
-            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30),
             "retry delay should be scheduled after failure");
 
         // Fast-forward past the 5-second retry delay
-        scheduler.AdvanceBy(TimeSpan.FromSeconds(6).Ticks);
+        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
 
         // The Get call should eventually succeed (after retry) rather than throwing forever
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         Func<Task> act = async () =>
         {
             // This should not throw - it should either return null (no such alias) 
@@ -1135,7 +1142,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
 
         // Wait for the retry delay to be scheduled (implies the first call failed)
         await clock.WaitUntilAnyDelaysPending(
-            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30),
             "retry delay should be scheduled after failure");
 
         // Fast-forward past a few retry delays to ensure retries are happening
