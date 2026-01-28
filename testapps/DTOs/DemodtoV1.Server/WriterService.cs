@@ -13,8 +13,9 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     {
         try
         {
-            var response = await dataset.Delete(request.Name, context.CancellationToken);
-            return Map(response, context);
+            bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+            var response = await dataset.Delete(request.Name, context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -26,8 +27,9 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     {
         try
         {
-            var response = await dataset.Put(entity.Name, entity.ToByteArray(), context.CancellationToken);
-            return Map(response, context, entity.Name);
+            bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+            var response = await dataset.Put(entity.Name, entity.ToByteArray(), context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -37,16 +39,14 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutAll(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var entities = new List<(string name, byte[] bytes)>();
-        await foreach (var item in requestStream.ReadAllAsync(context.CancellationToken))
-        {
-            entities.Add((item.Name, item.ToByteArray()));
-        }
-        
+        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+        var entities = requestStream.ReadAllAsync(context.CancellationToken)
+            .Select(item => (item.Name, item.ToByteArray()));
+
         try
         {
-            var response = await dataset.PutAll(entities.Select(e => (e.name, e.bytes)).ToAsyncEnumerable(), context.CancellationToken);
-            return Map(response, context, entities.Select(e => e.name));
+            var response = await dataset.PutAll(entities, context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -56,16 +56,14 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutAllChildren(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var entities = new List<(string name, byte[] bytes)>();
-        await foreach (var item in requestStream.ReadAllAsync(context.CancellationToken))
-        {
-            entities.Add((item.Name, item.ToByteArray()));
-        }
-        
+        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+        var entities = requestStream.ReadAllAsync(context.CancellationToken)
+            .Select(item => (item.Name, item.ToByteArray()));
+
         try
         {
-            var response = await dataset.PutAllChildren(entities.Select(e => (e.name, e.bytes)).ToAsyncEnumerable(), context.CancellationToken);
-            return Map(response, context, entities.Select(e => e.name));
+            var response = await dataset.PutAllChildren(entities, context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -75,16 +73,14 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutMany(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var entities = new List<(string name, byte[] bytes)>();
-        await foreach (var item in requestStream.ReadAllAsync(context.CancellationToken))
-        {
-            entities.Add((item.Name, item.ToByteArray()));
-        }
-        
+        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+        var entities = requestStream.ReadAllAsync(context.CancellationToken)
+            .Select(item => (item.Name, item.ToByteArray()));
+
         try
         {
-            var response = await dataset.PutMany(entities.Select(e => (e.name, e.bytes)).ToAsyncEnumerable(), context.CancellationToken);
-            return Map(response, context, entities.Select(e => e.name));
+            var response = await dataset.PutMany(entities, context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -94,16 +90,14 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutOrDeleteMany(IAsyncStreamReader<PutOrDelete> requestStream, ServerCallContext context)
     {
-        var changes = new List<(string name, byte[]? bytes)>();
-        await foreach (var item in requestStream.ReadAllAsync(context.CancellationToken))
-        {
-            changes.Add((item.Name, item.IsDelete ? (byte[]?)null : item.EntityBytes.ToByteArray()));
-        }
-        
+        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
+        var changes = requestStream.ReadAllAsync(context.CancellationToken)
+            .Select(item => (item.Name, item.IsDelete ? (byte[]?)null : item.EntityBytes.ToByteArray()));
+
         try
         {
-            var response = await dataset.PutOrDeleteMany(changes.Select(c => c).ToAsyncEnumerable(), context.CancellationToken);
-            return Map(response, context, changes.Select(c => c.name));
+            var response = await dataset.PutOrDeleteMany(changes, context.CancellationToken, includeDetailedChanges);
+            return Map(response);
         }
         catch (InvalidOperationException ex)
         {
@@ -112,24 +106,9 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     }
 
     /// <summary>
-    /// Maps internal WriteResponse to proto WriteResponse, optionally including detailed changes if X-Debug header is present.
+    /// Maps internal WriteResponse to proto WriteResponse, using the actual DetailedChanges from the response.
     /// </summary>
-    private WriteResponse Map(
-        IDatasetWriter<Demodto>.WriteResponse response,
-        ServerCallContext context,
-        string? singleEntityName = null)
-    {
-        return Map(response, context, singleEntityName != null ? new[] { singleEntityName } : Enumerable.Empty<string>());
-    }
-
-    /// <summary>
-    /// Maps internal WriteResponse to proto WriteResponse, optionally including detailed changes if X-Debug header is present.
-    /// Populates detailed_changes based on the entity names that were involved in the operation.
-    /// </summary>
-    private WriteResponse Map(
-        IDatasetWriter<Demodto>.WriteResponse response,
-        ServerCallContext context,
-        IEnumerable<string> entityNames)
+    private WriteResponse Map(IDatasetWriter<Demodto>.WriteResponse response)
     {
         var protoResponse = new WriteResponse()
         {
@@ -139,54 +118,18 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
             NumDeletedEntities = response.NumDeletedEntities,
         };
 
-        // Check for X-Debug header (case-insensitive)
-        if (!HeaderDetection.HasXDebugHeader(context))
-            return protoResponse;
-
-        // Populate detailed_changes when X-Debug header is present
-        // Note: In production, this should come from tracking the actual Delta applied.
-        // For now, we create placeholder entries based on the entity names and counts.
-        // The actual change types would be determined by comparing before/after state.
-        var numAdded = (int)response.NumAddedEntities;
-        var numUpdated = (int)response.NumUpdatedEntities;
-        var numDeleted = (int)response.NumDeletedEntities;
-        
-        var entityList = entityNames.ToList();
-        int addIndex = 0, updateIndex = 0, deleteIndex = 0;
-
-        foreach (var entityName in entityList)
+        // If DetailedChanges were requested and populated, map them to the proto response
+        if (response.DetailedChanges != null)
         {
-            Hightechinnovators.Dtos.Type.ChangeType changeType;
-            
-            // Distribute entities across change types based on counts
-            if (addIndex < numAdded)
+            foreach (var change in response.DetailedChanges)
             {
-                changeType = Hightechinnovators.Dtos.Type.ChangeType.New;
-                addIndex++;
+                protoResponse.DetailedChanges.Add(new Hightechinnovators.Dtos.Type.DetailedChange
+                {
+                    EntityId = change.EntityId,
+                    ChangeType = (Hightechinnovators.Dtos.Type.ChangeType)(int)change.ChangeType
+                });
             }
-            else if (updateIndex < numUpdated)
-            {
-                changeType = Hightechinnovators.Dtos.Type.ChangeType.Changed;
-                updateIndex++;
-            }
-            else if (deleteIndex < numDeleted)
-            {
-                changeType = Hightechinnovators.Dtos.Type.ChangeType.Deleted;
-                deleteIndex++;
-            }
-            else
-            {
-                // Entity wasn't changed, skip it
-                continue;
-            }
-
-            protoResponse.DetailedChanges.Add(new DetailedChange
-            {
-                EntityId = entityName,
-                ChangeType = changeType
-            });
         }
 
         return protoResponse;
     }
-}

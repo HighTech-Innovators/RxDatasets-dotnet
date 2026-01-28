@@ -15,17 +15,17 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private readonly List<Delta> _deltas = [];
     private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
-            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion, DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null };
         var delta = new Delta(new[] { (name, (byte[]?)null, ChangeType.Deleted) }, LatestVersion + 1);
         ApplyDelta(delta);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
@@ -38,17 +38,17 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
         if (changes.Count == 0)
         {
-            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion, DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null };
         }
 
         // Create delta and apply it
         var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
         ApplyDelta(theDelta);
 
-        return WriteResponseFor(theDelta);
+        return WriteResponseFor(theDelta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
@@ -70,17 +70,18 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = LatestVersion
+                NewDatasetVersion = LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
         }
 
         var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
         var delta = new Delta(deleteChanges, LatestVersion + 1);
         ApplyDelta(delta);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         Delta delta;
@@ -91,37 +92,37 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         else
         {
             if (newEntity?.Length == oldEntity.Length && newEntity.SequenceEqual(oldEntity))
-                return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+                return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion, DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null };
 
             delta = new Delta(new[] { (name, newEntity, ChangeType.Changed) }, LatestVersion + 1);
         }
 
         ApplyDelta(delta);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         // implicit deletes across whole dataset
-        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: true, ct);
+        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: true, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         // implicit deletes scoped to provided parents
-        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: true, performImplicitDeletes: true, ct);
+        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: true, performImplicitDeletes: true, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         // no implicit deletes
-        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: false, ct);
+        return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         // mixed explicit puts and deletes, no implicit deletes
-        return await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
+        return await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
     }
 
     private static async IAsyncEnumerable<(string name, byte[]? entityBytes)> WrapNonNull(IAsyncEnumerable<(string name, byte[] entityBytes)> source)
@@ -134,7 +135,8 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
         bool includeParents,
         bool performImplicitDeletes,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool includeDetailedChanges)
     {
         using var slot = await Lock(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
@@ -225,12 +227,12 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
         if (changes.Count == 0)
         {
-            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+            return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion, DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null };
         }
 
         var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
         ApplyDelta(theDelta);
-        return WriteResponseFor(theDelta);
+        return WriteResponseFor(theDelta, includeDetailedChanges);
     }
 
     private IEnumerable<string> HandleImplicitDeletes(HashSet<string> receivedNames)
@@ -481,14 +483,28 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
     }
 
-    private IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta) =>
-        new()
+    private IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta, bool includeDetailedChanges = false)
+    {
+        IReadOnlyList<DetailedChange>? detailedChanges = null;
+        if (includeDetailedChanges)
+        {
+            var changes = new List<DetailedChange>();
+            foreach (var (name, _, changeType) in delta.Changes)
+            {
+                changes.Add(new DetailedChange { EntityId = name, ChangeType = changeType });
+            }
+            detailedChanges = changes;
+        }
+
+        return new()
         {
             NewDatasetVersion = delta.DatasetVersion,
             NumAddedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.New),
             NumUpdatedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.Changed),
             NumDeletedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.Deleted),
+            DetailedChanges = detailedChanges
         };
+    }
 
     private void ApplyDelta(Delta delta)
     {

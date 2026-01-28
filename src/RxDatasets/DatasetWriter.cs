@@ -1,4 +1,3 @@
-
 using System.Reactive.Disposables;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -129,7 +128,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -137,7 +136,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index.LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
         }
 
@@ -145,10 +145,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await ApplyDelta(delta);
 
         _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index.LatestVersion);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -170,7 +170,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index.LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
         }
 
@@ -180,10 +181,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await ApplyDelta(delta);
 
         _logger.LogInformation("Deleted {Count} entities; version {NewVersion}", deleteChanges.Length, _index.LatestVersion);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -210,7 +211,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index.LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
         }
 
@@ -220,7 +222,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await ApplyDelta(delta);
 
         _logger.LogInformation("Deleted {Count} descendants of '{Prefix}'; version {NewVersion}", deleteChanges.Length, prefix, _index.LatestVersion);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
     private void EnsureNameIsValid(string entityName)
@@ -238,7 +240,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"Validation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default, bool includeDetailedChanges = false)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -254,32 +256,34 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         else
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index.LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
 
         await ApplyDelta(delta);
 
         _logger.LogInformation("Put 1 entity; version {NewVersion}", _index.LatestVersion);
-        return WriteResponseFor(delta);
+        return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: true, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: true, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
-        => await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default, bool includeDetailedChanges = false)
+        => await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
         IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
         bool includeParents,
         bool performImplicitDeletes,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool includeDetailedChanges)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -322,7 +326,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             File.Delete(tempDataFilePath);
             return new IDatasetWriter<T>.WriteResponse
             {
-                NewDatasetVersion = _index!.LatestVersion
+                NewDatasetVersion = _index!.LatestVersion,
+                DetailedChanges = includeDetailedChanges ? new List<DetailedChange>() : null
             };
         }
 
@@ -336,12 +341,32 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
 
+        IReadOnlyList<DetailedChange>? detailedChanges = null;
+        if (includeDetailedChanges)
+        {
+            var changes = new List<DetailedChange>();
+            foreach (var entity in deltaIndex.NewEntities)
+            {
+                changes.Add(new DetailedChange { EntityId = entity.Name, ChangeType = ChangeType.New });
+            }
+            foreach (var entity in deltaIndex.ChangedEntities)
+            {
+                changes.Add(new DetailedChange { EntityId = entity.Name, ChangeType = ChangeType.Changed });
+            }
+            foreach (var entity in deltaIndex.DeletedEntities)
+            {
+                changes.Add(new DetailedChange { EntityId = entity.Name, ChangeType = ChangeType.Deleted });
+            }
+            detailedChanges = changes;
+        }
+
         return new IDatasetWriter<T>.WriteResponse
         {
             NewDatasetVersion = _index.LatestVersion,
             NumAddedEntities = (uint)deltaIndex.NewEntities.Count,
             NumUpdatedEntities = (uint)deltaIndex.ChangedEntities.Count,
-            NumDeletedEntities = (uint)deltaIndex.DeletedEntities.Count
+            NumDeletedEntities = (uint)deltaIndex.DeletedEntities.Count,
+            DetailedChanges = detailedChanges
         };
     }
 
@@ -637,14 +662,26 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return new ActionDisposable(() => _semaphore.Release());
     }
 
-    private static IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta)
+    private static IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta, bool includeDetailedChanges = false)
     {
+        IReadOnlyList<DetailedChange>? detailedChanges = null;
+        if (includeDetailedChanges)
+        {
+            var changes = new List<DetailedChange>();
+            foreach (var (name, _, changeType, _) in delta.Changes)
+            {
+                changes.Add(new DetailedChange { EntityId = name, ChangeType = changeType });
+            }
+            detailedChanges = changes;
+        }
+
         return new IDatasetWriter<T>.WriteResponse()
         {
             NewDatasetVersion = delta.DatasetVersion,
             NumAddedEntities = (uint)delta.Changes.Count(x => x.Change == ChangeType.New),
             NumDeletedEntities = (uint)delta.Changes.Count(x => x.Change == ChangeType.Deleted),
-            NumUpdatedEntities = (uint)delta.Changes.Count(x => x.Change == ChangeType.Changed)
+            NumUpdatedEntities = (uint)delta.Changes.Count(x => x.Change == ChangeType.Changed),
+            DetailedChanges = detailedChanges
         };
     }
 
