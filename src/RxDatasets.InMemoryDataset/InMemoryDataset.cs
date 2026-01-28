@@ -15,7 +15,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private readonly List<Delta> _deltas = [];
     private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
@@ -25,7 +25,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
@@ -48,7 +48,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(theDelta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
@@ -81,7 +81,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         Delta delta;
@@ -101,25 +101,25 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         // implicit deletes across whole dataset
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: true, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         // implicit deletes scoped to provided parents
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: true, performImplicitDeletes: true, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         // no implicit deletes
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         // mixed explicit puts and deletes, no implicit deletes
         return await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);

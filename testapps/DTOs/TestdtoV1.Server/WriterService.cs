@@ -14,7 +14,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
         try
         {
             bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
-            var response = await dataset.Delete(request.Name, context.CancellationToken, includeDetailedChanges);
+            var response = await dataset.Delete(request.Name, includeDetailedChanges, context.CancellationToken);
             return Map(response);
         }
         catch (InvalidOperationException ex)
@@ -28,7 +28,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
         try
         {
             bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
-            var response = await dataset.Put(entity.Name, entity.ToByteArray(), context.CancellationToken, includeDetailedChanges);
+            var response = await dataset.Put(entity.Name, entity.ToByteArray(), includeDetailedChanges, context.CancellationToken);
             return Map(response);
         }
         catch (InvalidOperationException ex)
@@ -45,7 +45,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
 
         try
         {
-            var response = await dataset.PutAll(entities, context.CancellationToken, includeDetailedChanges);
+            var response = await dataset.PutAll(entities, includeDetailedChanges, context.CancellationToken);
             return Map(response);
         }
         catch (InvalidOperationException ex)
@@ -62,7 +62,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
 
         try
         {
-            var response = await dataset.PutMany(entities, context.CancellationToken, includeDetailedChanges);
+            var response = await dataset.PutMany(entities, includeDetailedChanges, context.CancellationToken);
             return Map(response);
         }
         catch (InvalidOperationException ex)
@@ -79,7 +79,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
 
         try
         {
-            var response = await dataset.PutOrDeleteMany(changes, context.CancellationToken, includeDetailedChanges);
+            var response = await dataset.PutOrDeleteMany(changes, includeDetailedChanges, context.CancellationToken);
             return Map(response);
         }
         catch (InvalidOperationException ex)

@@ -128,7 +128,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -148,7 +148,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -184,7 +184,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -240,7 +240,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"Validation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, bool includeDetailedChanges = false, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         ThrowIfNotInitialized();
@@ -266,16 +266,16 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta, includeDetailedChanges);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
         => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: true, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
         => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, bool includeDetailedChanges = false, CancellationToken ct = default)
         => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default, bool includeDetailedChanges = false)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, bool includeDetailedChanges = false, CancellationToken ct = default)
         => await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct, includeDetailedChanges);
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
