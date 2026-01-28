@@ -19,10 +19,10 @@ A developer is testing the RxDatasets write operations and needs to understand e
 
 **Acceptance Scenarios**:
 
-1. **Given** a write operation is performed without the DEBUG header, **When** the WriteResponse is returned, **Then** the response contains only the summary (version, counts) and no detailed change list
-2. **Given** a write operation is performed with the DEBUG http header present, **When** the WriteResponse is returned, **Then** the response contains a detailed list of all entity IDs and their change types (New, Changed, Deleted)
-3. **Given** a batch operation modifies multiple entities, **When** the response is requested with DEBUG header, **Then** the detailed change list distinguishes between newly created entities, updated entities, and deleted entities
-4. **Given** a batch operation includes no-op operations (e.g., delete then recreate with same data), **When** the response is requested with DEBUG header, **Then** the detailed change list reflects the net effect per spec 002
+1. **Given** a write operation is performed without the `X-Debug` header, **When** the WriteResponse is returned, **Then** the response contains only the summary (version, counts) and no detailed change list
+2. **Given** a write operation is performed with the `X-Debug` http header present, **When** the WriteResponse is returned, **Then** the response contains a detailed list of all entity IDs and their change types (New, Changed, Deleted)
+3. **Given** a batch operation modifies multiple entities, **When** the response is requested with `X-Debug` header, **Then** the detailed change list distinguishes between newly created entities, updated entities, and deleted entities
+4. **Given** a batch operation includes no-op operations (e.g., delete then recreate with same data), **When** the response is requested with `X-Debug` header, **Then** the detailed change list reflects the net effect per spec 002
 
 ---
 
@@ -36,9 +36,9 @@ A testhost operator wants to inspect write requests and responses to understand 
 
 **Acceptance Scenarios**:
 
-1. **Given** a testhost client sends a write request with DEBUG header, **When** the server processes the request, **Then** the response includes detailed change information for all affected entities
-2. **Given** a testhost client sends a write request without DEBUG header, **When** the server processes the request, **Then** the response contains only summary information to minimize payload size
-3. **Given** multiple consecutive write operations in tests, **When** some requests include DEBUG header and others do not, **Then** the server correctly includes/excludes detailed changes based on each request's header
+1. **Given** a testhost client sends a write request with `X-Debug` header, **When** the server processes the request, **Then** the response includes detailed change information for all affected entities
+2. **Given** a testhost client sends a write request without `X-Debug` header, **When** the server processes the request, **Then** the response contains only summary information to minimize payload size
+3. **Given** multiple consecutive write operations in tests, **When** some requests include `X-Debug` header and others do not, **Then** the server correctly includes/excludes detailed changes based on each request's header
 
 ---
 
@@ -55,20 +55,25 @@ A testhost operator wants to inspect write requests and responses to understand 
 
 - **FR-001**: WriteResponse message in proto contract MUST be extended with an optional field containing a list of changed entity identifiers and their change types
 - **FR-002**: All write operations (Put, PutAll, PutMany, Delete, PutOrDeleteMany) MUST support inclusion of detailed change list in responses when requested
-- **FR-003**: The presence of the DEBUG HTTP header (with any value) MUST trigger inclusion of detailed change list in the WriteResponse
-- **FR-004**: When DEBUG header is absent, WriteResponse MUST NOT include the detailed change list (default behavior unchanged)
+- **FR-003**: The presence of the `X-Debug` HTTP header (with any value) MUST trigger inclusion of detailed change list in the WriteResponse
+- **FR-004**: When `X-Debug` header is absent, WriteResponse MUST NOT include the detailed change list (default behavior unchanged)
 - **FR-005**: Detailed change list MUST identify each entity by its unique identifier (Name field)
 - **FR-006**: For each entity in the detailed change list, the system MUST indicate whether it was newly created, updated, or deleted
 - **FR-007**: The detailed change list MUST reflect the net effect of operations per existing spec 002 consolidation rules
 - **FR-008**: The change list inclusion MUST be applied consistently across all write operation endpoints (Put, PutAll, PutMany, Delete, PutOrDeleteMany)
-- **FR-009**: DEBUG header detection in testhost MUST be case-insensitive for the header name
+- **FR-009**: `X-Debug` header detection in testhost MUST be case-insensitive for the header name (per HTTP header specification)
 - **FR-010**: When a write operation produces no changes (no entities affected), the detailed change list (when included) MUST be empty
+- **FR-011**: Detailed change list MUST only include entities that actually changed; unchanged entities MUST NOT be included regardless of batch size
+- **FR-012**: For a large batch operation where most entities are unchanged, detailed_changes size scales with actual changes, not total batch size
 
 ### Key Entities
 
-- **WriteResponse**: Extended proto message containing version, summary counts (num_added_entities, num_updated_entities, num_deleted_entities), and new optional detailed_changes field
-- **DetailedChange** (or equivalent): Each entry representing one entity's change, containing entity_id and change_type (NEW, CHANGED, DELETED)
-- **HTTP Debug Header**: Request header that signals desire for detailed change information
+- **WriteResponse**: Extended proto message containing version, summary counts (num_added_entities, num_updated_entities, num_deleted_entities), and new optional `repeated DetailedChange detailed_changes` field
+- **DetailedChange**: Proto message (new) representing one entity change with fields:
+  - `string entity_id`: The unique identifier of the changed entity
+  - `ChangeType change_type`: Enum value indicating change type (NEW=0, CHANGED=1, DELETED=2)
+- **ChangeType**: Proto enum with three values: `NEW = 0; CHANGED = 1; DELETED = 2;`
+- **HTTP X-Debug Header**: Request header named "X-Debug" that signals desire for detailed change information; presence is sufficient (value ignored), matching is case-insensitive per HTTP spec
 
 ## Success Criteria *(mandatory)*
 
@@ -79,6 +84,16 @@ A testhost operator wants to inspect write requests and responses to understand 
 - **SC-003**: All write endpoint tests pass with and without DEBUG header, confirming correct change list inclusion/exclusion
 - **SC-004**: Detailed change list for batch operations accurately reflects entity IDs and change types 100% of the time
 - **SC-005**: DEBUG header detection works correctly across all major HTTP clients and testing frameworks used with RxDatasets
+
+## Clarifications
+
+### Session 2026-01-28
+
+- Q: What data structure should the `detailed_changes` field in WriteResponse proto message use? → A: Repeated `DetailedChange` message with `entity_id` (string) and `change_type` (enum: NEW, CHANGED, DELETED)
+- Q: How should system handle very large batch operations (10k+ entities) with DEBUG header? → A: Include all changed entities in response; IMPORTANT: only report actually-changed entities, explicitly exclude unchanged entities from detailed_changes
+- Q: Detailed changes when batch operations partially fail? → A: No partial failures exist by WRITER-CONTRACT atomicity guarantee; all operations within a call succeed or fail together. detailed_changes reflects only successful commit state
+- Q: Exact HTTP header name for triggering detailed changes? → A: `X-Debug` (custom header with X- prefix, case-insensitive matching)
+- Q: Change type enum values and semantics? → A: Simple enum: `enum ChangeType { NEW = 0; CHANGED = 1; DELETED = 2; }` (no reserved unknown value)
 
 ## Assumptions
 
