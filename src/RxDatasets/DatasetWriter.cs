@@ -42,10 +42,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             InitializationTask = InitializationLoop();
             await InitializationTask;
         }));
-
-        // For cases where the provider is already ready (e.g., in-memory providers during testing),
-        // start initialization immediately without waiting for a readiness notification
-        InitializationTask = InitializationLoop();
     }
 
     private void Uninitialize()

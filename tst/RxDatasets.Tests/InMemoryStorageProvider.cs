@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Notifications;
 
 namespace RxDatasets.Tests;
 
@@ -14,10 +16,22 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     private readonly Dictionary<string, ReadOnlyMemory<byte>> _storage = new();
     private readonly Dictionary<string, ulong> _processedVersions = new();
     private readonly object _lock = new();
+    private readonly INotificationsHub<T>? _notificationsHub;
 
-    public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> logger)
+    public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> logger, INotificationsHub<T>? notificationsHub = null)
     {
         _logger = logger;
+        _notificationsHub = notificationsHub;
+        
+        // Broadcast readiness after a longer delay to ensure subscribers are attached
+        if (_notificationsHub != null)
+        {
+            Task.Run(async () =>
+            {
+                await Task.Delay(500); // Longer delay to ensure subscribers are ready
+                await _notificationsHub.Notify(new StorageProviderReadinessNotifcation { ServiceStatus = ServiceStatus.Ready });
+            });
+        }
     }
 
     #region IStorageProviderReader Implementation

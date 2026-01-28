@@ -24,9 +24,9 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
         // Create the notifications hub
         var notificationsHub = new NotificationsHubSync<byte[]>();
 
-        // Create simple in-memory storage provider
+        // Create simple in-memory storage provider with notifications hub so it can signal readiness
         var storageLogger = Substitute.For<ILogger<InMemoryStorageProvider<byte[]>>>();
-        var storageProvider = new InMemoryStorageProvider<byte[]>(storageLogger);
+        var storageProvider = new InMemoryStorageProvider<byte[]>(storageLogger, notificationsHub);
 
         // Create DatasetWriter with the in-memory storage provider
         var writerLogger = Substitute.For<ILogger<DatasetWriter<byte[]>>>();
@@ -38,6 +38,9 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
             writerConfig,
             retryInitialization: false
         );
+
+        // Wait a bit for the provider's readiness notification to be sent and processed
+        await Task.Delay(1000);
 
         // Wait for initialization
         if (writer.InitializationTask != null)
