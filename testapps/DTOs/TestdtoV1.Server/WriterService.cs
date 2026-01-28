@@ -54,40 +54,6 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
         }
     }
 
-    public override async Task<WriteResponse> PutMany(IAsyncStreamReader<Testdto> requestStream, ServerCallContext context)
-    {
-        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
-        var entities = requestStream.ReadAllAsync(context.CancellationToken)
-            .Select(item => (item.Name, item.ToByteArray()));
-
-        try
-        {
-            var response = await dataset.PutMany(entities, includeDetailedChanges, context.CancellationToken);
-            return Map(response);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
-        }
-    }
-
-    public override async Task<WriteResponse> PutOrDeleteMany(IAsyncStreamReader<PutOrDelete> requestStream, ServerCallContext context)
-    {
-        bool includeDetailedChanges = HeaderDetection.HasXDebugHeader(context);
-        var changes = requestStream.ReadAllAsync(context.CancellationToken)
-            .Select(item => (item.Name, item.IsDelete ? (byte[]?)null : item.EntityBytes.ToByteArray()));
-
-        try
-        {
-            var response = await dataset.PutOrDeleteMany(changes, includeDetailedChanges, context.CancellationToken);
-            return Map(response);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
-        }
-    }
-
     /// <summary>
     /// Maps internal WriteResponse to proto WriteResponse, using the actual DetailedChanges from the response.
     /// </summary>

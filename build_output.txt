@@ -1,0 +1,33 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  DemodtoV1.Grpc -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\Grpc\bin\Debug\net9.0\DemodtoV1.Grpc.dll
+  RxDatasets.Abstractions -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.Abstractions\bin\Debug\net8.0\RxDatasets.Abstractions.dll
+  RxDatasetsReaderBenchmark -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\RxDatasetsReaderBenchmark\bin\Debug\net9.0\RxDatasetsReaderBenchmark.dll
+  TestClient -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\TestClient\bin\Debug\net9.0\TestClient.dll
+  RxDatasetsBenchmark -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\RxDatasetsBenchmark\bin\Debug\net9.0\RxDatasetsBenchmark.dll
+  RxDatasets -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets\bin\Debug\net8.0\RxDatasets.dll
+  RxDatasets.Aliasing -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.Aliasing\bin\Debug\net8.0\RxDatasets.Aliasing.dll
+  RxDatasets.StorageProvider.Minio -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.StorageProvider.Minio\bin\Debug\net8.0\RxDatasets.StorageProvider.Minio.dll
+  RxDatasets.StorageProvider.LocalDisk -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.StorageProvider.LocalDisk\bin\Debug\net8.0\RxDatasets.StorageProvider.LocalDisk.dll
+  RxDatasets.InMemoryDataset -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.InMemoryDataset\bin\Debug\net8.0\RxDatasets.InMemoryDataset.dll
+  RxDatasets.StorageProvider.GoogleCloud -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.StorageProvider.GoogleCloud\bin\Debug\net8.0\RxDatasets.StorageProvider.GoogleCloud.dll
+  RxDatasets.Reporting -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.Reporting\bin\Debug\net8.0\RxDatasets.Reporting.dll
+  RxDatasets.StorageProvider.AzBlob -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.StorageProvider.AzBlob\bin\Debug\net8.0\RxDatasets.StorageProvider.AzBlob.dll
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\WriterService.cs(57,47): error CS0115: 'WriterServiceImpl.PutMany(IAsyncStreamReader<Testdto>, ServerCallContext)': no suitable method found to override [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj]
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\WriterService.cs(74,47): error CS0115: 'WriterServiceImpl.PutOrDeleteMany(IAsyncStreamReader<PutOrDelete>, ServerCallContext)': no suitable method found to override [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj]
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\DemodtoV1.Server\WriterService.cs(135,6): error CS1513: } expected [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj]
+  RxDatasets.DatasetWatcher -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.DatasetWatcher\bin\Debug\net8.0\RxDatasets.DatasetWatcher.dll
+  RxDatasets.StorageProvider.S3 -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\src\RxDatasets.StorageProvider.S3\bin\Debug\net8.0\RxDatasets.StorageProvider.S3.dll
+  RxDatasets.StorageProvider.InMemoryProvider -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\tst\RxDatasets.StorageProvider.InMemoryProvider\bin\Debug\net9.0\RxDatasets.TestImplementations.InMemoryProvider.dll
+  RxDatasets.Tests -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\tst\RxDatasets.Tests\bin\Debug\net9.0\RxDatasets.Tests.dll
+  RxDatasets.AliasingTests -> S:\Hightech\reactive-datasets\RxDatasets-dotnet\tst\RxDatasets.AliasingTests\bin\Debug\net9.0\RxDatasets.AliasingTests.dll
+
+Build FAILED.
+
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\WriterService.cs(57,47): error CS0115: 'WriterServiceImpl.PutMany(IAsyncStreamReader<Testdto>, ServerCallContext)': no suitable method found to override [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj]
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\WriterService.cs(74,47): error CS0115: 'WriterServiceImpl.PutOrDeleteMany(IAsyncStreamReader<PutOrDelete>, ServerCallContext)': no suitable method found to override [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\TestdtoV1.Server\TestdtoV1.Server.csproj]
+S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\DemodtoV1.Server\WriterService.cs(135,6): error CS1513: } expected [S:\Hightech\reactive-datasets\RxDatasets-dotnet\testapps\DTOs\DemodtoV1.Server\DemodtoV1.Server.csproj]
+    0 Warning(s)
+    3 Error(s)
+
+Time Elapsed 00:00:01.81

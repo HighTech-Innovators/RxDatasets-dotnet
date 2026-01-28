@@ -12,13 +12,13 @@ public abstract class StorageTestSpecWithTwoStepInit : StorageTestSpec
         var datasetVersion = datasetReader.GetLatestVersion();
 
         var data = GenerateRandomData(UNIT_KB);
-        await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, cancallationSource.Token);
+        await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, false, cancallationSource.Token);
         datasetVersion++;
 
         //Add new entries until the next snapshot creation
         while (datasetVersion < 25) // 1,11,16,21
         {
-            await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, cancallationSource.Token);
+            await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, false, cancallationSource.Token);
             datasetVersion++;
         }
 
