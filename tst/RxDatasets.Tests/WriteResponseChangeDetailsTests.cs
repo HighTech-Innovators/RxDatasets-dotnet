@@ -353,7 +353,7 @@ public class WriteResponseChangeDetailsTests
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
         var entity = new byte[] { 1, 2, 3 };
 
-        var response = await dataset.Put("test-entity", entity, includeDetailedChanges: true);
+        var response = await dataset.Put("store/12/label/14", entity, includeDetailedChanges: true);
 
         response.NewDatasetVersion.Should().Be(1);
         response.NumAddedEntities.Should().Be(1);
@@ -361,7 +361,7 @@ public class WriteResponseChangeDetailsTests
         response.NumDeletedEntities.Should().Be(0);
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(1);
-        response.DetailedChanges![0].EntityId.Should().Be("test-entity");
+        response.DetailedChanges![0].EntityId.Should().Be("store/12/label/14");
         response.DetailedChanges![0].ChangeType.Should().Be(ChangeType.New);
     }
 
@@ -372,7 +372,7 @@ public class WriteResponseChangeDetailsTests
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
         var entity = new byte[] { 1, 2, 3 };
 
-        var response = await dataset.Put("test-entity", entity, includeDetailedChanges: false);
+        var response = await dataset.Put("store/12/label/14", entity, includeDetailedChanges: false);
 
         response.NewDatasetVersion.Should().Be(1);
         response.NumAddedEntities.Should().Be(1);
@@ -384,14 +384,14 @@ public class WriteResponseChangeDetailsTests
     {
         // Test Delete with includeDetailedChanges=true
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("test-entity", new byte[] { 1, 2, 3 });
+        await dataset.Put("store/12/label/14", new byte[] { 1, 2, 3 });
 
-        var response = await dataset.Delete("test-entity", includeDetailedChanges: true);
+        var response = await dataset.Delete("store/12/label/14", includeDetailedChanges: true);
 
         response.NumDeletedEntities.Should().Be(1);
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(1);
-        response.DetailedChanges![0].EntityId.Should().Be("test-entity");
+        response.DetailedChanges![0].EntityId.Should().Be("store/12/label/14");
         response.DetailedChanges![0].ChangeType.Should().Be(ChangeType.Deleted);
     }
 
@@ -400,9 +400,9 @@ public class WriteResponseChangeDetailsTests
     {
         // Test Delete with includeDetailedChanges=false
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("test-entity", new byte[] { 1, 2, 3 });
+        await dataset.Put("store/12/label/14", new byte[] { 1, 2, 3 });
 
-        var response = await dataset.Delete("test-entity", includeDetailedChanges: false);
+        var response = await dataset.Delete("store/12/label/14", includeDetailedChanges: false);
 
         response.NumDeletedEntities.Should().Be(1);
         response.DetailedChanges.Should().BeNull();
@@ -413,13 +413,13 @@ public class WriteResponseChangeDetailsTests
     {
         // Test DeleteMany with includeDetailedChanges=true
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("entity-1", new byte[] { 1, 2, 3 });
-        await dataset.Put("entity-2", new byte[] { 4, 5, 6 });
+        await dataset.Put("store/12/label/14", new byte[] { 1, 2, 3 });
+        await dataset.Put("store/12/label/15", new byte[] { 4, 5, 6 });
 
         async IAsyncEnumerable<string> GetNames()
         {
-            yield return "entity-1";
-            yield return "entity-2";
+            yield return "store/12/label/14";
+            yield return "store/12/label/15";
             await Task.CompletedTask;
         }
 
@@ -428,8 +428,8 @@ public class WriteResponseChangeDetailsTests
         response.NumDeletedEntities.Should().Be(2);
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(2);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-1" && c.ChangeType == ChangeType.Deleted);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-2" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/14" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/15" && c.ChangeType == ChangeType.Deleted);
     }
 
     [Fact]
@@ -437,13 +437,13 @@ public class WriteResponseChangeDetailsTests
     {
         // Test DeleteMany with includeDetailedChanges=false
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("entity-1", new byte[] { 1, 2, 3 });
-        await dataset.Put("entity-2", new byte[] { 4, 5, 6 });
+        await dataset.Put("store/12/label/14", new byte[] { 1, 2, 3 });
+        await dataset.Put("store/12/label/15", new byte[] { 4, 5, 6 });
 
         async IAsyncEnumerable<string> GetNames()
         {
-            yield return "entity-1";
-            yield return "entity-2";
+            yield return "store/12/label/14";
+            yield return "store/12/label/15";
             await Task.CompletedTask;
         }
 
@@ -461,9 +461,9 @@ public class WriteResponseChangeDetailsTests
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("entity-1", new byte[] { 1, 2, 3 });
-            yield return ("entity-2", new byte[] { 4, 5, 6 });
-            yield return ("entity-3", new byte[] { 7, 8, 9 });
+            yield return ("store/12/label/14", new byte[] { 1, 2, 3 });
+            yield return ("store/12/label/15", new byte[] { 4, 5, 6 });
+            yield return ("store/12/label/16", new byte[] { 7, 8, 9 });
             await Task.CompletedTask;
         }
 
@@ -472,9 +472,9 @@ public class WriteResponseChangeDetailsTests
         response.NumAddedEntities.Should().Be(3);
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(3);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-1" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-2" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-3" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/14" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/15" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/16" && c.ChangeType == ChangeType.New);
     }
 
     [Fact]
@@ -485,8 +485,8 @@ public class WriteResponseChangeDetailsTests
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("entity-1", new byte[] { 1, 2, 3 });
-            yield return ("entity-2", new byte[] { 4, 5, 6 });
+            yield return ("store/12/label/14", new byte[] { 1, 2, 3 });
+            yield return ("store/12/label/15", new byte[] { 4, 5, 6 });
             await Task.CompletedTask;
         }
 
@@ -501,12 +501,12 @@ public class WriteResponseChangeDetailsTests
     {
         // Test PutAll with includeDetailedChanges=true
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("old-entity", new byte[] { 9, 9, 9 });
+        await dataset.Put("store/99/label/99", new byte[] { 9, 9, 9 });
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("new-entity", new byte[] { 1, 2, 3 });
-            yield return ("another-new", new byte[] { 4, 5, 6 });
+            yield return ("store/12/label/14", new byte[] { 1, 2, 3 });
+            yield return ("store/12/label/15", new byte[] { 4, 5, 6 });
             await Task.CompletedTask;
         }
 
@@ -516,9 +516,9 @@ public class WriteResponseChangeDetailsTests
         response.NumDeletedEntities.Should().Be(1); // old-entity implicitly deleted
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(3);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "new-entity" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "another-new" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "old-entity" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/14" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/12/label/15" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "store/99/label/99" && c.ChangeType == ChangeType.Deleted);
     }
 
     [Fact]
@@ -526,11 +526,11 @@ public class WriteResponseChangeDetailsTests
     {
         // Test PutAll with includeDetailedChanges=false
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("old-entity", new byte[] { 9, 9, 9 });
+        await dataset.Put("store/99/label/99", new byte[] { 9, 9, 9 });
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("new-entity", new byte[] { 1, 2, 3 });
+            yield return ("store/12/label/14", new byte[] { 1, 2, 3 });
             await Task.CompletedTask;
         }
 
@@ -545,12 +545,12 @@ public class WriteResponseChangeDetailsTests
         // Test PutAllChildren with includeDetailedChanges=true
         // Note: Using org/123 as the parent path (even number of elements required)
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("org/123/child-old", new byte[] { 9, 9, 9 });
+        await dataset.Put("org/123/child/old", new byte[] { 9, 9, 9 });
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("org/123/child-1", new byte[] { 1, 2, 3 });
-            yield return ("org/123/child-2", new byte[] { 4, 5, 6 });
+            yield return ("org/123/child/new1", new byte[] { 1, 2, 3 });
+            yield return ("org/123/child/new2", new byte[] { 4, 5, 6 });
             await Task.CompletedTask;
         }
 
@@ -560,9 +560,9 @@ public class WriteResponseChangeDetailsTests
         response.NumDeletedEntities.Should().Be(1); // child-old implicitly deleted under org/123
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(3);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-1" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-2" && c.ChangeType == ChangeType.New);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-old" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child/new1" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child/new2" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child/old" && c.ChangeType == ChangeType.Deleted);
     }
 
     [Fact]
@@ -570,11 +570,11 @@ public class WriteResponseChangeDetailsTests
     {
         // Test PutAllChildren with includeDetailedChanges=false
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("org/123/child-old", new byte[] { 9, 9, 9 });
+        await dataset.Put("org/123/child/old", new byte[] { 9, 9, 9 });
 
         async IAsyncEnumerable<(string, byte[])> GetEntities()
         {
-            yield return ("org/123/child-1", new byte[] { 1, 2, 3 });
+            yield return ("org/123/child/new1", new byte[] { 1, 2, 3 });
             await Task.CompletedTask;
         }
 
@@ -589,16 +589,16 @@ public class WriteResponseChangeDetailsTests
         // Test DeleteChildren with includeDetailedChanges=true
         // Note: ancestor must have even number of path elements (e.g., "org/123")
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("org/123/child-1", new byte[] { 1, 2, 3 });
-        await dataset.Put("org/123/child-2", new byte[] { 4, 5, 6 });
+        await dataset.Put("org/123/child/item1", new byte[] { 1, 2, 3 });
+        await dataset.Put("org/123/child/item2", new byte[] { 4, 5, 6 });
 
         var response = await dataset.DeleteChildren("org/123", includeDetailedChanges: true);
 
         response.NumDeletedEntities.Should().Be(2);
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(2);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-1" && c.ChangeType == ChangeType.Deleted);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-2" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child/item1" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child/item2" && c.ChangeType == ChangeType.Deleted);
     }
 
     [Fact]
@@ -607,8 +607,8 @@ public class WriteResponseChangeDetailsTests
         // Test DeleteChildren with includeDetailedChanges=false
         // Note: ancestor must have even number of path elements (e.g., "org/123")
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("org/123/child-1", new byte[] { 1, 2, 3 });
-        await dataset.Put("org/123/child-2", new byte[] { 4, 5, 6 });
+        await dataset.Put("org/123/child/item1", new byte[] { 1, 2, 3 });
+        await dataset.Put("org/123/child/item2", new byte[] { 4, 5, 6 });
 
         var response = await dataset.DeleteChildren("org/123", includeDetailedChanges: false);
 
@@ -621,14 +621,14 @@ public class WriteResponseChangeDetailsTests
     {
         // Test PutOrDeleteMany with includeDetailedChanges=true
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("entity-to-update", new byte[] { 1, 2, 3 });
-        await dataset.Put("entity-to-delete", new byte[] { 4, 5, 6 });
+        await dataset.Put("order/456/item/update", new byte[] { 1, 2, 3 });
+        await dataset.Put("order/456/item/delete", new byte[] { 4, 5, 6 });
 
         async IAsyncEnumerable<(string, byte[]?)> GetChanges()
         {
-            yield return ("entity-to-update", new byte[] { 9, 9, 9 }); // Update
-            yield return ("entity-to-delete", null); // Delete
-            yield return ("entity-to-create", new byte[] { 7, 8, 9 }); // Create
+            yield return ("order/456/item/update", new byte[] { 9, 9, 9 }); // Update
+            yield return ("order/456/item/delete", null); // Delete
+            yield return ("order/456/item/create", new byte[] { 7, 8, 9 }); // Create
             await Task.CompletedTask;
         }
 
@@ -636,9 +636,9 @@ public class WriteResponseChangeDetailsTests
 
         response.DetailedChanges.Should().NotBeNull();
         response.DetailedChanges!.Count.Should().Be(3);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-update" && c.ChangeType == ChangeType.Changed);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-delete" && c.ChangeType == ChangeType.Deleted);
-        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-create" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "order/456/item/update" && c.ChangeType == ChangeType.Changed);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "order/456/item/delete" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "order/456/item/create" && c.ChangeType == ChangeType.New);
     }
 
     [Fact]
@@ -646,12 +646,12 @@ public class WriteResponseChangeDetailsTests
     {
         // Test PutOrDeleteMany with includeDetailedChanges=false
         var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
-        await dataset.Put("entity-to-update", new byte[] { 1, 2, 3 });
+        await dataset.Put("order/456/item/update", new byte[] { 1, 2, 3 });
 
         async IAsyncEnumerable<(string, byte[]?)> GetChanges()
         {
-            yield return ("entity-to-update", new byte[] { 9, 9, 9 });
-            yield return ("entity-to-create", new byte[] { 7, 8, 9 });
+            yield return ("order/456/item/update", new byte[] { 9, 9, 9 });
+            yield return ("order/456/item/create", new byte[] { 7, 8, 9 });
             await Task.CompletedTask;
         }
 
