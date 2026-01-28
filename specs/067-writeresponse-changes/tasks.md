@@ -11,7 +11,7 @@
 
 ## Task Breakdown Overview
 
-**Total Tasks**: 32  
+**Total Tasks**: 50  
 **Phases**: 4 (Proto Setup, Core Implementation, Testing, Documentation)  
 **Estimated Duration**: 3-4 sprints (6-8 weeks)  
 **Dependencies**: Minimal external; builds on existing RxDatasets infrastructure
@@ -20,7 +20,7 @@
 
 - **Phase 1 (Setup)**: 3 tasks - Proto files and project setup
 - **Phase 2 (Implementation)**: 13 tasks - Core feature development
-- **Phase 3 (Testing)**: 12 tasks - Unit and integration testing
+- **Phase 3 (Testing)**: 18 tasks - Unit and integration testing
 - **Phase 4 (Documentation & Release)**: 4 tasks - Final documentation and deployment
 
 ---
