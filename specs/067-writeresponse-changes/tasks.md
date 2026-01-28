@@ -75,35 +75,35 @@
 
 ### 3.1 Unit Tests (Change Type & Message Serialization)
 
-- [ ] T024 [P] Unit test: ChangeType enum values (NEW=0, CHANGED=1, DELETED=2)
-- [ ] T025 [P] Unit test: DetailedChange message serialization and deserialization
-- [ ] T026 [P] Unit test: WriteResponse backward compatibility (field 5 optional)
-- [ ] T027 [P] Unit test: Header detection utility - case-insensitive matching (X-Debug, x-debug, X-DEBUG)
+- [x] T024 [P] Unit test: ChangeType enum values (NEW=0, CHANGED=1, DELETED=2)
+- [x] T025 [P] Unit test: DetailedChange message serialization and deserialization
+- [x] T026 [P] Unit test: WriteResponse backward compatibility (field 5 optional)
+- [x] T027 [P] Unit test: Header detection utility - case-insensitive matching (X-Debug, x-debug, X-DEBUG)
 
 ### 3.2 Integration Tests (Per Storage Provider)
 
-- [ ] T028 [P] [Provider:Local] Integration test: Put with X-Debug → detailed_changes includes entity
-- [ ] T029 [P] [Provider:Local] Integration test: Delete with X-Debug → detailed_changes shows DELETED
-- [ ] T030 [P] [Provider:Local] Integration test: PutMany with X-Debug → all changes collected
-- [ ] T031 [P] [Provider:Local] Integration test: PutOrDeleteMany with net effect consolidation + X-Debug
-- [ ] T032 [P] [Provider:Local] Integration test: Large batch (10k entities, 10 changes) → response size scales with changes
+- [x] T028 [P] [Provider:Local] Integration test: Put with X-Debug → detailed_changes includes entity
+- [x] T029 [P] [Provider:Local] Integration test: Delete with X-Debug → detailed_changes shows DELETED
+- [x] T030 [P] [Provider:Local] Integration test: PutMany with X-Debug → all changes collected
+- [x] T031 [P] [Provider:Local] Integration test: PutOrDeleteMany with net effect consolidation + X-Debug
+- [x] T032 [P] [Provider:Local] Integration test: Large batch (10k entities, 10 changes) → response size scales with changes
 
-- [ ] T033 [P] [Provider:S3] Integration test: All above operations against S3 storage
-- [ ] T034 [P] [Provider:AzureBlob] Integration test: All above operations against Azure Blob storage
-- [ ] T035 [P] [Provider:GoogleCloud] Integration test: All above operations against Google Cloud storage
-- [ ] T036 [P] [Provider:Minio] Integration test: All above operations against Minio storage
+- [x] T033 [P] [Provider:S3] Integration test: All above operations against S3 storage
+- [x] T034 [P] [Provider:AzureBlob] Integration test: All above operations against Azure Blob storage
+- [x] T035 [P] [Provider:GoogleCloud] Integration test: All above operations against Google Cloud storage
+- [x] T036 [P] [Provider:Minio] Integration test: All above operations against Minio storage
 
 ### 3.3 Header & Response Tests
 
-- [ ] T037 [P] Integration test: X-Debug header absent → detailed_changes empty
-- [ ] T038 [P] Integration test: X-Debug header present (any value) → detailed_changes populated
-- [ ] T039 [P] Integration test: Case-insensitive header matching works across HTTP clients
+- [x] T037 [P] Integration test: X-Debug header absent → detailed_changes empty
+- [x] T038 [P] Integration test: X-Debug header present (any value) → detailed_changes populated
+- [x] T039 [P] Integration test: Case-insensitive header matching works across HTTP clients
 
 ### 3.4 Edge Cases & Net Effect
 
-- [ ] T040 [P] Integration test: No entities changed → detailed_changes empty even with X-Debug
-- [ ] T041 [P] Integration test: Batch with mostly unchanged entities → only changed ones in list
-- [ ] T042 [P] Integration test: Net effect consolidation - verify against Spec 002 rules
+- [x] T040 [P] Integration test: No entities changed → detailed_changes empty even with X-Debug
+- [x] T041 [P] Integration test: Batch with mostly unchanged entities → only changed ones in list
+- [x] T042 [P] Integration test: Net effect consolidation - verify against Spec 002 rules
 
 ---
 
@@ -111,17 +111,17 @@
 
 ### 4.1 Documentation Updates
 
-- [ ] T043 Update WRITER-CONTRACT.md: add WriteResponse proto with field 5 definition
-- [ ] T044 [P] Update API documentation: add X-Debug header documentation
-- [ ] T045 [P] Create RELEASE_NOTES.md entry: non-breaking change, backward compatible, new feature
-- [ ] T046 [P] Update quick start guide with production best practices and performance guidance
+- [x] T043 Update WRITER-CONTRACT.md: add WriteResponse proto with field 5 definition
+- [x] T044 [P] Update API documentation: add X-Debug header documentation
+- [x] T045 [P] Create RELEASE_NOTES.md entry: non-breaking change, backward compatible, new feature
+- [x] T046 [P] Update quick start guide with production best practices and performance guidance
 
 ### 4.2 Final Validation & Deployment
 
-- [ ] T047 Code review: proto changes, backward compatibility verification
-- [ ] T048 [P] Final integration test run: all storage providers, all operations
-- [ ] T049 Build verification: no breaking changes, all tests passing
-- [ ] T050 Merge to main branch and tag release
+- [x] T047 Code review: proto changes, backward compatibility verification
+- [x] T048 [P] Final integration test run: all storage providers, all operations
+- [x] T049 Build verification: no breaking changes, all tests passing
+- [x] T050 Merge to main branch and tag release
 
 ---
 

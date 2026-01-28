@@ -26,8 +26,76 @@ message WriteResponse {
   uint32 num_added_entities = 2;   // Count of entities created
   uint32 num_updated_entities = 3; // Count of entities modified
   uint32 num_deleted_entities = 4; // Count of entities deleted
+  repeated DetailedChange detailed_changes = 5;  // Individual entity change details (optional, requires X-Debug header)
+}
+
+enum ChangeType {
+  NEW = 0;          // Entity was newly created
+  CHANGED = 1;      // Entity was modified
+  DELETED = 2;      // Entity was deleted
+}
+
+message DetailedChange {
+  string entity_id = 1;        // Name of the entity that changed
+  ChangeType change_type = 2;  // Type of change (NEW, CHANGED, or DELETED)
 }
 ```
+
+#### Detailed Changes Field (Field 5) - Optional Feature
+
+**Availability**: The `detailed_changes` field is **optional** and populated only when explicitly requested via the **`X-Debug` HTTP header**.
+
+**Header Requirement**:
+- Header name: `X-Debug` (case-insensitive, e.g., `x-debug`, `X-DEBUG`)
+- Header value: Any non-empty value (value is ignored; presence triggers population)
+- Not required: If header is absent, `detailed_changes` is empty
+- Multiple values: First value triggers population
+
+**Behavior**:
+- When `X-Debug` header is **present**: Response includes detailed change information for each modified entity
+- When `X-Debug` header is **absent**: Response does not populate field 5 (defaults to empty list)
+- **Backward Compatible**: Existing clients ignoring field 5 are unaffected
+- **No Version Change**: This is a non-breaking change; protocol version remains unchanged
+
+**Change Tracking Details**:
+- Each entry in `detailed_changes` represents one entity modification
+- Three change types are reported: `NEW` (created), `CHANGED` (updated), `DELETED` (deleted)
+- Unchanged entities are not included in the list
+- For `PutOrDeleteMany` with net effect consolidation, only the final state is reported
+
+**Example Responses**:
+
+*Without X-Debug header* (or with empty detailed_changes):
+```protobuf
+WriteResponse {
+  new_dataset_version: 42
+  num_added_entities: 1
+  num_updated_entities: 2
+  num_deleted_entities: 1
+  detailed_changes: []  // Empty because X-Debug header was not provided
+}
+```
+
+*With X-Debug header*:
+```protobuf
+WriteResponse {
+  new_dataset_version: 42
+  num_added_entities: 1
+  num_updated_entities: 2
+  num_deleted_entities: 1
+  detailed_changes: [
+    DetailedChange { entity_id: "user/new-user-123", change_type: NEW },
+    DetailedChange { entity_id: "user/existing-user-456", change_type: CHANGED },
+    DetailedChange { entity_id: "user/another-user-789", change_type: CHANGED },
+    DetailedChange { entity_id: "order/old-order-001", change_type: DELETED }
+  ]
+}
+```
+
+**Performance Impact**:
+- Without `X-Debug` header: Baseline performance (~<50ms for typical operations)
+- With `X-Debug` header: Minimal overhead for change tracking (~<100ms for <1000 entities)
+- Large batches (10k+ entities): Response size scales with number of changes, not total batch size
 
 ### Universal Behavioral Rules
 
@@ -43,6 +111,14 @@ message WriteResponse {
 - **Content-Based**: Change detection uses CRC32 comparison of entity byte content
 - **Idempotency**: Re-applying identical content reports no change
 - **Delete Idempotency**: Deleting non-existent or already-deleted entities is ignored (no-op)
+
+#### Detailed Change Tracking (Optional)
+
+- **X-Debug Header Control**: Detailed change tracking is enabled by the `X-Debug` HTTP header
+- **Case-Insensitive Matching**: Header name matching is case-insensitive (`X-Debug`, `x-debug`, `X-DEBUG`)
+- **Presence-Based Triggering**: Header presence triggers population regardless of value
+- **Optional Field**: Field 5 (`detailed_changes`) is optional; absent header results in empty list
+- **Per-Operation**: Change tracking is evaluated per operation call (each Put, Delete, etc.)
 
 #### Entity Naming
 
@@ -101,6 +177,7 @@ message Entity {
 - Single entity operation
 - Name validation enforced
 - CRC32-based change detection
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed change in `detailed_changes` field
 
 ---
 
@@ -125,6 +202,7 @@ message DeleteRequest {
 
 - Single entity operation
 - Silent on non-existent entities
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed change in `detailed_changes` field
 
 ---
 
@@ -148,6 +226,7 @@ rpc PutMany(stream Entity) returns (WriteResponse);
 - Name validation per entity (invalid names logged and skipped)
 - CRC32-based change detection per entity
 - Operations on same entity: last occurrence wins
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes for all modified entities
 
 ---
 
@@ -172,6 +251,7 @@ rpc PutAll(stream Entity) returns (WriteResponse);
 - CRC32-based change detection
 - Entities not in stream but in dataset → deleted
 - Operations on same entity: last occurrence wins
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes for all modified/deleted entities
 
 ---
 
@@ -197,6 +277,7 @@ rpc PutAllChildren(stream Entity) returns (WriteResponse);
 - Parent = entity name with last `/{kind}/{id}` removed
 - Deletes descendants of identified parents not present in stream
 - Operations on same entity: last occurrence wins
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes for all modified/deleted children
 
 ---
 
@@ -218,6 +299,7 @@ rpc DeleteMany(stream DeleteRequest) returns (WriteResponse);
 - Streaming batch operation
 - Silent no-ops for non-existent entities
 - Operations on same entity: last delete wins (still results in delete)
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes for all deleted entities
 
 ---
 
@@ -245,6 +327,7 @@ message DeleteChildrenRequest {
 - Automatically appends `/` to ancestor if not present
 - `ArgumentException` if ancestor has odd number of path segments
 - Silent no-ops for already-deleted descendants
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes for all deleted descendants
 
 ---
 
@@ -281,6 +364,7 @@ message PutOrDelete {
 - Delete then put different → update
 - Put then delete → delete
 - Multiple puts → last put determines final state
+- **X-Debug Support**: If `X-Debug` header is present, response includes detailed changes (only reporting net effect, not intermediate operations)
 
 **Net Effect Examples**:
 
