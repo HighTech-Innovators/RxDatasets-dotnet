@@ -29,11 +29,11 @@
 
 ### Setup Tasks
 
-- [ ] T001 Create ChangeType enum definition in proto files with values NEW=0, CHANGED=1, DELETED=2
-- [ ] T002 Create DetailedChange proto message with entity_id (string) and change_type (ChangeType) fields
-- [ ] T003 [P] Extend WriteResponse proto with field 5: repeated DetailedChange detailed_changes
-- [ ] T004 [P] Verify proto changes and regenerate C# code via `dotnet build`
-- [ ] T005 [P] Add testing references: Google.Protobuf test utilities, xUnit, integration test helpers
+- [x] T001 Create ChangeType enum definition in proto files with values NEW=0, CHANGED=1, DELETED=2
+- [x] T002 Create DetailedChange proto message with entity_id (string) and change_type (ChangeType) fields
+- [x] T003 [P] Extend WriteResponse proto with field 5: repeated DetailedChange detailed_changes
+- [x] T004 [P] Verify proto changes and regenerate C# code via `dotnet build`
+- [x] T005 [P] Add testing references: Google.Protobuf test utilities, xUnit, integration test helpers
 
 ---
 
@@ -41,17 +41,17 @@
 
 ### 2.1 Data Model & Change Tracking
 
-- [ ] T006 Create DetailedChange model class in src/RxDatasets/Models/ if not auto-generated
-- [ ] T007 [P] Implement change tracking logic: identify newly created entities (didn't exist → exists)
-- [ ] T008 [P] Implement change tracking logic: identify updated entities (CRC32 differs)
-- [ ] T009 [P] Implement change tracking logic: identify deleted entities (existed → deleted)
-- [ ] T010 [P] Implement filtering logic to exclude unchanged entities from detailed_changes list
+- [x] T006 Create DetailedChange model class in src/RxDatasets/Models/ if not auto-generated
+- [x] T007 [P] Implement change tracking logic: identify newly created entities (didn't exist → exists)
+- [x] T008 [P] Implement change tracking logic: identify updated entities (CRC32 differs)
+- [x] T009 [P] Implement change tracking logic: identify deleted entities (existed → deleted)
+- [x] T010 [P] Implement filtering logic to exclude unchanged entities from detailed_changes list
 
 ### 2.2 Header Detection & Service Layer
 
 - [ ] T011 Implement X-Debug header detection in GrpcReaderServiceImpl.cs (case-insensitive matching)
 - [ ] T012 [P] Implement X-Debug header detection in DtoServerBuilder.cs (testhost HTTP requests)
-- [ ] T013 [P] Create shared header detection utility: ExtractXDebugHeader() method, case-insensitive, reusable
+- [x] T013 [P] Create shared header detection utility: ExtractXDebugHeader() method, case-insensitive, reusable
 
 ### 2.3 Write Operation Implementation
 

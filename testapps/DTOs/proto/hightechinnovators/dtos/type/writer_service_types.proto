@@ -7,11 +7,23 @@ option java_outer_classname = "WriterServiceTypesProto";
 option java_package = "com.hightechinnovators.dtos.type";
 option csharp_namespace = "Hightechinnovators.Dtos.Type";
 
+enum ChangeType {
+  NEW = 0;
+  CHANGED = 1;
+  DELETED = 2;
+}
+
+message DetailedChange {
+  string entity_id = 1;
+  ChangeType change_type = 2;
+}
+
 message WriteResponse {
     uint64 new_dataset_version = 1;
     uint32 num_added_entities = 2;
     uint32 num_updated_entities = 3;
     uint32 num_deleted_entities = 4;
+    repeated DetailedChange detailed_changes = 5;
 }
 
 message DeleteRequest {
