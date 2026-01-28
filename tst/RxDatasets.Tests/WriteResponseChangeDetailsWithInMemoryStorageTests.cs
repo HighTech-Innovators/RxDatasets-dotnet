@@ -5,8 +5,6 @@ using NSubstitute;
 using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
-using RxDatasets.StorageProviders;
-using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.Tests;
 
@@ -23,43 +21,23 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
 
     private static async Task<DatasetWriter<byte[]>> CreateDatasetWriterWithInMemoryStorage()
     {
-        // Create the low-level in-memory storage
-        var storageLogger = Substitute.For<ILogger<LowLevelInMemoryStorage<byte[]>>>();
-        var storage = new LowLevelInMemoryStorage<byte[]>(storageLogger);
-
         // Create the notifications hub
         var notificationsHub = new NotificationsHubSync<byte[]>();
 
-        // Create read-only storage adapter
-        var storageConfig = Options.Create(new StorageConfig());
-        var readOnlyStorageLogger = Substitute.For<ILogger<ObjectStorageReader<byte[]>>>();
-        var readOnlyStorage = new ObjectStorageReader<byte[]>(readOnlyStorageLogger, storageConfig, storage);
+        // Create simple in-memory storage provider
+        var storageLogger = Substitute.For<ILogger<InMemoryStorageProvider<byte[]>>>();
+        var storageProvider = new InMemoryStorageProvider<byte[]>(storageLogger);
 
-        // Create persistent storage provider wrapping the in-memory storage
-        var providerLogger = Substitute.For<ILogger<ObjectStorageProvider<byte[]>>>();
-        var persistentStorageProvider = new ObjectStorageProvider<byte[]>(
-            providerLogger,
-            storageConfig,
-            storage,
-            notificationsHub,
-            readOnlyStorage,
-            false
-        );
-
-        // Create DatasetWriter with the storage provider
+        // Create DatasetWriter with the in-memory storage provider
         var writerLogger = Substitute.For<ILogger<DatasetWriter<byte[]>>>();
         var writerConfig = Options.Create(new WriterConfig());
         var writer = new DatasetWriter<byte[]>(
             notificationsHub,
             writerLogger,
-            persistentStorageProvider,
+            storageProvider,
             writerConfig,
             retryInitialization: false
         );
-
-        // Initialize the writer
-        await persistentStorageProvider.StartAsync(CancellationToken.None);
-        await writer.InitializationTask;
 
         return writer;
     }
