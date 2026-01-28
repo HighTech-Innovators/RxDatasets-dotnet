@@ -39,14 +39,12 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
             retryInitialization: false
         );
 
-        // Wait a bit for the provider's readiness notification to be sent and processed
-        await Task.Delay(1000);
+        // Wait for initialization task to be set and then await it
+        var timeout = DateTime.UtcNow.AddSeconds(5);
+        while (writer.InitializationTask == null && DateTime.UtcNow < timeout)
+            await Task.Delay(1);
 
-        // Wait for initialization
-        if (writer.InitializationTask != null)
-        {
-            await writer.InitializationTask;
-        }
+        await writer.InitializationTask;
 
         return writer;
     }

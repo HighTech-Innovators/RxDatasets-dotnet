@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.GenericNotifierLogic;
@@ -13,9 +14,8 @@ namespace RxDatasets.Tests;
 public class InMemoryStorageProvider<T> : IStorageProvider<T>
 {
     private readonly ILogger<InMemoryStorageProvider<T>> _logger;
-    private readonly Dictionary<string, ReadOnlyMemory<byte>> _storage = new();
-    private readonly Dictionary<string, ulong> _processedVersions = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, ReadOnlyMemory<byte>> _storage = new();
+    private readonly ConcurrentDictionary<string, ulong> _processedVersions = new();
     private readonly INotificationsHub<T>? _notificationsHub;
 
     public InMemoryStorageProvider(ILogger<InMemoryStorageProvider<T>> logger, INotificationsHub<T>? notificationsHub = null)
@@ -23,15 +23,8 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         _logger = logger;
         _notificationsHub = notificationsHub;
         
-        // Broadcast readiness after a longer delay to ensure subscribers are attached
-        if (_notificationsHub != null)
-        {
-            Task.Run(async () =>
-            {
-                await Task.Delay(500); // Longer delay to ensure subscribers are ready
-                await _notificationsHub.Notify(new StorageProviderReadinessNotifcation { ServiceStatus = ServiceStatus.Ready });
-            });
-        }
+        // Broadcast readiness
+        _ = _notificationsHub?.Notify(new StorageProviderReadinessNotifcation { ServiceStatus = ServiceStatus.Ready });
     }
 
     #region IStorageProviderReader Implementation
@@ -39,12 +32,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
         var key = $"delta:{version}:index";
-        lock (_lock)
+        if (_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var data))
-            {
-                return Task.FromResult(data);
-            }
+            return Task.FromResult(data);
         }
         throw new FileNotFoundException($"Delta index not found: v{version}");
     }
@@ -52,12 +42,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
         var key = $"snapshot:{version}:index";
-        lock (_lock)
+        if (_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var data))
-            {
-                return Task.FromResult(data);
-            }
+            return Task.FromResult(data);
         }
         throw new FileNotFoundException($"Snapshot index not found: v{version}");
     }
@@ -65,14 +52,11 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task ReadSnapshotData(ulong snapshotVersion, Action<Stream> callback)
     {
         var key = $"snapshot:{snapshotVersion}:data";
-        lock (_lock)
+        if (_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var data))
-            {
-                using var stream = new MemoryStream(data.ToArray());
-                callback(stream);
-                return Task.CompletedTask;
-            }
+            using var stream = new MemoryStream(data.ToArray());
+            callback(stream);
+            return Task.CompletedTask;
         }
         throw new FileNotFoundException($"Snapshot data not found: v{snapshotVersion}");
     }
@@ -80,17 +64,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public async Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
     {
         var key = $"snapshot:{snapshotVersion}:data";
-        ReadOnlyMemory<byte> data;
-        lock (_lock)
+        if (!_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var found))
-            {
-                data = found;
-            }
-            else
-            {
-                throw new FileNotFoundException($"Snapshot data not found: v{snapshotVersion}");
-            }
+            throw new FileNotFoundException($"Snapshot data not found: v{snapshotVersion}");
         }
         using var stream = new MemoryStream(data.ToArray());
         await asyncCallback(stream);
@@ -99,38 +75,32 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
         var key = $"snapshot:{snapshotVersion}:data";
-        lock (_lock)
+        if (_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var data))
-            {
-                return Task.FromResult(data);
-            }
+            return Task.FromResult(data);
         }
         throw new FileNotFoundException($"Snapshot data not found: v{snapshotVersion}");
     }
 
     public Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
-        lock (_lock)
-        {
-            var deltas = _storage.Keys
-                .Where(k => k.StartsWith("delta:", StringComparison.Ordinal))
-                .Select(k => ulong.Parse(k.Split(':')[1]))
-                .Distinct()
-                .ToList();
+        var deltas = _storage.Keys
+            .Where(k => k.StartsWith("delta:", StringComparison.Ordinal))
+            .Select(k => ulong.Parse(k.Split(':')[1]))
+            .Distinct()
+            .ToList();
 
-            var snapshots = _storage.Keys
-                .Where(k => k.StartsWith("snapshot:", StringComparison.Ordinal))
-                .Select(k => ulong.Parse(k.Split(':')[1]))
-                .Distinct()
-                .Select(v => new SnapshotType(v, null))
-                .ToList();
+        var snapshots = _storage.Keys
+            .Where(k => k.StartsWith("snapshot:", StringComparison.Ordinal))
+            .Select(k => ulong.Parse(k.Split(':')[1]))
+            .Distinct()
+            .Select(v => new SnapshotType(v, null))
+            .ToList();
 
-            var oldestDelta = deltas.Count > 0 ? deltas.Min() : 0;
-            var newestDelta = deltas.Count > 0 ? deltas.Max() : 0;
+        var oldestDelta = deltas.Count > 0 ? deltas.Min() : 0;
+        var newestDelta = deltas.Count > 0 ? deltas.Max() : 0;
 
-            return Task.FromResult((oldestDelta, newestDelta, snapshots));
-        }
+        return Task.FromResult((oldestDelta, newestDelta, snapshots));
     }
 
     public Task<ReadOnlyMemory<byte>> ReadDataFromSources(
@@ -139,27 +109,24 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         var buffer = new byte[length];
         var position = 0;
 
-        lock (_lock)
+        foreach (var (type, version, offset) in sources)
         {
-            foreach (var (type, version, offset) in sources)
+            var key = type switch
             {
-                var key = type switch
-                {
-                    ObjectNameTypeEnum.Delta => $"delta:{version}:data",
-                    ObjectNameTypeEnum.Snapshot => $"snapshot:{version}:data",
-                    _ => throw new InvalidOperationException($"Unknown type: {type}")
-                };
+                ObjectNameTypeEnum.Delta => $"delta:{version}:data",
+                ObjectNameTypeEnum.Snapshot => $"snapshot:{version}:data",
+                _ => throw new InvalidOperationException($"Unknown type: {type}")
+            };
 
-                if (!_storage.TryGetValue(key, out var data))
-                {
-                    throw new FileNotFoundException($"Data not found: {key}");
-                }
-
-                var dataArray = data.ToArray();
-                var toCopy = Math.Min(length - position, dataArray.Length - (int)offset);
-                Array.Copy(dataArray, offset, buffer, position, toCopy);
-                position += toCopy;
+            if (!_storage.TryGetValue(key, out var data))
+            {
+                throw new FileNotFoundException($"Data not found: {key}");
             }
+
+            var dataArray = data.ToArray();
+            var toCopy = Math.Min(length - position, dataArray.Length - (int)offset);
+            Array.Copy(dataArray, offset, buffer, position, toCopy);
+            position += toCopy;
         }
 
         return Task.FromResult(new ReadOnlyMemory<byte>(buffer, 0, position));
@@ -168,12 +135,9 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var key = $"snapshot:{snapshotVersion}:data";
-        lock (_lock)
+        if (_storage.TryGetValue(key, out var data))
         {
-            if (_storage.TryGetValue(key, out var data))
-            {
-                return Task.FromResult((long)data.Length);
-            }
+            return Task.FromResult((long)data.Length);
         }
         throw new FileNotFoundException($"Snapshot data not found: v{snapshotVersion}");
     }
@@ -184,65 +148,56 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
 
     public Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
-        lock (_lock)
-        {
-            _storage[$"snapshot:{snapshotVersion}:index"] = new ReadOnlyMemory<byte>(index);
-            _storage[$"snapshot:{snapshotVersion}:data"] = new ReadOnlyMemory<byte>(data);
-        }
+        _storage[$"snapshot:{snapshotVersion}:index"] = new ReadOnlyMemory<byte>(index);
+        _storage[$"snapshot:{snapshotVersion}:data"] = new ReadOnlyMemory<byte>(data);
         _logger.LogInformation($"Stored snapshot v{snapshotVersion}");
         return Task.CompletedTask;
     }
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
-        var buffer = new byte[data.Length];
-        _ = await data.ReadAsync(buffer, 0, (int)data.Length);
-        await StoreSnapshot(snapshotVersion, index, buffer);
+        using var ms = new MemoryStream();
+        await data.CopyToAsync(ms);
+        await StoreSnapshot(snapshotVersion, index, ms.ToArray());
     }
 
     public Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
-        lock (_lock)
-        {
-            _storage[$"delta:{deltaVersion}:index"] = new ReadOnlyMemory<byte>(index);
-            _storage[$"delta:{deltaVersion}:data"] = new ReadOnlyMemory<byte>(data);
-        }
+        _storage[$"delta:{deltaVersion}:index"] = new ReadOnlyMemory<byte>(index);
+        _storage[$"delta:{deltaVersion}:data"] = new ReadOnlyMemory<byte>(data);
         _logger.LogInformation($"Stored delta v{deltaVersion}");
         return Task.CompletedTask;
     }
 
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
-        var buffer = new byte[data.Length];
-        _ = await data.ReadAsync(buffer, 0, (int)data.Length);
-        await StoreDelta(deltaVersion, index, buffer);
+        using var ms = new MemoryStream();
+        await data.CopyToAsync(ms);
+        await StoreDelta(deltaVersion, index, ms.ToArray());
     }
 
     public Task DeleteOlderThan(ulong snapshotVersion, bool keepAllDeltas = false)
     {
-        lock (_lock)
-        {
-            var keysToDelete = _storage.Keys
-                .Where(k =>
-                {
-                    if (k.StartsWith("snapshot:", StringComparison.Ordinal))
-                    {
-                        var version = ulong.Parse(k.Split(':')[1]);
-                        return version < snapshotVersion;
-                    }
-                    if (k.StartsWith("delta:", StringComparison.Ordinal) && !keepAllDeltas)
-                    {
-                        var version = ulong.Parse(k.Split(':')[1]);
-                        return version < snapshotVersion;
-                    }
-                    return false;
-                })
-                .ToList();
-
-            foreach (var key in keysToDelete)
+        var keysToDelete = _storage.Keys
+            .Where(k =>
             {
-                _storage.Remove(key);
-            }
+                if (k.StartsWith("snapshot:", StringComparison.Ordinal))
+                {
+                    var version = ulong.Parse(k.Split(':')[1]);
+                    return version < snapshotVersion;
+                }
+                if (k.StartsWith("delta:", StringComparison.Ordinal) && !keepAllDeltas)
+                {
+                    var version = ulong.Parse(k.Split(':')[1]);
+                    return version < snapshotVersion;
+                }
+                return false;
+            })
+            .ToList();
+
+        foreach (var key in keysToDelete)
+        {
+            _storage.TryRemove(key, out _);
         }
         _logger.LogInformation($"Deleted versions older than {snapshotVersion}");
         return Task.CompletedTask;
@@ -250,10 +205,7 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
 
     public Task StoreProcessedVersion(string who, ulong version)
     {
-        lock (_lock)
-        {
-            _processedVersions[who] = version;
-        }
+        _processedVersions[who] = version;
         return Task.CompletedTask;
     }
 
@@ -263,26 +215,20 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
 
     public Task<ulong> GetProcessedVersion(string who)
     {
-        lock (_lock)
+        if (_processedVersions.TryGetValue(who, out var version))
         {
-            if (_processedVersions.TryGetValue(who, out var version))
-            {
-                return Task.FromResult(version);
-            }
+            return Task.FromResult(version);
         }
         return Task.FromResult(0UL);
     }
 
     public Task<ulong> GetLowestProcessedVersion()
     {
-        lock (_lock)
+        if (_processedVersions.IsEmpty)
         {
-            if (_processedVersions.Count == 0)
-            {
-                return Task.FromResult(0UL);
-            }
-            return Task.FromResult(_processedVersions.Values.Min());
+            return Task.FromResult(0UL);
         }
+        return Task.FromResult(_processedVersions.Values.Min());
     }
 
     #endregion
