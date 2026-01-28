@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.InMemoryDataset\RxDatasets.InMemoryDataset.csproj" />
+    <ProjectReference Include="..\RxDatasets.StorageProvider.InMemoryProvider\RxDatasets.StorageProvider.InMemoryProvider.csproj" />
   </ItemGroup>
 
 </Project>
