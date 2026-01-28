@@ -1,4 +1,6 @@
+using FluentAssertions;
 using Grpc.Core;
+using RxDatasets.Abstractions;
 
 namespace RxDatasets.Tests;
 
@@ -336,4 +338,329 @@ public class WriteResponseChangeDetailsTests
     }
 
     #endregion
+
+    #region E2E Tests: InMemoryDataset and DatasetWriter Integration
+
+    /// <summary>
+    /// End-to-end tests validating that each writer operation correctly populates
+    /// detailed_changes when includeDetailedChanges=true, and null/empty when false.
+    /// </summary>
+
+    [Fact]
+    public async Task E2E_Put_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test Put with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        var entity = new byte[] { 1, 2, 3 };
+
+        var response = await dataset.Put("test-entity", entity, includeDetailedChanges: true);
+
+        response.NewDatasetVersion.Should().Be(1);
+        response.NumAddedEntities.Should().Be(1);
+        response.NumUpdatedEntities.Should().Be(0);
+        response.NumDeletedEntities.Should().Be(0);
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(1);
+        response.DetailedChanges![0].EntityId.Should().Be("test-entity");
+        response.DetailedChanges![0].ChangeType.Should().Be(ChangeType.New);
+    }
+
+    [Fact]
+    public async Task E2E_Put_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test Put with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        var entity = new byte[] { 1, 2, 3 };
+
+        var response = await dataset.Put("test-entity", entity, includeDetailedChanges: false);
+
+        response.NewDatasetVersion.Should().Be(1);
+        response.NumAddedEntities.Should().Be(1);
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_Delete_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test Delete with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("test-entity", new byte[] { 1, 2, 3 });
+
+        var response = await dataset.Delete("test-entity", includeDetailedChanges: true);
+
+        response.NumDeletedEntities.Should().Be(1);
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(1);
+        response.DetailedChanges![0].EntityId.Should().Be("test-entity");
+        response.DetailedChanges![0].ChangeType.Should().Be(ChangeType.Deleted);
+    }
+
+    [Fact]
+    public async Task E2E_Delete_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test Delete with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("test-entity", new byte[] { 1, 2, 3 });
+
+        var response = await dataset.Delete("test-entity", includeDetailedChanges: false);
+
+        response.NumDeletedEntities.Should().Be(1);
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_DeleteMany_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test DeleteMany with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("entity-1", new byte[] { 1, 2, 3 });
+        await dataset.Put("entity-2", new byte[] { 4, 5, 6 });
+
+        async IAsyncEnumerable<string> GetNames()
+        {
+            yield return "entity-1";
+            yield return "entity-2";
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.DeleteMany(GetNames(), includeDetailedChanges: true);
+
+        response.NumDeletedEntities.Should().Be(2);
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(2);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-1" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-2" && c.ChangeType == ChangeType.Deleted);
+    }
+
+    [Fact]
+    public async Task E2E_DeleteMany_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test DeleteMany with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("entity-1", new byte[] { 1, 2, 3 });
+        await dataset.Put("entity-2", new byte[] { 4, 5, 6 });
+
+        async IAsyncEnumerable<string> GetNames()
+        {
+            yield return "entity-1";
+            yield return "entity-2";
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.DeleteMany(GetNames(), includeDetailedChanges: false);
+
+        response.NumDeletedEntities.Should().Be(2);
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_PutMany_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test PutMany with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("entity-1", new byte[] { 1, 2, 3 });
+            yield return ("entity-2", new byte[] { 4, 5, 6 });
+            yield return ("entity-3", new byte[] { 7, 8, 9 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutMany(GetEntities(), includeDetailedChanges: true);
+
+        response.NumAddedEntities.Should().Be(3);
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(3);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-1" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-2" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-3" && c.ChangeType == ChangeType.New);
+    }
+
+    [Fact]
+    public async Task E2E_PutMany_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test PutMany with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("entity-1", new byte[] { 1, 2, 3 });
+            yield return ("entity-2", new byte[] { 4, 5, 6 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutMany(GetEntities(), includeDetailedChanges: false);
+
+        response.NumAddedEntities.Should().Be(2);
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_PutAll_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test PutAll with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("old-entity", new byte[] { 9, 9, 9 });
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("new-entity", new byte[] { 1, 2, 3 });
+            yield return ("another-new", new byte[] { 4, 5, 6 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutAll(GetEntities(), includeDetailedChanges: true);
+
+        response.NumAddedEntities.Should().Be(2);
+        response.NumDeletedEntities.Should().Be(1); // old-entity implicitly deleted
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(3);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "new-entity" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "another-new" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "old-entity" && c.ChangeType == ChangeType.Deleted);
+    }
+
+    [Fact]
+    public async Task E2E_PutAll_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test PutAll with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("old-entity", new byte[] { 9, 9, 9 });
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("new-entity", new byte[] { 1, 2, 3 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutAll(GetEntities(), includeDetailedChanges: false);
+
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_PutAllChildren_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test PutAllChildren with includeDetailedChanges=true
+        // Note: Using org/123 as the parent path (even number of elements required)
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("org/123/child-old", new byte[] { 9, 9, 9 });
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("org/123/child-1", new byte[] { 1, 2, 3 });
+            yield return ("org/123/child-2", new byte[] { 4, 5, 6 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutAllChildren(GetEntities(), includeDetailedChanges: true);
+
+        response.NumAddedEntities.Should().Be(2);
+        response.NumDeletedEntities.Should().Be(1); // child-old implicitly deleted under org/123
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(3);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-1" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-2" && c.ChangeType == ChangeType.New);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-old" && c.ChangeType == ChangeType.Deleted);
+    }
+
+    [Fact]
+    public async Task E2E_PutAllChildren_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test PutAllChildren with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("org/123/child-old", new byte[] { 9, 9, 9 });
+
+        async IAsyncEnumerable<(string, byte[])> GetEntities()
+        {
+            yield return ("org/123/child-1", new byte[] { 1, 2, 3 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutAllChildren(GetEntities(), includeDetailedChanges: false);
+
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_DeleteChildren_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test DeleteChildren with includeDetailedChanges=true
+        // Note: ancestor must have even number of path elements (e.g., "org/123")
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("org/123/child-1", new byte[] { 1, 2, 3 });
+        await dataset.Put("org/123/child-2", new byte[] { 4, 5, 6 });
+
+        var response = await dataset.DeleteChildren("org/123", includeDetailedChanges: true);
+
+        response.NumDeletedEntities.Should().Be(2);
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(2);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-1" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "org/123/child-2" && c.ChangeType == ChangeType.Deleted);
+    }
+
+    [Fact]
+    public async Task E2E_DeleteChildren_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test DeleteChildren with includeDetailedChanges=false
+        // Note: ancestor must have even number of path elements (e.g., "org/123")
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("org/123/child-1", new byte[] { 1, 2, 3 });
+        await dataset.Put("org/123/child-2", new byte[] { 4, 5, 6 });
+
+        var response = await dataset.DeleteChildren("org/123", includeDetailedChanges: false);
+
+        response.NumDeletedEntities.Should().Be(2);
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task E2E_PutOrDeleteMany_IncludeDetailedChanges_True_PopulatesChanges()
+    {
+        // Test PutOrDeleteMany with includeDetailedChanges=true
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("entity-to-update", new byte[] { 1, 2, 3 });
+        await dataset.Put("entity-to-delete", new byte[] { 4, 5, 6 });
+
+        async IAsyncEnumerable<(string, byte[]?)> GetChanges()
+        {
+            yield return ("entity-to-update", new byte[] { 9, 9, 9 }); // Update
+            yield return ("entity-to-delete", null); // Delete
+            yield return ("entity-to-create", new byte[] { 7, 8, 9 }); // Create
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutOrDeleteMany(GetChanges(), includeDetailedChanges: true);
+
+        response.DetailedChanges.Should().NotBeNull();
+        response.DetailedChanges!.Count.Should().Be(3);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-update" && c.ChangeType == ChangeType.Changed);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-delete" && c.ChangeType == ChangeType.Deleted);
+        response.DetailedChanges!.Should().Contain(c => c.EntityId == "entity-to-create" && c.ChangeType == ChangeType.New);
+    }
+
+    [Fact]
+    public async Task E2E_PutOrDeleteMany_IncludeDetailedChanges_False_ReturnsNull()
+    {
+        // Test PutOrDeleteMany with includeDetailedChanges=false
+        var dataset = new RxDatasets.InMemoryDataset.InMemoryDataset<TestEntity>();
+        await dataset.Put("entity-to-update", new byte[] { 1, 2, 3 });
+
+        async IAsyncEnumerable<(string, byte[]?)> GetChanges()
+        {
+            yield return ("entity-to-update", new byte[] { 9, 9, 9 });
+            yield return ("entity-to-create", new byte[] { 7, 8, 9 });
+            await Task.CompletedTask;
+        }
+
+        var response = await dataset.PutOrDeleteMany(GetChanges(), includeDetailedChanges: false);
+
+        response.DetailedChanges.Should().BeNull();
+    }
+
+    #endregion
+
+    private class TestEntity { }
 }
