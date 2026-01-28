@@ -39,6 +39,12 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
             retryInitialization: false
         );
 
+        // Wait for initialization
+        if (writer.InitializationTask != null)
+        {
+            await writer.InitializationTask;
+        }
+
         return writer;
     }
 
