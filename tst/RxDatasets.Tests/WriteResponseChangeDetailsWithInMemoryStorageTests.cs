@@ -57,6 +57,10 @@ public class WriteResponseChangeDetailsWithInMemoryStorageTests
             retryInitialization: false
         );
 
+        // Initialize the writer
+        await persistentStorageProvider.StartAsync(CancellationToken.None);
+        await writer.InitializationTask;
+
         return writer;
     }
 
