@@ -574,8 +574,9 @@ public class DistributedLockServiceTests : IDisposable
         // Assert
         // Lock should be released (Yielded)
         await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(1), 200);
-        
+
         service.HasLock.Should().BeFalse();
+        _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Lost);
     }
 
     [Fact]

@@ -90,6 +90,10 @@ namespace RxDatasets.BackgroundServices
                         if (await ShouldYieldAsync())
                         {
                             await ReleaseLockAsync();
+                            if (!HasLock)
+                            {
+                                await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
+                            }
                             ChangeState(LockServiceState.Yielded, "Yielding lock due to request from another instance");
                             _lastYieldTime = _clock.UtcNow;
                         }
