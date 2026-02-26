@@ -1,9 +1,9 @@
 # REFS
 # Optional support for using a private 'proxy' registry
 ARG REGISTRY_PREFIX=
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:9.0 AS sdk8
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:10.0 AS sdk10
 
-FROM sdk8 AS sonarqube-prepare
+FROM sdk10 AS sonarqube-prepare
 
 # Install Java (OpenJDK 17)
 RUN apt-get update && \
@@ -97,7 +97,7 @@ RUN dotnet sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
 ###########################################################################################################
 ###########################################################################################################
 
-FROM sdk8 AS sonarqube-report
+FROM sdk10 AS sonarqube-report
 
 # Set environment variables for SonarQube
 ARG SONAR_PROJECT_KEY
@@ -119,4 +119,3 @@ RUN curl -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}/api/issues/gitlab_sast_export?p
 ###########################################################################################################
 FROM scratch AS sonar-report-downloader
 COPY --from=sonarqube-report /output /
-
