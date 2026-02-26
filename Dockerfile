@@ -1,15 +1,15 @@
 ﻿# REFS
 # Optional support for using a private 'proxy' registry
 ARG REGISTRY_PREFIX=
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:9.0 AS sdk9base
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/aspnet:9.0 AS aspnet9
-FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/runtime:9.0 AS runtime9
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:10.0 AS sdk10base
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/aspnet:10.0 AS aspnet10
+FROM ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/runtime:10.0 AS runtime10
 FROM ${REGISTRY_PREFIX}ghcr.io/tarampampam/curl:8.15.0 AS curl
 
 #
 # Override the protoc from Grpc.Tools as it won't work on arm64
 #
-FROM sdk9base AS sdk9
+FROM sdk10base AS sdk10
 RUN apt-get update && \
     apt-get install -y --no-install-recommends protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
@@ -18,7 +18,7 @@ ENV PROTOBUF_PROTOC=/usr/bin/protoc
 #
 #  Nuget config image
 #
-FROM sdk9 AS nuget-config
+FROM sdk10 AS nuget-config
 
 # Optional support for 1 private package source without auth
 ARG PRIVATE_NUGET=""
@@ -50,7 +50,7 @@ RUN if [ -n "${NUGET_PROXY}" ]; \
 #
 #  Pre-restore tool image
 #
-FROM sdk9 AS prepare-restore-tool
+FROM sdk10 AS prepare-restore-tool
 
 COPY --from=nuget-config /root/.nuget/NuGet/NuGet.Config ./nuget.config
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
@@ -59,7 +59,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 ##
 #  Pre-restore image
 #
-FROM sdk9 AS prepare-restore-files
+FROM sdk10 AS prepare-restore-files
 
 ENV PATH="${PATH}:/root/.dotnet/tools"
 ENV CI=true
@@ -78,7 +78,7 @@ RUN dotnet subset restore *.sln --root-directory . --output restore_subset/
 #
 # RESTORE
 #
-FROM sdk9 AS restore
+FROM sdk10 AS restore
 WORKDIR /code
 
 COPY --from=prepare-restore-files /code/restore_subset .
@@ -256,7 +256,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
 #
 #  Final image - shared base
 #
-FROM aspnet9 AS final-dtoserver-base
+FROM aspnet10 AS final-dtoserver-base
 
 # import curl from current repository image
 COPY --from=curl /bin/curl /bin/curl
@@ -277,7 +277,7 @@ EXPOSE 18080/tcp
 #
 #  Final image - BENCHMARK TOOL
 #
-FROM aspnet9 AS final-benchmark
+FROM aspnet10 AS final-benchmark
 
 ENV COMPlus_EnableDiagnostics=0
 
@@ -288,7 +288,7 @@ ENTRYPOINT ["/bin/DtoServerBenchmark/DtoServerBenchmark"]
 #
 #  Final image - BENCHMARK TOOL
 #
-FROM aspnet9 AS final-reader-benchmark
+FROM aspnet10 AS final-reader-benchmark
 
 ENV COMPlus_EnableDiagnostics=0
 
