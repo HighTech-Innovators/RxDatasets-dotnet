@@ -220,33 +220,31 @@ public class StorageCleanTaskTests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
-
-        var (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
+        var snapshots = await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 1);
         var firstSnapshot = snapshots[0].Version;
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
-
+        snapshots = await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 2);
         var secondSnapshot = snapshots[1].Version;
 
         await storageProvider.StoreProcessedVersion("unittest", 10);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //act
         await Create6Deltas(datasetWriter);
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 3);
         await storageProvider.StoreProcessedVersion("unittest", 15);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
+        // Allow cleanup to process
+        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         //assert
-        (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
+        var (oldestDelta, _, currentSnapshots) = await storageProvider.ListVersions();
         const int expectedRemainingSnapshots = 2;
 
-        snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        snapshots[0].Version.Should().NotBe(firstSnapshot);
-        snapshots[1].Version.Should().NotBe(secondSnapshot);
-        oldestDelta.Should().BeCloseTo(snapshots[0].Version, 5, "we are not sure because of async when the snapshot will be exactly created");
+        currentSnapshots.Count.Should().Be(expectedRemainingSnapshots);
+        currentSnapshots[0].Version.Should().NotBe(firstSnapshot);
+        currentSnapshots[1].Version.Should().NotBe(secondSnapshot);
+        oldestDelta.Should().BeCloseTo(currentSnapshots[0].Version, 5, "we are not sure because of async when the snapshot will be exactly created");
     }
 
 
@@ -335,15 +333,16 @@ public class StorageCleanTaskTests
 
         //act
         await Create6Deltas(datasetWriter);
-        await WaitForNewestDeltaAtLeast(storageProvider, 6);
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 1);
 
         await Create6Deltas(datasetWriter);
-        await WaitForNewestDeltaAtLeast(storageProvider, 12);
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 2);
 
         await Create6Deltas(datasetWriter);
-        await WaitForNewestDeltaAtLeast(storageProvider, 18);
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 3);
+
         await Create6Deltas(datasetWriter);
-        await WaitForNewestDeltaAtLeast(storageProvider, 24);
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 4);
         await storageProvider.StoreProcessedVersion("unittest", 21);
 
         //assert

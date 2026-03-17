@@ -67,7 +67,14 @@ public class SnapshotCreationPluginTests
 
         const ulong howManyDeltasToCreate = 4ul;
         await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+
+        // Wait for the time-based snapshot to be created
+        for (var i = 0; i < 50; i++)
+        {
+            var (_, _, s) = await storageProvider.ListVersions();
+            if (s.Count >= 1) break;
+            await Task.Delay(100);
+        }
 
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
