@@ -18,5 +18,13 @@ public class WriterConfig
     }
 
     public Regex? AllowedNamesRegex => _allowedNamesRegex;
+
+    /// <summary>
+    /// When true, concurrent write operations (Put, Delete, PutMany, DeleteMany, PutOrDeleteMany, DeleteChildren)
+    /// are coalesced into single delta transactions to reduce storage round-trips.
+    /// PutAll and PutAllChildren are excluded because their implicit-delete semantics make merging unsafe.
+    /// Disable via <c>DtoServerBuilder.WithoutWriteCoalescing()</c>.
+    /// </summary>
+    public bool EnableWriteCoalescing { get; set; } = true;
 }
 

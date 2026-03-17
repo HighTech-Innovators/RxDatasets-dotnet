@@ -204,9 +204,10 @@ public class DeltaInfoDriftReproduction
         await storageProvider.StartAsync(CancellationToken.None);
         await consumingService.StartAsync(CancellationToken.None);
 
+        // Disable write coalescing so each Put creates its own delta version (this test asserts version == write count)
         var datasetWriter = new DatasetWriter<object>(
             notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(),
-            storageProvider, Options.Create(new WriterConfig()), false);
+            storageProvider, Options.Create(new WriterConfig { EnableWriteCoalescing = false }), false);
 
         var datasetReader = new DatasetReader<object>(
             Mock.Of<ILogger<DatasetReader<object>>>(), storageProvider, notificationsHub);
