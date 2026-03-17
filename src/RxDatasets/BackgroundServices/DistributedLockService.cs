@@ -152,6 +152,18 @@ namespace RxDatasets.BackgroundServices
 
             try
             {
+                // Flush any queued writes before releasing the lock, so the next lock holder
+                // sees up-to-date metadata (DeltaInfo, ProcessedVersions, etc.)
+                logger.LogInformation("Flushing storage write queue before releasing lock...");
+                await storage.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error flushing storage write queue during shutdown.");
+            }
+
+            try
+            {
                 // Ensure the lock is released before the application exits
                 await ReleaseLockAsync();
             }

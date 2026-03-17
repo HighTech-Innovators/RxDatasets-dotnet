@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,8 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
         _googleCloudConfig = Options.Create(new GoogleCloudConfig()
         {
             BucketName = "default-test-bucket", // Will be overridden in SetupStorageAsync
-            ProjectId = "test-project" // Required by GoogleCloudConfig but not used by emulator
+            ProjectId = "test-project", // Required by GoogleCloudConfig but not used by emulator
+            EmulatorHost = emulatorHost
         });
     }
 
@@ -60,7 +62,7 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         // Create a test client to pre-create the bucket for testing
         var testClientBuilder = new Google.Cloud.Storage.V1.StorageClientBuilder();
-        var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+        var emulatorHost = _googleCloudConfig.Value.EmulatorHost ?? Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
         if (!string.IsNullOrEmpty(emulatorHost))
         {
             testClientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";
@@ -88,7 +90,11 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
 
-        IDiskStorage<object> googleCloudStorage = new GoogleCloudStorage<object>(storageLogger.Object, _googleCloudConfig, false);
+        IDiskStorage<object> googleCloudStorage = new GoogleCloudStorage<object>(
+            storageLogger.Object,
+            _googleCloudConfig,
+            retryInitialization: false,
+            enableWriteQueue: false);
         IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, googleCloudStorage);
 
         IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, googleCloudStorage, notificationsHub, readOnlyStorage, false);
@@ -107,7 +113,6 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
         _ = datasetUpdateConsumingService.StartAsync(CancellationToken.None);
         return (datasetReader, datasetWriter);
     }
-
 
     [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_GoogleCloud_Storage_After_Initialization()

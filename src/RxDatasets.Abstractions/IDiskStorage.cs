@@ -37,4 +37,10 @@ public interface IDiskStorage<T>
     Task DeleteFolder(string prefix);
     Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix);
     Task<long> GetObjectContentLength(string objectKey);
+
+    /// <summary>
+    /// Flush any pending/queued writes to storage.
+    /// Implementations that do not buffer writes may leave this as a no-op.
+    /// </summary>
+    Task FlushAsync() => Task.CompletedTask;
 }
