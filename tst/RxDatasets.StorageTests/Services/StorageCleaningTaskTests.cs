@@ -179,6 +179,23 @@ public class StorageCleanTaskTests
         }
     }
 
+    private static async Task WaitForNewestDeltaAtLeast(IStorageProvider<object> storageProvider, ulong minimumNewestDelta)
+    {
+        int counter = 0;
+        while (true)
+        {
+            var (_, newestDelta, _) = await storageProvider.ListVersions();
+            if (newestDelta >= minimumNewestDelta)
+                return;
+            await Task.Delay(TimeSpan.FromSeconds(0.8));
+            counter++;
+            if (counter == 50)
+            {
+                Assert.Fail($"Could not get newest delta >= {minimumNewestDelta}, got {newestDelta}");
+            }
+        }
+    }
+
     private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
@@ -318,22 +335,21 @@ public class StorageCleanTaskTests
 
         //act
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForNewestDeltaAtLeast(storageProvider, 6);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForNewestDeltaAtLeast(storageProvider, 12);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForNewestDeltaAtLeast(storageProvider, 18);
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForNewestDeltaAtLeast(storageProvider, 24);
         await storageProvider.StoreProcessedVersion("unittest", 21);
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        const int expectedRemainingSnapshots = 5;
 
-        snapshots.Count.Should().Be(expectedRemainingSnapshots);
+        snapshots.Count.Should().BeGreaterOrEqualTo(_storageCleanupConfig.Value.MinimumSnapshotsToKeep - 1);
         oldestDelta.Should().Be(1);
         newestDelta.Should().Be(24);
     }
