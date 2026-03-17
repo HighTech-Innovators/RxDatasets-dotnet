@@ -1,4 +1,5 @@
 
+using System.Collections.Concurrent;
 using System.Reactive.Disposables;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -24,6 +25,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly CompositeDisposable _subscriptions = new();
+    private readonly ConcurrentQueue<WriteIntent> _pendingWrites = new();
+    private int _batchInProgress;
 
     public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
     {
@@ -131,8 +134,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
     {
-        using var slot = await Lock(ct);
         ThrowIfNotInitialized();
+        if (_writerConfig.Value.EnableWriteCoalescing)
+            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null)], Completion = new(), CancellationToken = ct });
+
+        using var slot = await Lock(ct);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
@@ -150,8 +156,16 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
     {
-        using var slot = await Lock(ct);
         ThrowIfNotInitialized();
+        if (_writerConfig.Value.EnableWriteCoalescing)
+        {
+            var materializedNames = new List<(string Name, byte[]? EntityBytes)>();
+            await foreach (var name in names.WithCancellation(ct))
+                materializedNames.Add((name, null));
+            return await EnqueueAndAwait(new WriteIntent { Operations = materializedNames.ToArray(), Completion = new(), CancellationToken = ct });
+        }
+
+        using var slot = await Lock(ct);
 
         var deletedNames = new List<string>(_index!.Entities.Count);
 
@@ -185,13 +199,16 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
     {
-        using var slot = await Lock(ct);
-        ThrowIfNotInitialized();
-
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
             throw new ArgumentException("Invalid ancestor, an ancestor must have an even number of elements");
+
+        ThrowIfNotInitialized();
+        if (_writerConfig.Value.EnableWriteCoalescing)
+            return await EnqueueAndAwait(new WriteIntent { DeleteChildrenAncestor = prefix, Completion = new(), CancellationToken = ct });
+
+        using var slot = await Lock(ct);
 
         var deletedNames = new List<string>(_index!.Entities.Count);
 
@@ -240,9 +257,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
     {
-        using var slot = await Lock(ct);
         ThrowIfNotInitialized();
         EnsureNameIsValid(name);
+        if (_writerConfig.Value.EnableWriteCoalescing)
+            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, entityBytes)], Completion = new(), CancellationToken = ct });
+
+        using var slot = await Lock(ct);
         Delta delta;
 
         if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
@@ -270,10 +290,37 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct);
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct);
+    {
+        ThrowIfNotInitialized();
+        if (_writerConfig.Value.EnableWriteCoalescing)
+        {
+            var materialized = new List<(string Name, byte[]? EntityBytes)>();
+            await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+            {
+                EnsureNameIsValid(name);
+                materialized.Add((name, entityBytes));
+            }
+            return await EnqueueAndAwait(new WriteIntent { Operations = materialized.ToArray(), Completion = new(), CancellationToken = ct });
+        }
+        return await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct);
+    }
 
     public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
-        => await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
+    {
+        ThrowIfNotInitialized();
+        if (_writerConfig.Value.EnableWriteCoalescing)
+        {
+            var materialized = new List<(string Name, byte[]? EntityBytes)>();
+            await foreach (var (name, entityBytes) in changes.WithCancellation(ct))
+            {
+                if (entityBytes != null)
+                    EnsureNameIsValid(name);
+                materialized.Add((name, entityBytes));
+            }
+            return await EnqueueAndAwait(new WriteIntent { Operations = materialized.ToArray(), Completion = new(), CancellationToken = ct });
+        }
+        return await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
+    }
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
         IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
@@ -630,6 +677,260 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         return await GetHealthCheckResult();
     }
+
+    #region Write Coalescing
+
+    private async Task<IDatasetWriter<T>.WriteResponse> EnqueueAndAwait(WriteIntent intent)
+    {
+        _pendingWrites.Enqueue(intent);
+
+        if (Interlocked.CompareExchange(ref _batchInProgress, 1, 0) == 0)
+        {
+            await DrainAndFlush();
+        }
+
+        return await intent.Completion.Task;
+    }
+
+    private async Task DrainAndFlush()
+    {
+        while (true)
+        {
+            var batch = new List<WriteIntent>();
+            while (_pendingWrites.TryDequeue(out var intent))
+            {
+                if (intent.CancellationToken.IsCancellationRequested)
+                {
+                    intent.Completion.TrySetCanceled(intent.CancellationToken);
+                    continue;
+                }
+                batch.Add(intent);
+            }
+
+            if (batch.Count == 0)
+            {
+                Interlocked.Exchange(ref _batchInProgress, 0);
+
+                // Double-check: items may have been enqueued after drain but before we released leader
+                if (!_pendingWrites.IsEmpty && Interlocked.CompareExchange(ref _batchInProgress, 1, 0) == 0)
+                    continue;
+
+                return;
+            }
+
+            await _semaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+            try
+            {
+                var (mergedChanges, perIntentResponses) = MergeIntents(batch, _index!);
+
+                if (mergedChanges.Length == 0)
+                {
+                    var currentVersion = _index!.LatestVersion;
+                    for (int i = 0; i < batch.Count; i++)
+                    {
+                        batch[i].Completion.TrySetResult(perIntentResponses[i] with { NewDatasetVersion = currentVersion });
+                    }
+                    continue;
+                }
+
+                var delta = new Delta(mergedChanges, _index!.LatestVersion + 1);
+                await ApplyDelta(delta);
+
+                var version = _index!.LatestVersion;
+                _logger.LogInformation("Coalesced {Count} write intents into single delta; version {Version}", batch.Count, version);
+
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    batch[i].Completion.TrySetResult(perIntentResponses[i] with { NewDatasetVersion = version });
+                }
+            }
+            catch (Exception ex)
+            {
+                foreach (var intent in batch)
+                    intent.Completion.TrySetException(ex);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+    }
+
+    internal static (
+        (string Name, byte[]? Entity, ChangeType Change)[] MergedChanges,
+        IDatasetWriter<T>.WriteResponse[] PerIntentResponses
+    ) MergeIntents(List<WriteIntent> intents, ImmutableDatasetState index)
+    {
+        var responses = new IDatasetWriter<T>.WriteResponse[intents.Count];
+
+        // Virtual state tracks entities modified by intents processed so far.
+        // Value: (Bytes, Crc32, Exists) — null entry means deleted in virtual state
+        var virtualState = new Dictionary<string, (byte[]? Bytes, uint Crc32, bool Exists)>();
+
+        for (int i = 0; i < intents.Count; i++)
+        {
+            uint added = 0, changed = 0, deleted = 0;
+            var intent = intents[i];
+
+            if (intent.DeleteChildrenAncestor != null)
+            {
+                // Resolve DeleteChildren against virtual + real index
+                var prefix = intent.DeleteChildrenAncestor;
+
+                // First, check entities in the real index
+                foreach (var (name, entity) in index.Entities)
+                {
+                    if (!name.StartsWith(prefix, StringComparison.Ordinal))
+                        continue;
+
+                    // Check virtual state first
+                    if (virtualState.TryGetValue(name, out var vs))
+                    {
+                        if (vs.Exists)
+                        {
+                            deleted++;
+                            virtualState[name] = (null, 0, false);
+                        }
+                    }
+                    else if (entity.GetLatestChangeType() != ChangeType.Deleted)
+                    {
+                        deleted++;
+                        virtualState[name] = (null, 0, false);
+                    }
+                }
+
+                // Also check entities that were added by prior intents but don't exist in the real index
+                foreach (var (name, vs) in virtualState)
+                {
+                    if (!name.StartsWith(prefix, StringComparison.Ordinal))
+                        continue;
+                    if (!vs.Exists)
+                        continue;
+                    if (index.Entities.ContainsKey(name))
+                        continue; // Already handled above
+
+                    deleted++;
+                    virtualState[name] = (null, 0, false);
+                }
+            }
+            else if (intent.Operations != null)
+            {
+                // Last-write-wins within a single intent: compute final state per entity first,
+                // then compare against the virtual index state from before this intent.
+                // This matches the original PutOrDeleteMany behavior where delete+put of same
+                // data correctly reports "no change".
+                var intentFinalStates = new Dictionary<string, (byte[]? Bytes, uint Crc32)>();
+                foreach (var (name, entityBytes) in intent.Operations)
+                {
+                    if (entityBytes == null)
+                    {
+                        intentFinalStates[name] = (null, 0);
+                    }
+                    else
+                    {
+                        intentFinalStates[name] = (entityBytes, DatasetHelper.ComputeCrc32(entityBytes));
+                    }
+                }
+
+                // Now compare each entity's final state against the virtual index
+                foreach (var (name, (finalBytes, finalCrc)) in intentFinalStates)
+                {
+                    bool currentlyExists;
+                    uint currentCrc32;
+
+                    if (virtualState.TryGetValue(name, out var vs))
+                    {
+                        currentlyExists = vs.Exists;
+                        currentCrc32 = vs.Crc32;
+                    }
+                    else if (index.Entities.TryGetValue(name, out var existing)
+                             && existing.GetLatestChangeType() != ChangeType.Deleted)
+                    {
+                        currentlyExists = true;
+                        currentCrc32 = existing.Crc32;
+                    }
+                    else
+                    {
+                        currentlyExists = false;
+                        currentCrc32 = 0;
+                    }
+
+                    if (finalBytes == null)
+                    {
+                        // Final state is delete
+                        if (currentlyExists)
+                        {
+                            deleted++;
+                            virtualState[name] = (null, 0, false);
+                        }
+                    }
+                    else
+                    {
+                        // Final state is put
+                        if (!currentlyExists)
+                        {
+                            added++;
+                            virtualState[name] = (finalBytes, finalCrc, true);
+                        }
+                        else if (currentCrc32 == 0 || currentCrc32 != finalCrc)
+                        {
+                            changed++;
+                            virtualState[name] = (finalBytes, finalCrc, true);
+                        }
+                        else
+                        {
+                            // CRC match — no change, but still track in virtual state for consistency
+                            virtualState[name] = (finalBytes, finalCrc, true);
+                        }
+                    }
+                }
+            }
+
+            responses[i] = new IDatasetWriter<T>.WriteResponse
+            {
+                NumAddedEntities = added,
+                NumUpdatedEntities = changed,
+                NumDeletedEntities = deleted
+            };
+        }
+
+        // Diff virtual state against real index to produce merged changes for storage
+        var mergedChanges = new List<(string Name, byte[]? Entity, ChangeType Change)>();
+
+        foreach (var (name, (bytes, crc, exists)) in virtualState)
+        {
+            bool realExists = index.Entities.TryGetValue(name, out var realEntity)
+                              && realEntity.GetLatestChangeType() != ChangeType.Deleted;
+
+            if (exists && !realExists)
+            {
+                mergedChanges.Add((name, bytes, ChangeType.New));
+            }
+            else if (exists && realExists)
+            {
+                var realCrc = realEntity!.Crc32;
+                if (realCrc == 0 || realCrc != crc)
+                    mergedChanges.Add((name, bytes, ChangeType.Changed));
+            }
+            else if (!exists && realExists)
+            {
+                mergedChanges.Add((name, null, ChangeType.Deleted));
+            }
+            // !exists && !realExists: no-op (entity was added then deleted within the batch, net zero)
+        }
+
+        return (mergedChanges.ToArray(), responses);
+    }
+
+    internal sealed class WriteIntent
+    {
+        public (string Name, byte[]? EntityBytes)[]? Operations { get; init; }
+        public string? DeleteChildrenAncestor { get; init; }
+        public required TaskCompletionSource<IDatasetWriter<T>.WriteResponse> Completion { get; init; }
+        public CancellationToken CancellationToken { get; init; }
+    }
+
+    #endregion
 
     private async Task<IDisposable> Lock(CancellationToken cancellationToken)
     {

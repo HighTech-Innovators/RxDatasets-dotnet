@@ -106,6 +106,17 @@ namespace RxDatasets
             return this;
         }
 
+        /// <summary>
+        /// Disables write coalescing. By default, concurrent write operations are batched into single
+        /// delta transactions to reduce storage round-trips on high-latency backends.
+        /// Call this method to revert to serial one-at-a-time write behavior.
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithoutWriteCoalescing()
+        {
+            services.PostConfigure<WriterConfig>(c => c.EnableWriteCoalescing = false);
+            return this;
+        }
+
         public void Build(params string[] readinessTags)
         {
             AddStorageProvider();
