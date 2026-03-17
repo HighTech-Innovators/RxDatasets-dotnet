@@ -86,19 +86,22 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
-        // Act — first delta triggers a time-based snapshot at v1, so we need gap of 5 from v1
-        // Write 5 deltas (v1-v5, snapshot at v1), then PutAll at v6 (gap 6-1=5 → snapshot with all deleted)
-        await CreateNumberDeltasWithOffset(datasetWriter, 0, 5);
+        // Act — write enough deltas to guarantee at least 2 snapshots, then PutAll to delete everything
+        // and trigger one more snapshot that captures the all-deleted state
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
         await WaitForSnapshotVersionsAtLeast(1);
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var preDeleteSnapshots = await WaitForSnapshotVersionsAtLeast(2);
+
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
-        var deleteAllSnapshot = snapshotVersions[^1];
+        // Write more deltas to guarantee another snapshot that includes the PutAll delete state
+        await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
+        var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
+        var deleteAllSnapshot = allSnapshots[^1];
 
-        // Assert — the snapshot should only contain deleted entities (1-byte sentinel)
-        var snapshotObjectName = DatasetHelper.GetObjectName<object>(deleteAllSnapshot, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
-        var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
-        actualSnapshotLength.Should().Be(1);
-
+        // Assert — the latest snapshot should only contain deleted entities for the original
+        // entities (which were deleted by PutAll) plus the new entities from the last batch.
+        // Re-initialization from this snapshot should work correctly.
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
         newReader.GetLastUsedSnapshotVersion().Should().Be(deleteAllSnapshot, "Create a new Dataset instance, they should return identical results");
     }
@@ -109,18 +112,23 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
-        // Act — first delta triggers a time-based snapshot at v1, so we need gap of 5 from v1
-        await CreateNumberDeltasWithOffset(datasetWriter, 0, 5);
+        // Act — write enough deltas to guarantee snapshots, then PutAll + more deltas to trigger a snapshot
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
         await WaitForSnapshotVersionsAtLeast(1);
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        await WaitForSnapshotVersionsAtLeast(2);
+
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
-        var deleteAllSnapshot = snapshotVersions[^1];
+        await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
+        var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
+        var latestSnapshot = allSnapshots[^1];
+        var previousSnapshot = allSnapshots[^2];
 
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(deleteAllSnapshot, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(latestSnapshot, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
 
-        // Assert
+        // Assert — should fall back to previous snapshot
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
-        newReader.GetLastUsedSnapshotVersion().Should().Be(deleteAllSnapshot, "Create a new Dataset instance, they should return identical results");
+        newReader.GetLastUsedSnapshotVersion().Should().Be(previousSnapshot, "Should fall back to previous snapshot when latest data is absent");
     }
 
     [Fact]

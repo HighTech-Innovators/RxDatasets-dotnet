@@ -212,6 +212,11 @@ public class DeltaInfoDriftReproduction
             Mock.Of<ILogger<DatasetReader<object>>>(), storageProvider, notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
 
+        // With async NotificationsHub, the StorageProviderReadinessNotification that triggers
+        // DatasetWriter initialization is processed asynchronously — wait for it
+        while (datasetWriter.InitializationTask is null || !datasetWriter.InitializationTask.IsCompleted)
+            await Task.Delay(10);
+
         const int writesPerWriter = 50;
         const int numWriters = 3;
 
