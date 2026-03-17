@@ -112,6 +112,7 @@ namespace RxDatasets
 
             if (!_isInMemoryDataset && _withDistributedLock)
             {
+                services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
                 services.AddSingletonAsHostedService<DistributedLockService<TEntity>>();
                 services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
             }

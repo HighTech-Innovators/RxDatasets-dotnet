@@ -126,22 +126,7 @@ public class ObjectStorageProvider<T>(
         else
             await _storage.UploadBytes(indexObjectName, index);
 
-        if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
-        {
-            DeltaInfo.EarliestDeltaVersion = deltaVersion;
-            DeltaInfo.LatestDeltaVersion = deltaVersion;
-        }
-        else
-        {
-            DeltaInfo.LatestDeltaVersion++;
-        }
-
-        if (DeltaInfo.EarliestDeltaVersion == 0)
-        {
-            DeltaInfo.EarliestDeltaVersion = deltaVersion;
-        }
-
-        await SaveDeltaInfo();
+        await PersistDeltaInfo(deltaVersion);
         await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
@@ -165,24 +150,31 @@ public class ObjectStorageProvider<T>(
         else // Deleted Delta data
             await _storage.UploadBytes(indexObjectName, index);
 
+        await PersistDeltaInfo(deltaVersion);
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+    }
 
-        if (DeltaInfo is { EarliestDeltaVersion: 0, LatestDeltaVersion: 0 } && Snapshots.Count > 0)
-        {
-            DeltaInfo.EarliestDeltaVersion = deltaVersion;
-            DeltaInfo.LatestDeltaVersion = deltaVersion;
-        }
-        else
-        {
-            DeltaInfo.LatestDeltaVersion++;
-        }
+    private async Task PersistDeltaInfo(ulong deltaVersion)
+    {
+        var previousLatest = DeltaInfo.LatestDeltaVersion;
+        var previousEarliest = DeltaInfo.EarliestDeltaVersion;
 
+        DeltaInfo.LatestDeltaVersion = deltaVersion;
         if (DeltaInfo.EarliestDeltaVersion == 0)
         {
             DeltaInfo.EarliestDeltaVersion = deltaVersion;
         }
 
-        await SaveDeltaInfo();
-        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
+        try
+        {
+            await SaveDeltaInfo();
+        }
+        catch
+        {
+            DeltaInfo.LatestDeltaVersion = previousLatest;
+            DeltaInfo.EarliestDeltaVersion = previousEarliest;
+            throw;
+        }
     }
     private async Task VerifyArrayUploadIfConfigured(string dataObjectName, int expectedDataLength)
     {
