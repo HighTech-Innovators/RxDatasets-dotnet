@@ -52,7 +52,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             }
             else if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
             {
-                clientBuilder.JsonCredentials = googleCloudConfig.Value.JsonCredentials;
+                clientBuilder.Credential = Google.Apis.Auth.OAuth2.CredentialFactory.FromJson<Google.Apis.Auth.OAuth2.GoogleCredential>(googleCloudConfig.Value.JsonCredentials);
             }
 
             _storageClient = clientBuilder.Build();

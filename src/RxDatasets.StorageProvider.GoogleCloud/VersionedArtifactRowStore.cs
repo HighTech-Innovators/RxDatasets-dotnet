@@ -80,7 +80,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         Google.Apis.Auth.OAuth2.GoogleCredential? credential = null;
         if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
         {
-            credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(googleCloudConfig.Value.JsonCredentials);
+            credential = Google.Apis.Auth.OAuth2.CredentialFactory.FromJson<Google.Apis.Auth.OAuth2.GoogleCredential>(googleCloudConfig.Value.JsonCredentials);
         }
 
         var adminClientBuilder = new BigtableTableAdminClientBuilder();

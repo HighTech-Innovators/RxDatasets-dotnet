@@ -35,7 +35,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             _bigtableTableId = googleCloudConfig.Value.BigtableTableId ?? throw new ArgumentNullException("BigtableTableId must be set");
             _bigtableProjectId = googleCloudConfig.Value.BigtableProjectId ?? throw new ArgumentNullException("BigtableProjectId must be set");
             _bigtableInstanceId = googleCloudConfig.Value.BigtableInstanceId ?? throw new ArgumentNullException("BigtableInstanceId must be set");
-            _sizeThresholdBytes = googleCloudConfig.Value.SizeThresholdBytes;
+            _sizeThresholdBytes = googleCloudConfig.Value.MaxInlinePayloadBytes;
 
             var clientBuilder = new StorageClientBuilder();
 
@@ -49,7 +49,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             }
             else if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
             {
-                clientBuilder.JsonCredentials = googleCloudConfig.Value.JsonCredentials;
+                clientBuilder.Credential = Google.Apis.Auth.OAuth2.CredentialFactory.FromJson<Google.Apis.Auth.OAuth2.GoogleCredential>(googleCloudConfig.Value.JsonCredentials);
             }
 
             _storageClient = clientBuilder.Build();
@@ -58,7 +58,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             Google.Apis.Auth.OAuth2.GoogleCredential? credential = null;
             if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
             {
-                credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(googleCloudConfig.Value.JsonCredentials);
+                credential = Google.Apis.Auth.OAuth2.CredentialFactory.FromJson<Google.Apis.Auth.OAuth2.GoogleCredential>(googleCloudConfig.Value.JsonCredentials);
             }
 
             var adminClientBuilder = new BigtableTableAdminClientBuilder();
