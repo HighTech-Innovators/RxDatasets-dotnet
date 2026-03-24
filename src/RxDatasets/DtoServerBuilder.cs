@@ -1,6 +1,7 @@
 ﻿using System.Reactive.Concurrency;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
@@ -126,11 +127,13 @@ namespace RxDatasets
 
         public void Build(params string[] readinessTags)
         {
+            services.TryAddSingleton<IClock, SystemClock>();
             AddStorageProvider();
 
             if (!_isInMemoryDataset && _withDistributedLock)
             {
                 services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
+                services.TryAddSingleton<ILockProvider, BlobStorageLockProvider<TEntity>>();
                 services.AddSingletonAsHostedService<DistributedLockService<TEntity>>();
                 services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
             }

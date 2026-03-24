@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Google.Api.Gax;
 using Google.Cloud.Bigtable.Admin.V2;
 using Google.Cloud.Bigtable.Common.V2;
@@ -35,6 +36,12 @@ public interface IVersionedArtifactRowStore
     Task DeleteArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<string, ulong>> GetProcessedVersions(string datasetPrefix, CancellationToken cancellationToken = default);
     Task PutProcessedVersion(string datasetPrefix, string who, ulong version, CancellationToken cancellationToken = default);
+    Task<(string Token, DateTimeOffset Expiry)?> TryAcquireLock(string datasetPrefix, string lockName, TimeSpan duration, CancellationToken cancellationToken = default);
+    Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default);
+    Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default);
+    Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
+    Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
+    Task DeleteRequestLock(string datasetPrefix, string requestLockName, CancellationToken cancellationToken = default);
 }
 
 public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRowStore
@@ -43,6 +50,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private const string PayloadFamily = "payload";
     private const string FallbackFamily = "fallback";
     private const string ProcessedFamily = "processed";
+    private const string LockFamily = "lock";
     private const string QualifierKind = "kind";
     private const string QualifierVersion = "version";
     private const string QualifierCreatedAt = "created-at";
@@ -269,6 +277,247 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         return result;
     }
 
+    public async Task<(string Token, DateTimeOffset Expiry)?> TryAcquireLock(string datasetPrefix, string lockName, TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, lockName);
+        var token = Guid.NewGuid().ToString();
+        var expiry = DateTimeOffset.UtcNow.Add(duration);
+        var expiryBytes = ByteString.CopyFromUtf8(expiry.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
+        var tokenBytes = ByteString.CopyFromUtf8(token);
+
+        // Check if lock is free or expired
+        var condition = new RowFilter
+        {
+            Condition = new RowFilter.Types.Condition
+            {
+                PredicateFilter = new RowFilter
+                {
+                    Chain = new RowFilter.Types.Chain
+                    {
+                        Filters =
+                        {
+                            new RowFilter { FamilyNameRegexFilter = LockFamily },
+                            new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("expiry") },
+                            new RowFilter { ValueRangeFilter = new ValueRange { EndValueOpen = ByteString.CopyFromUtf8(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture)) } }
+                        }
+                    }
+                },
+                TrueFilter = new RowFilter
+                {
+                    Chain = new RowFilter.Types.Chain
+                    {
+                        Filters = { new RowFilter { StripValueTransformer = true } } // Dummy filter, we just want mutations
+                    }
+                }
+            }
+        };
+
+        // Simplified approach: Read-Modify-Write using CheckAndMutate
+        // Ideally we want: IF (token not exists OR expiry < now) THEN set token, set expiry
+        
+        // Since Bigtable CheckAndMutate is limited, we can use a conditional mutation based on timestamp or value.
+        // But comparing value (timestamp string) lexicographically works for string timestamps if fixed width... which unix millis are not always.
+        // Let's rely on the fact that we can read first. But that's not atomic.
+        
+        // Better atomic approach:
+        // We can't easily do numeric comparison in CheckAndMutate.
+        // However, we can use the "Timestamp" of the cell itself if we store expiry as the cell timestamp?
+        // No, Bigtable cell timestamps are for versioning.
+        
+        // Alternate atomic approach:
+        // 1. Read row.
+        // 2. If locked and valid, return null.
+        // 3. If unlocked or expired, try CheckAndMutate(expecting the value we just read).
+        
+        // Let's implement Optimistic Concurrency Control (OCC).
+        
+        var request = new ReadRowsRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            Rows = new RowSet { RowKeys = { ByteString.CopyFromUtf8(rowKey) } }
+        };
+        
+        string? currentToken = null;
+        long currentExpiry = 0;
+        
+        await using (var enumerator = _bigtableClient.ReadRows(request).GetAsyncEnumerator(cancellationToken))
+        {
+            if (await enumerator.MoveNextAsync())
+            {
+                var row = enumerator.Current;
+                currentToken = TryReadString(row, LockFamily, "token");
+                var expiryStr = TryReadString(row, LockFamily, "expiry");
+                if (long.TryParse(expiryStr, out var e)) currentExpiry = e;
+            }
+        }
+
+        if (currentToken != null && currentExpiry > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+        {
+            return null; // Locked by someone else
+        }
+
+        // It is free or expired. Try to grab it.
+        // We condition on the "token" being what we saw (or absent).
+        
+        var matchFilter = currentToken == null 
+            ? new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") } } } } // Fails if any token exists? No, this just filters.
+            : new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") }, new RowFilter { ValueRegexFilter = ByteString.CopyFromUtf8(Regex.Escape(currentToken)) } } } };
+
+        // If currentToken is null, we want to match if "token" column does NOT exist.
+        // Bigtable CheckAndMutate: "If the filter returns any cells, then true_mutations are executed"
+        
+        // If currentToken is NULL (no lock):
+        // Condition: Row has "token" column?
+        // If YES: Fail (someone created it).
+        // If NO: Success (acquire).
+        
+        // If currentToken is SET (but expired):
+        // Condition: Token value == currentToken?
+        // If YES: Success (overwrite).
+        // If NO: Fail (someone else grabbed it).
+
+        Mutation mutation = new Mutation
+        {
+            SetCell = new Mutation.Types.SetCell { FamilyName = LockFamily, ColumnQualifier = ByteString.CopyFromUtf8("token"), Value = tokenBytes }
+        };
+        Mutation mutationExpiry = new Mutation
+        {
+            SetCell = new Mutation.Types.SetCell { FamilyName = LockFamily, ColumnQualifier = ByteString.CopyFromUtf8("expiry"), Value = expiryBytes }
+        };
+
+        CheckAndMutateRowRequest checkRequest;
+        
+        if (currentToken == null)
+        {
+            checkRequest = new CheckAndMutateRowRequest
+            {
+                TableNameAsTableName = GetTableName(),
+                RowKey = ByteString.CopyFromUtf8(rowKey),
+                PredicateFilter = new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") }, new RowFilter { CellsPerColumnLimitFilter = 1 } } } },
+                FalseMutations = { mutation, mutationExpiry } // If NO cells found (no token), execute these
+            };
+        }
+        else
+        {
+            checkRequest = new CheckAndMutateRowRequest
+            {
+                TableNameAsTableName = GetTableName(),
+                RowKey = ByteString.CopyFromUtf8(rowKey),
+                PredicateFilter = new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") }, new RowFilter { ValueRegexFilter = ByteString.CopyFromUtf8("^" + Regex.Escape(currentToken) + "$") } } } },
+                TrueMutations = { mutation, mutationExpiry } // If token MATCHES what we saw (expired one), execute these
+            };
+        }
+
+        var response = await _bigtableClient.CheckAndMutateRowAsync(checkRequest);
+        
+        // If we expected NULL and predicate was false (no cells) -> FalseMutations executed -> Success
+        if (currentToken == null && !response.PredicateMatched) return (token, expiry);
+        
+        // If we expected VALUE and predicate was true (matched) -> TrueMutations executed -> Success
+        if (currentToken != null && response.PredicateMatched) return (token, expiry);
+
+        return null;
+    }
+
+    public async Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, lockName);
+        var expiry = DateTimeOffset.UtcNow.Add(duration);
+        var expiryBytes = ByteString.CopyFromUtf8(expiry.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
+
+        // Condition: Token == lockToken
+        var checkRequest = new CheckAndMutateRowRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            RowKey = ByteString.CopyFromUtf8(rowKey),
+            PredicateFilter = new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") }, new RowFilter { ValueRegexFilter = ByteString.CopyFromUtf8("^" + Regex.Escape(lockToken) + "$") } } } },
+            TrueMutations = 
+            { 
+                new Mutation { SetCell = new Mutation.Types.SetCell { FamilyName = LockFamily, ColumnQualifier = ByteString.CopyFromUtf8("expiry"), Value = expiryBytes } }
+            }
+        };
+
+        var response = await _bigtableClient.CheckAndMutateRowAsync(checkRequest);
+        return response.PredicateMatched;
+    }
+
+    public async Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, lockName);
+
+        // Condition: Token == lockToken
+        // Action: Delete row
+        var checkRequest = new CheckAndMutateRowRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            RowKey = ByteString.CopyFromUtf8(rowKey),
+            PredicateFilter = new RowFilter { Chain = new RowFilter.Types.Chain { Filters = { new RowFilter { FamilyNameRegexFilter = LockFamily }, new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8("token") }, new RowFilter { ValueRegexFilter = ByteString.CopyFromUtf8("^" + Regex.Escape(lockToken) + "$") } } } },
+            TrueMutations = 
+            { 
+                new Mutation { DeleteFromRow = new Mutation.Types.DeleteFromRow() }
+            }
+        };
+
+        await _bigtableClient.CheckAndMutateRowAsync(checkRequest);
+    }
+
+    public async Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, requestLockName);
+        
+        await _bigtableClient.MutateRowAsync(GetTableName(), ByteString.CopyFromUtf8(rowKey), new Mutation[]
+        {
+            new Mutation { SetCell = new Mutation.Types.SetCell { FamilyName = LockFamily, ColumnQualifier = ByteString.CopyFromUtf8("requester"), Value = ByteString.CopyFromUtf8(instanceId) } }
+        });
+    }
+
+    public async Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, requestLockName);
+        var request = new ReadRowsRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            Rows = new RowSet { RowKeys = { ByteString.CopyFromUtf8(rowKey) } }
+        };
+
+        await using (var enumerator = _bigtableClient.ReadRows(request).GetAsyncEnumerator(cancellationToken))
+        {
+            if (await enumerator.MoveNextAsync())
+            {
+                var requester = TryReadString(enumerator.Current, LockFamily, "requester");
+                return requester != null && requester != instanceId;
+            }
+        }
+        return false;
+    }
+
+    public async Task DeleteRequestLock(string datasetPrefix, string requestLockName, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+        var rowKey = GetLockRowKey(datasetPrefix, requestLockName);
+        await _bigtableClient.MutateRowAsync(GetTableName(), ByteString.CopyFromUtf8(rowKey), new Mutation[]
+        {
+            new Mutation { DeleteFromRow = new Mutation.Types.DeleteFromRow() }
+        });
+    }
+
+    private static string GetLockRowKey(string datasetPrefix, string lockName)
+    {
+        // lockName passed in is full object path "prefix/lock-file"
+        // We want to store it in a way that doesn't conflict with artifacts.
+        // We can just use "lock|{datasetPrefix}|{lockNameSuffix}"
+        // But datasetPrefix includes the trailing slash.
+        // Let's just use "lock|" + lockName (which already contains prefix)
+        // But we need to be careful about uniqueness.
+        // Let's use the provided lockName as unique identifier but prefixed with "lock|"
+        return $"lock|{lockName}";
+    }
+
     public async Task PutProcessedVersion(string datasetPrefix, string who, ulong version, CancellationToken cancellationToken = default)
     {
         await EnsureInitialized();
@@ -308,18 +557,42 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private async Task Initialize()
     {
         var tableName = GetTableName();
+        Table? table = null;
 
         try
         {
-            await _tableAdminClient.GetTableAsync(tableName.ToString());
+            table = await _tableAdminClient.GetTableAsync(tableName.ToString());
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
         {
-            await CreateTable(tableName);
+            // Table not found, will create below
         }
         catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            // Table not found, will create below
+        }
+
+        if (table == null)
+        {
             await CreateTable(tableName);
+        }
+        else
+        {
+            var modifications = new List<ModifyColumnFamiliesRequest.Types.Modification>();
+
+            if (!table.ColumnFamilies.ContainsKey(LockFamily))
+            {
+                modifications.Add(new ModifyColumnFamiliesRequest.Types.Modification
+                {
+                    Id = LockFamily,
+                    Create = new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } }
+                });
+            }
+
+            if (modifications.Count > 0)
+            {
+                await _tableAdminClient.ModifyColumnFamiliesAsync(tableName, modifications);
+            }
         }
 
         _initialized = true;
@@ -354,7 +627,8 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
                     { MetadataFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } },
                     { PayloadFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } },
                     { FallbackFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } },
-                    { ProcessedFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } }
+                    { ProcessedFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } },
+                    { LockFamily, new ColumnFamily { GcRule = new GcRule { MaxNumVersions = 1 } } }
                 }
             }
         });

@@ -159,6 +159,37 @@ public class HybridBigtableGcsStorageTests
             processedVersions[who] = version;
             return Task.CompletedTask;
         }
+
+        public Task<(string Token, DateTimeOffset Expiry)?> TryAcquireLock(string datasetPrefix, string lockName, TimeSpan duration, CancellationToken cancellationToken = default)
+        {
+            // InMemory implementation for tests
+            return Task.FromResult<(string Token, DateTimeOffset Expiry)?>(("test-token", DateTimeOffset.UtcNow.Add(duration)));
+        }
+
+        public Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+
+        public Task DeleteRequestLock(string datasetPrefix, string requestLockName, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class InMemoryDiskStorage<T> : IDiskStorage<T>

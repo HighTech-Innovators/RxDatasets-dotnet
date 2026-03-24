@@ -2,6 +2,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageProviders.ReadOnly;
@@ -18,6 +19,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 services.TryAddSingleton<IDiskStorage<TEntity>, GoogleCloudStorage<TEntity>>();
                 services.TryAddSingleton<ObjectStorageReader<TEntity>>();
                 services.TryAddSingleton<IVersionedArtifactRowStore, GoogleCloudVersionedArtifactRowStore>();
+                services.TryAddSingleton<ILockProvider, BigtableLockProvider<TEntity>>();
                 services.AddSingleton<IStorageReader<TEntity>, HybridBigtableStorageReader<TEntity>>();
 
                 if (readOnlyMode)
@@ -54,6 +56,13 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 services.AddSingletonAlias<IReadOnlyStorageProvider<TEntity>, IStorageProvider<TEntity>>();
             });
             builder.Services.AddHealthChecks().AddCheck<GoogleCloudHealthCheck<TEntity>>($"storage.googlecloud.{typeof(TEntity).Name}", tags: ["googlecloud", typeof(TEntity).Name]);
+            return builder;
+        }
+
+        public static DtoServerBuilder<TEntity> WithGoogleCloudBlobOnlyStorage<TEntity>(this DtoServerBuilder<TEntity> builder) where TEntity : class, IMessage<TEntity>
+        {
+            builder.Services.AddValidatedConfigSection<GoogleCloudConfig>();
+            builder.Services.TryAddSingleton<IDiskStorage<TEntity>, GoogleCloudStorage<TEntity>>();
             return builder;
         }
     }
