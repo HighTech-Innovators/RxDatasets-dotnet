@@ -21,7 +21,7 @@ public class LocalStackS3TestContainerFixture : IAsyncLifetime
         Network.CreateAsync().Wait();
 
         Container = new ContainerBuilder()
-            .WithImage("localstack/localstack:s3-latest")
+            .WithImage("localstack/localstack:4.4.0")
             .WithImagePullPolicy(PullPolicy.Always)
             .WithNetwork(Network)
             .WithNetworkAliases("localstack")
