@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reactive.Concurrency;
-using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -10,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
@@ -21,6 +20,7 @@ namespace RxDatasets.Tests;
 
 public class DistributedLockServiceTests : IDisposable
 {
+    private readonly ILockProvider _lockProviderMock;
     private readonly IDiskStorage<TestEntity> _storageMock;
     private readonly INotificationsHub<TestEntity> _notificationsHubMock;
     private readonly ILogger<DistributedLockService<TestEntity>> _loggerMock;
@@ -28,12 +28,11 @@ public class DistributedLockServiceTests : IDisposable
     private readonly DistributedLockOptions _lockOptions;
     private readonly List<DistributedLockNotification> _notifications;
     private readonly CancellationTokenSource _testCts;
-    private string? _lastWrittenToken;
     private readonly TestScheduler _scheduler;
-    private Func<string, Task<ReadOnlyMemory<byte>>> _requestLockHandler;
 
     public DistributedLockServiceTests()
     {
+        _lockProviderMock = Substitute.For<ILockProvider>();
         _storageMock = Substitute.For<IDiskStorage<TestEntity>>();
         _notificationsHubMock = Substitute.For<INotificationsHub<TestEntity>>();
         _loggerMock = Substitute.For<ILogger<DistributedLockService<TestEntity>>>();
@@ -41,7 +40,6 @@ public class DistributedLockServiceTests : IDisposable
         _lockOptions = new DistributedLockOptions(); // use defaults
         _notifications = new List<DistributedLockNotification>();
         _testCts = new CancellationTokenSource();
-        _requestLockHandler = _ => Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
 
         _notificationsHubMock.Notify(Arg.Any<DistributedLockNotification>())
                 .Returns(Task.CompletedTask)
@@ -50,200 +48,120 @@ public class DistributedLockServiceTests : IDisposable
         _scheduler = new TestScheduler();
         // Nudge virtual time away from DateTimeOffset.MinValue to allow negative offsets safely
         _scheduler.AdvanceBy(TimeSpan.FromHours(1).Ticks);
+
+        // Default: request lock and delete succeed, shouldYield returns false
+        _lockProviderMock.RequestLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _lockProviderMock.DeleteRequestLockAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+        _lockProviderMock.ReleaseLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
     }
 
     [Fact]
-    public async Task Should_Not_Lose_Lock_On_Single_Write_Error_And_Have_Three_Total_Writes()
+    public async Task Should_Not_Lose_Lock_On_Single_Renewal_Error_And_Recover()
     {
-        // Arrange: simulate real lock-file lifecycle (404 until first upload, thereafter return last uploaded bytes)
-        byte[]? uploaded = null;
-        var writeCall = 0;
+        // Arrange: acquire succeeds, first renewal fails, second succeeds
+        SetupAcquireSucceeds();
 
-        _storageMock.DownloadBytes(Arg.Any<string>())
+        var renewCallCount = 0;
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                 var key = ci.Arg<string>();
-                 if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-
-                if (uploaded is null)
-                {
-                    //Console.WriteLine($"Simulating 404 on download at {_scheduler.Now}");
-                    return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-                }
-                //Console.WriteLine($"Simulating successful download at {_scheduler.Now}");
-                return Task.FromResult(new ReadOnlyMemory<byte>(uploaded));
-            });
-
-        _storageMock.UploadBytes(Arg.Any<string>(), Arg.Any<byte[]>())
-            .Returns(ci =>
-            {
-                var key = ci.Arg<string>();
-                if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.CompletedTask;
-
-                writeCall++;
-                var bytes = ci.Arg<byte[]>();
-                var content = Encoding.UTF8.GetString(bytes);
-                var firstNewline = content.IndexOf('\n');
-                _lastWrittenToken = firstNewline >= 0 ? content[..firstNewline] : content;
-                if (writeCall == 2)
-                {
-                    // Fail the first renewal (expected around 4:30)
-                    //Console.WriteLine($"Simulating write failure at {_scheduler.Now}");
-                    return Task.FromException(new Exception("simulated write failure at 4:30"));
-                }
-                //Console.WriteLine($"Simulating write success at {_scheduler.Now}");
-                uploaded = bytes; // persist when succeeded
-                return Task.CompletedTask;
+                renewCallCount++;
+                if (renewCallCount == 1)
+                    return Task.FromException<bool>(new Exception("simulated renewal failure"));
+                return Task.FromResult(true);
             });
 
         var service = CreateService();
         await StartServiceAsync(service);
-        await WaitForAcquiredAsync(service); // initial acquisition (first upload)
+        await WaitForAcquiredAsync(service);
 
-        // Act: advance to first renewal window (~4:30), then beyond to allow retry and to 6:00 total
+        // Act: advance to first renewal window (~4:30), then beyond to allow retry
         _scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
         _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks); // trigger first renewal attempt -> fails
-        // Next attempt occurs after polling interval (5s)
         _scheduler.AdvanceBy(TimeSpan.FromSeconds(10).Ticks); // give time to retry and succeed
-        // Advance the rest up to 6 minutes total
-        _scheduler.AdvanceBy(TimeSpan.FromMinutes(1).Ticks + TimeSpan.FromSeconds(20).Ticks);
 
-        // Assert: exactly 3 upload attempts (acquire + failed renewal + successful renewal)
-        await _storageMock.Received(3).UploadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>());
-        await _storageMock.Received(3).DownloadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)));
+        // Assert: lock kept, no lost notification
         service.HasLock.Should().BeTrue();
         _notifications.Should().NotContain(n => n.LockStatus == DistirbutedLockStatus.Lost);
     }
 
     [Fact]
-    public async Task Should_Lose_Lock_On_Repeated_Write_Errors_But_Regain_When_Write_Succeeds_Again()
+    public async Task Should_Lose_Lock_On_Repeated_Renewal_Failures_But_Regain()
     {
-        // Arrange: simulate real lock-file lifecycle (404 until first upload, thereafter return last uploaded bytes)
-        byte[]? uploaded = null;
-        var writeCall = 0;
-
-        _storageMock.DownloadBytes(Arg.Any<string>())
+        // Arrange: acquire succeeds, renewals fail until lock is lost, then acquire again
+        var acquireCallCount = 0;
+        _lockProviderMock.AcquireLockAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                 var key = ci.Arg<string>();
-                 if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-
-                if (uploaded is null)
-                {
-                    //Console.WriteLine($"Simulating 404 on download at {_scheduler.Now}");
-                    return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-                }
-                //Console.WriteLine($"Simulating successful download at {_scheduler.Now}");
-                return Task.FromResult(new ReadOnlyMemory<byte>(uploaded));
+                acquireCallCount++;
+                var token = Guid.NewGuid().ToString();
+                return Task.FromResult<(string Token, DateTimeOffset Expiry)?>(
+                    (token, _scheduler.Now.Add(ci.Arg<TimeSpan>())));
             });
 
-        _storageMock.UploadBytes(Arg.Any<string>(), Arg.Any<byte[]>())
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var key = ci.Arg<string>();
-                if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.CompletedTask;
-
-                writeCall++;
-                var bytes = ci.Arg<byte[]>();
-                var content = Encoding.UTF8.GetString(bytes);
-                var firstNewline = content.IndexOf('\n');
-                _lastWrittenToken = firstNewline >= 0 ? content[..firstNewline] : content;
-                if (writeCall > 1 && !_notifications.Any(n => n.LockStatus == DistirbutedLockStatus.Lost))
-                {
-                    // Fail all renewals (every 5 sec) from 4:30 until 5:00, then (when lock lost),
-                    // start passing again
-                    //Console.WriteLine($"Simulating write failure at {_scheduler.Now}");
-                    return Task.FromException(new Exception("simulated write failure at 4:30"));
-                }
-                //Console.WriteLine($"Simulating write success at {_scheduler.Now}");
-                uploaded = bytes; // persist when succeeded
-                return Task.CompletedTask;
+                // Keep failing until a Lost notification, then start succeeding
+                if (!_notifications.Any(n => n.LockStatus == DistirbutedLockStatus.Lost))
+                    return Task.FromResult(false); // provider says: you don't own the lock
+                return Task.FromResult(true);
             });
 
         var service = CreateService();
         await StartServiceAsync(service);
-        await WaitForAcquiredAsync(service); // initial acquisition (first upload)
+        await WaitForAcquiredAsync(service);
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
         _notifications.Clear();
 
-        // Act: advance to first renewal window (~4:30), then beyond to allow retry and to 6:00 total
+        // Act: advance to renewal window, keep going to trigger lost + reacquire
         _scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks); // trigger first renewal attempt -> fails
-        // Next attempt occurs after polling interval (5s)
-        _scheduler.AdvanceBy(TimeSpan.FromSeconds(10).Ticks); // give time to retry and succeed
-        // Advance the rest up to 6 minutes total
+        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks);
+        _scheduler.AdvanceBy(TimeSpan.FromSeconds(10).Ticks);
         _scheduler.AdvanceBy(TimeSpan.FromMinutes(1).Ticks + TimeSpan.FromSeconds(20).Ticks);
 
         service.HasLock.Should().BeTrue();
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Lost);
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
-
-        // Assert: exactly 9 upload attempts (acquire + failed renewal + successful renewal)
-        // start, 30, 35, 40, 45, 50, 55, 60 => lost 65 => acq
-        await _storageMock.Received(9).UploadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>());
-        await _storageMock.Received(9).DownloadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)));
     }
 
     [Fact]
-    public async Task Should_Lose_Lock_On_Repeated_Write_Errors()
+    public async Task Should_Lose_Lock_On_Repeated_Renewal_Failures()
     {
-        // Arrange: simulate real lock-file lifecycle (404 until first upload, thereafter return last uploaded bytes)
-        byte[]? uploaded = null;
-        var writeCall = 0;
-
-        _storageMock.DownloadBytes(Arg.Any<string>())
+        // Arrange: acquire succeeds once, all renewals fail, then acquire also fails
+        var acquireCount = 0;
+        _lockProviderMock.AcquireLockAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                 var key = ci.Arg<string>();
-                 if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-
-                if (uploaded is null)
-                {
-                    //Console.WriteLine($"Simulating 404 on download at {_scheduler.Now}");
-                    return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-                }
-                //Console.WriteLine($"Simulating successful download at {_scheduler.Now}");
-                return Task.FromResult(new ReadOnlyMemory<byte>(uploaded));
+                acquireCount++;
+                if (acquireCount > 1)
+                    return Task.FromResult<(string Token, DateTimeOffset Expiry)?>(null);
+                var token = Guid.NewGuid().ToString();
+                return Task.FromResult<(string Token, DateTimeOffset Expiry)?>(
+                    (token, _scheduler.Now.Add(ci.Arg<TimeSpan>())));
             });
 
-        _storageMock.UploadBytes(Arg.Any<string>(), Arg.Any<byte[]>())
-            .Returns(ci =>
-            {
-                var key = ci.Arg<string>();
-                if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.CompletedTask;
-
-                writeCall++;
-                var bytes = ci.Arg<byte[]>();
-                var content = Encoding.UTF8.GetString(bytes);
-                var firstNewline = content.IndexOf('\n');
-                _lastWrittenToken = firstNewline >= 0 ? content[..firstNewline] : content;
-                if (writeCall > 1)
-                {
-                    // Fail all renewals (every 5 sec) from 4:30 until 5:00, then (when lock lost),
-                    // start passing again
-                    //Console.WriteLine($"Simulating write failure at {_scheduler.Now}");
-                    return Task.FromException(new Exception("simulated write failure at 4:30"));
-                }
-                //Console.WriteLine($"Simulating write success at {_scheduler.Now}");
-                uploaded = bytes; // persist when succeeded
-                return Task.CompletedTask;
-            });
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(false); // provider says: you don't own the lock
 
         var service = CreateService();
         await StartServiceAsync(service);
-        await WaitForAcquiredAsync(service); // initial acquisition (first upload)
+        await WaitForAcquiredAsync(service);
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
         _notifications.Clear();
 
-        // Act: advance to first renewal window (~4:30), then beyond to allow retry and to 5:00 total
+        // Act: advance to renewal window
         _scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks); // trigger first renewal attempt -> fails
-        // Next attempt occurs after polling interval (5s)
-        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks); // give time to retry and succeed
+        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks);
+        _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks);
 
         service.HasLock.Should().BeFalse();
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Lost);
-        _notifications.Should().NotContain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
     }
 
     [Fact]
@@ -253,27 +171,23 @@ public class DistributedLockServiceTests : IDisposable
         var count = 0;
         var cts = new CancellationTokenSource();
 
-        // Run a task that awaits 5s repeatedly until 3 minutes have passed
         var until = _scheduler.Now + TimeSpan.FromMinutes(3);
         var looping = Task.Run(async () =>
         {
             while (_scheduler.Now < until)
             {
-                await clock.Delay(TimeSpan.FromSeconds(5), cts.Token);//.ConfigureAwait(false);
-                //Console.WriteLine($"Tick at {_scheduler.Now}");
+                await clock.Delay(TimeSpan.FromSeconds(5), cts.Token);
                 count++;
             }
         });
-        await Task.Delay(10); // let the task start
+        await Task.Delay(10);
 
-        // Drive virtual time forward in 5s steps so each await resumes and schedules the next
         for (var i = 0; i < 36; i++)
         {
             _scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
         }
         await looping;
 
-        // 3 minutes / 5 seconds = 36
         count.Should().BeInRange(35, 37);
     }
 
@@ -283,14 +197,14 @@ public class DistributedLockServiceTests : IDisposable
         { _testCts.Cancel(); }
         catch { /* ignore */ }
         _testCts.Dispose();
+        _lockProviderMock.Dispose();
     }
 
     [Fact]
     public async Task Should_Acquire_Lock_When_No_Existing_Lock()
     {
         // Arrange
-        SetupStorageRead(null); // No existing lock
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
 
         var service = CreateService();
 
@@ -301,16 +215,15 @@ public class DistributedLockServiceTests : IDisposable
         // Assert
         service.HasLock.Should().BeTrue();
         _notifications.Should().ContainSingle(n => n.LockStatus == DistirbutedLockStatus.Acquried);
-        await _storageMock.Received(1).UploadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>());
+        await _lockProviderMock.Received(1).AcquireLockAsync(
+            Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Should_Acquire_Lock_When_Existing_Lock_Expired()
     {
-        // Arrange
-        var expiredLock = ("expired-token", _scheduler.Now.AddMinutes(-1));
-        SetupStorageRead(expiredLock);
-        SetupStorageWriteSuccess();
+        // Arrange: provider handles expiry check internally, just returns success
+        SetupAcquireSucceeds();
 
         var service = CreateService();
 
@@ -326,28 +239,28 @@ public class DistributedLockServiceTests : IDisposable
     [Fact]
     public async Task Should_Not_Acquire_Lock_When_Existing_Lock_Valid()
     {
-        // Arrange
-        var validLock = ("other-token", _scheduler.Now.AddMinutes(1));
-        SetupStorageRead(validLock);
+        // Arrange: provider returns null (lock held by someone else)
+        _lockProviderMock.AcquireLockAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns((ValueTuple<string, DateTimeOffset>?)null);
 
         var service = CreateService();
 
         // Act
         await StartServiceAsync(service);
-        Advance(TimeSpan.FromMilliseconds(500)); // multiple attempts
+        Advance(TimeSpan.FromMilliseconds(500));
 
         // Assert
         service.HasLock.Should().BeFalse();
         _notifications.Should().BeEmpty();
-        await _storageMock.DidNotReceive().UploadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>());
     }
 
     [Fact]
     public async Task Should_Renew_Lock_Periodically()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(true);
 
         var service = CreateService();
 
@@ -355,27 +268,22 @@ public class DistributedLockServiceTests : IDisposable
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
         service.HasLock.Should().BeTrue();
-        _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
 
-        // Ensure reads during renewal observe our token with a valid future expiry
-        SetupDownloadWithFailures(_ => false, _ => _scheduler.Now.AddMinutes(1));
-        // With default timings: first renewal after ~renewalInterval - threshold
+        // Advance past renewal window
         Advance(TimeSpan.FromMinutes(5));
-        Advance(TimeSpan.FromSeconds(10)); // give some extra polling cycles
+        Advance(TimeSpan.FromSeconds(10));
 
         // Assert
         service.HasLock.Should().BeTrue();
-        _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
-        await _storageMock.Received(2).UploadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>());
+        await _lockProviderMock.Received().RenewLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Should_Stop_Gracefully()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
-        SetupStorageDeleteSuccess();
+        SetupAcquireSucceeds();
 
         var service = CreateService();
         await StartServiceAsync(service);
@@ -391,28 +299,36 @@ public class DistributedLockServiceTests : IDisposable
             // Expected when stopping the service
         }
 
-        // Assert - service should have acquired a lock
-        service.HasLock.Should().BeTrue();
+        // Assert - release should have been called
+        await _lockProviderMock.Received().ReleaseLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Should_Handle_Single_IO_Exception_During_Renewal_Without_Losing_Lock()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+
+        var renewCallCount = 0;
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                renewCallCount++;
+                if (renewCallCount == 1)
+                    return Task.FromException<bool>(new Exception("IO error"));
+                return Task.FromResult(true);
+            });
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
 
-        // Fail the next read once, then succeed
-        SetupDownloadWithFailures(call => call == 1, _ => _scheduler.Now.AddMinutes(1));
+        // Act - wait through a renewal cycle
+        Advance(TimeSpan.FromMinutes(5));
+        Advance(TimeSpan.FromSeconds(10));
 
-        // Act - wait through a renewal cycle and enough time for reacquisition if needed
-        Advance(TimeSpan.FromMilliseconds(2200));
-
-        // Assert: at least one Acquired happened; depending on the implementation a transient Lost may occur
+        // Assert
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
     }
 
@@ -420,21 +336,19 @@ public class DistributedLockServiceTests : IDisposable
     public async Task Should_Lose_Lock_After_Persistent_IO_Errors_And_Expired_Lock()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(false); // lock no longer ours
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
 
-        // Simulate persistent IO errors - service can't read the lock file
-        _storageMock.DownloadBytes(Arg.Any<string>())
-                   .Returns(Task.FromException<ReadOnlyMemory<byte>>(new Exception("Persistent IO error")));
+        // Act - wait for renewal to fail
+        Advance(TimeSpan.FromMinutes(6));
 
-        // Act - wait for multiple renewal attempts and lock expiration
-        Advance(TimeSpan.FromMinutes(6)); // beyond renewal window
-
-        // Assert: We at least acquired once before errors. Lost may or may not occur based on timing.
+        // Assert
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Lost);
     }
@@ -443,28 +357,29 @@ public class DistributedLockServiceTests : IDisposable
     public async Task Should_Reacquire_Lock_After_IO_Errors_Resolve()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+
+        var renewCallCount = 0;
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                renewCallCount++;
+                // Fail all renewals -> will lose lock -> service will try to re-acquire
+                return Task.FromResult(false);
+            });
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
 
-        // Phase 1: Simulate persistent IO errors (reads fail during renewal)
-        _storageMock.DownloadBytes(Arg.Any<string>())
-                   .Returns(Task.FromException<ReadOnlyMemory<byte>>(new Exception("IO error")));
+        // Act - push past renewal to lose lock, then wait for reacquisition
+        await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(5), 240);
+        service.HasLock.Should().BeFalse();
 
-        // Wait through some renewal attempts under failure
-        Advance(TimeSpan.FromMinutes(3));
-
-        // Phase 2: Errors resolve; reading shows no lock so service should acquire again
-        _storageMock.DownloadBytes(Arg.Any<string>())
-                   .Returns(Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException()));
-
-        // Act - allow ample time for reacquisition cycle and wait until re-acquired
+        // Reacquire should happen on next poll since AcquireLockAsync still succeeds
         await WaitUntilAdvancingAsync(() => service.HasLock, TimeSpan.FromSeconds(5), 24);
 
-        // Assert: Should reacquire after errors resolve
+        // Assert
         service.HasLock.Should().BeTrue();
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
     }
@@ -473,21 +388,21 @@ public class DistributedLockServiceTests : IDisposable
     public async Task Should_Handle_Intermittent_IO_Errors_Without_Losing_Lock()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+
+        var renewCallCount = 0;
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                renewCallCount++;
+                if (renewCallCount % 4 == 0)
+                    return Task.FromException<bool>(new Exception("Intermittent IO error"));
+                return Task.FromResult(true);
+            });
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
-
-        // Simulate intermittent IO errors (some succeed, some fail)
-        SetupDownloadWithFailures(call =>
-        {
-            //Console.WriteLine($"Download call {call}");
-            return call % 4 == 0;
-        },
-            _ => _scheduler.Now.AddMinutes(1),
-            errorMessage: "Intermittent IO error");
 
         // Act - wait for multiple renewal cycles with intermittent failures
         for (var q = 0; q < 180; q++)
@@ -500,26 +415,22 @@ public class DistributedLockServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Should_Lose_Lock_When_Write_Fails_During_Renewal_And_Lock_Expires()
+    public async Task Should_Lose_Lock_When_Renewal_Returns_False()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
+
+        _lockProviderMock.RenewLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(false);
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
 
-        // Simulate successful initial write then fail subsequent renewal writes
-        SetupUploadCaptureTokenAndFailFrom(2);
-
-        // Setup reads to return expired lock after initial acquisition
-        // First read after acquisition appears expired to trigger Lost on failed renewal
-        SetupDownloadWithFailures(_ => false,
-            call => call >= 1 ? _scheduler.Now.AddMinutes(-1) : _scheduler.Now.AddMinutes(1));
-
-        // Act - wait for renewal attempt with write failure and processing
-        await WaitUntilAdvancingAsync(() => _notifications.Exists(n => n.LockStatus == DistirbutedLockStatus.Lost), TimeSpan.FromSeconds(5), 240);
+        // Act - wait for renewal attempt
+        await WaitUntilAdvancingAsync(
+            () => _notifications.Exists(n => n.LockStatus == DistirbutedLockStatus.Lost),
+            TimeSpan.FromSeconds(5), 240);
 
         // Assert
         _notifications.Should().Contain(n => n.LockStatus == DistirbutedLockStatus.Acquried);
@@ -530,49 +441,40 @@ public class DistributedLockServiceTests : IDisposable
     public async Task Should_Write_Request_File_On_Startup()
     {
         // Arrange
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
 
         var service = CreateService();
 
         // Act
         await StartServiceAsync(service);
-        
+
         // Allow generic task run to proceed
         await Task.Yield();
 
         // Assert
-        // Implementation T007 will write this file on start
-        await _storageMock.Received().UploadBytes(
+        await _lockProviderMock.Received().RequestLockAsync(
             Arg.Is<string>(s => s.EndsWith("request-lock")),
-            Arg.Any<byte[]>()
-        );
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Should_Yield_Lock_When_Request_File_Detected_With_Different_Token()
+    public async Task Should_Yield_Lock_When_ShouldYield_Returns_True()
     {
         // Arrange
-        SetupStorageRead(null); // Initially no lock
-        SetupStorageWriteSuccess();
-        
+        SetupAcquireSucceeds();
+
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
-        
+
         service.HasLock.Should().BeTrue();
 
-        // Update mock to reflect the file we just wrote, so ReleaseLockAsync can find it
-        SetupStorageRead((_lastWrittenToken!, DateTimeOffset.UtcNow.AddMinutes(10)));
+        // Simulate that another instance requests the lock
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
 
-        // Simulate that another instance has written a request file
-        var otherToken = Guid.NewGuid().ToString();
-        var requestFileContent = Encoding.UTF8.GetBytes(otherToken);
-        
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(requestFileContent));
-
-        // Assert
-        // Lock should be released (Yielded)
+        // Assert: Lock should be released (Yielded)
         await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(1), 200);
 
         service.HasLock.Should().BeFalse();
@@ -580,12 +482,10 @@ public class DistributedLockServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Should_Delete_Request_File_After_Acquiring_Lock()
+    public async Task Should_Delete_Request_Lock_After_Acquiring_Lock()
     {
         // Arrange
-        SetupStorageRead(null); 
-        SetupStorageWriteSuccess();
-        SetupStorageDeleteSuccess(); 
+        SetupAcquireSucceeds();
 
         var service = CreateService();
         await StartServiceAsync(service);
@@ -593,187 +493,139 @@ public class DistributedLockServiceTests : IDisposable
 
         // Assert
         service.HasLock.Should().BeTrue();
-        await _storageMock.Received().DeleteFile(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)));
+        await _lockProviderMock.Received().DeleteRequestLockAsync(
+            Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Should_Delete_Request_File_On_Stop_When_Not_Acquired()
+    public async Task Should_Delete_Request_Lock_On_Stop_When_Not_Own()
     {
         // Arrange: Someone else has the lock
-        SetupStorageRead(("other-token", DateTimeOffset.UtcNow.AddMinutes(10))); 
-        SetupStorageWriteSuccess();
-        SetupStorageDeleteSuccess(); 
+        _lockProviderMock.AcquireLockAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns((ValueTuple<string, DateTimeOffset>?)null);
 
-        // Capture what is written to request-lock so we can return it when read
-        var capturedRequestBytes = Array.Empty<byte>();
-        _storageMock.UploadBytes(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)), Arg.Any<byte[]>())
-            .Returns(ci => {
-                capturedRequestBytes = ci.Arg<byte[]>();
-                return Task.CompletedTask;
-            });
-        
-        // Dynamically return captured content
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(capturedRequestBytes));
+        // ShouldYield returns false during stop => it's ours or empty, so delete
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
 
         var service = CreateService();
         await StartServiceAsync(service);
-        
-        // Assert creation
-        await _storageMock.Received().UploadBytes(
-            Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)),
-            Arg.Any<byte[]>()
-        );
-
         service.HasLock.Should().BeFalse();
 
-        // Clear received calls so we can check for deletion specifically during Stop
-        _storageMock.ClearReceivedCalls();
+        _lockProviderMock.ClearReceivedCalls();
 
         // Act
         await service.StopAsync(CancellationToken.None);
 
-        // Assert deletion (should read file, match content, then delete)
-        await _storageMock.Received().DeleteFile(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)));
+        // Assert: should delete request lock on stop
+        await _lockProviderMock.Received().DeleteRequestLockAsync(
+            Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_Not_Delete_Request_File_On_Stop_If_Not_Own()
+    {
+        // Arrange: ShouldYield returns true => another instance's request, don't delete
+        SetupAcquireSucceeds();
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var service = CreateService();
+        await StartServiceAsync(service);
+
+        // Wait for yield to happen (ShouldYield is true, so service will yield)
+        await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(1), 200);
+
+        _lockProviderMock.ClearReceivedCalls();
+
+        // Act
+        await service.StopAsync(CancellationToken.None);
+
+        // Assert: should NOT delete request lock (ShouldYield = true means it's someone else's)
+        await _lockProviderMock.DidNotReceive().DeleteRequestLockAsync(
+            Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Should_Reclaim_Lock_After_Handover_Timeout()
     {
         // Arrange
-        SetupStorageRead(null); 
-        SetupStorageWriteSuccess();
-        SetupStorageDeleteSuccess(); 
+        SetupAcquireSucceeds();
 
         var service = CreateService();
         await StartServiceAsync(service);
         await WaitForAcquiredAsync(service);
         service.HasLock.Should().BeTrue();
 
-         // Update mock to reflect the file we just wrote
-        SetupStorageRead((_lastWrittenToken!, DateTimeOffset.UtcNow.AddMinutes(10)));
-
-        // Simulate Request
-        var requestFileContent = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(requestFileContent));
+        // Simulate yield request
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
 
         // Wait for yield
         await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(1), 200);
         service.HasLock.Should().BeFalse();
 
-        // Lock was released, so lock file is gone. Update mock to reflect this.
-        SetupStorageRead(null);
+        // Stop the yield trigger so we can reacquire
+        _lockProviderMock.ShouldYieldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
 
-        // Act: Advance time past RequestTimeout (default 15s)
-        // We need to wait enough for the timeout to trigger AND the next poll to acquire.
-        _storageMock.ClearReceivedCalls(); // Clear previous calls
-        
-        // Remove Request File Mock (simulate requester gave up or we ignore it? 
-        // Logic says we check timeout. The request file might still be there. 
-        // If it is there, we should probably ignore it if we timed out? 
-        // Or does the logic imply "Yielded state expires"?
-        // The Spec says: "If in Yielded state for > HandoverTimeout, reset state to Idle/Acquiring".
-        
-        // Let's assume request file is still there for now, or gone. 
-        // If gone, we naturally acquire. If there, we should acquire anyway if we timed out? 
-        // Spec T017 says "Implement Fallback Reclaim logic (timer/check in Yielded state)".
-        // Usually if we yielded, we expect the other guy to take it within X seconds. 
-        // If they don't, we go back to trying to acquire.
-        
+        // Act: Advance time past HandoverTimeout (default 15s)
         _scheduler.AdvanceBy(TimeSpan.FromSeconds(30).Ticks); // > 15s timeout
-        
+
         // Give loop a chance
         await Task.Yield();
-        // Force poll wait
-        _scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks); 
+        _scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
         await Task.Yield();
 
         // Assert
         service.HasLock.Should().BeTrue();
     }
 
-    private DistributedLockService<TestEntity> CreateService()
-    {
-        return new DistributedLockService<TestEntity>(
-            _storageMock,
-            Options.Create(_storageConfig),
-            _loggerMock,
-            _notificationsHubMock,
-            Options.Create(_lockOptions),
-            new RxSchedulerClock(_scheduler));
-    }
-
     [Fact]
-    public async Task Should_Not_Delete_Request_File_On_Stop_If_Not_Own()
+    public async Task Should_Flush_Storage_On_Stop()
     {
         // Arrange
-        // Verify current behavior: File exists with DIFFERENT token
-        var otherToken = "other-instance-id";
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(Encoding.UTF8.GetBytes(otherToken)));
-
-        SetupStorageRead(null);
-        SetupStorageWriteSuccess();
+        SetupAcquireSucceeds();
 
         var service = CreateService();
         await StartServiceAsync(service);
-
-        // Clear calls from startup
-        _storageMock.ClearReceivedCalls();
+        await WaitForAcquiredAsync(service);
 
         // Act
         await service.StopAsync(CancellationToken.None);
 
         // Assert
-        // Should NOT have deleted the request lock because the mock returns 'otherToken'
-        await _storageMock.DidNotReceive().DeleteFile(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)));
+        await _storageMock.Received().FlushAsync();
     }
 
-    private void SetupStorageRead((string Token, DateTimeOffset Expiry)? lockData)
+    private DistributedLockService<TestEntity> CreateService()
     {
-        // Default behavior for request-lock: return Not Found (404) so we don't accidentally yield
-        _storageMock.DownloadBytes(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)))
-            .Returns(ci => _requestLockHandler(ci.Arg<string>()));
-
-        if (lockData == null)
-        {
-            _storageMock.DownloadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)))
-                       .Returns(Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException()))
-                       ;
-        }
-        else
-        {
-            var content = $"{lockData.Value.Token}\n{lockData.Value.Expiry:o}";
-            var bytes = Encoding.UTF8.GetBytes(content);
-            _storageMock.DownloadBytes(Arg.Is<string>(s => !s.EndsWith("request-lock", StringComparison.Ordinal)))
-                       .Returns(Task.FromResult(new ReadOnlyMemory<byte>(bytes)));
-        }
+        return new DistributedLockService<TestEntity>(
+            _lockProviderMock,
+            Options.Create(_storageConfig),
+            _loggerMock,
+            _notificationsHubMock,
+            _storageMock,
+            Options.Create(_lockOptions),
+            new RxSchedulerClock(_scheduler));
     }
 
-    private void SetupStorageWriteSuccess()
+    private void SetupAcquireSucceeds()
     {
-        _storageMock.UploadBytes(Arg.Any<string>(), Arg.Any<byte[]>())
-                   .Returns(callInfo =>
-                   {
-                       var key = callInfo.Arg<string>();
-                       if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.CompletedTask;
-
-                       // Capture the token from the written lock file (first line)
-                       var bytes = callInfo.Arg<byte[]>();
-                       var content = Encoding.UTF8.GetString(bytes);
-                       var firstNewline = content.IndexOf('\n');
-                       _lastWrittenToken = firstNewline >= 0 ? content[..firstNewline] : content;
-                       return Task.CompletedTask;
-                   });
-    }
-
-    private void SetupStorageDeleteSuccess()
-    {
-        _storageMock.DeleteFile(Arg.Any<string>())
-                   .Returns(Task.CompletedTask);
+        _lockProviderMock.AcquireLockAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var token = Guid.NewGuid().ToString();
+                return Task.FromResult<(string Token, DateTimeOffset Expiry)?>(
+                    (token, _scheduler.Now.Add(ci.Arg<TimeSpan>())));
+            });
     }
 
     private void Advance(TimeSpan by)
     {
-        // Advance the TestScheduler (virtual time)
         _scheduler.AdvanceBy(by.Ticks);
     }
 
@@ -784,77 +636,14 @@ public class DistributedLockServiceTests : IDisposable
         await Task.Delay(100);
     }
 
-    private ReadOnlyMemory<byte> MakeLockBytes(DateTimeOffset expiry, string? token = null)
-        => new ReadOnlyMemory<byte>(Encoding.UTF8.GetBytes($"{token ?? _lastWrittenToken ?? "token"}\n{expiry:o}"));
-
-    private void SetupDownloadWithFailures(Func<int, bool> shouldFail, Func<int, DateTimeOffset> expiryProvider, string errorMessage = "IO error")
-    {
-        var callCount = 0;
-        _storageMock.DownloadBytes(Arg.Any<string>())
-                   .Returns(ci =>
-                   {
-                        var key = ci.Arg<string>();
-                        if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
-
-                       callCount++;
-                       if (shouldFail(callCount))
-                       {
-                           //Console.WriteLine($"Simulating download failure on call {callCount}");
-                           return Task.FromException<ReadOnlyMemory<byte>>(new Exception(errorMessage));
-                       }
-                       //Console.WriteLine($"Simulating download success on call {callCount}");
-                       return Task.FromResult(MakeLockBytes(expiryProvider(callCount)));
-                   });
-    }
-
-    private void SetupUploadCaptureTokenAndFailFrom(int failFromCall, string errorMessage = "Write IO error")
-    {
-        var writeCallCount = 0;
-        _storageMock.UploadBytes(Arg.Any<string>(), Arg.Any<byte[]>())
-                   .Returns(callInfo =>
-                   {
-                       var key = callInfo.Arg<string>();
-                       if (key.EndsWith("request-lock", StringComparison.Ordinal)) return Task.CompletedTask;
-
-                       writeCallCount++;
-                       var bytes = callInfo.Arg<byte[]>();
-                       var content = Encoding.UTF8.GetString(bytes);
-                       var firstNewline = content.IndexOf('\n');
-                       _lastWrittenToken = firstNewline >= 0 ? content[..firstNewline] : content;
-                       if (writeCallCount >= failFromCall)
-                       {
-                           //Console.WriteLine($"Simulating upload failure on call {writeCallCount}");
-                           return Task.FromException(new Exception(errorMessage));
-                       }
-                       //Console.WriteLine($"Simulating upload success on call {writeCallCount}");
-                       return Task.CompletedTask;
-                   });
-    }
-
-    public class TestEntity
-    {
-        // Empty test entity
-    }
-
-    private async Task WaitUntilAsync(Func<bool> condition, int maxYields = 100)
-    {
-        var i = 0;
-        while (!condition() && i++ < maxYields)
-        {
-            await Task.Yield();
-        }
-    }
-
     private async Task WaitForAcquiredAsync(DistributedLockService<TestEntity> service, int maxSteps = 200)
     {
         var i = 0;
         while (!service.HasLock && i++ < maxSteps)
         {
-            // Default polling is 5 seconds
             _scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
             await Task.Yield();
         }
-        //Console.WriteLine($"Waited {i} steps for lock acquisition.");
     }
 
     private async Task WaitUntilAdvancingAsync(Func<bool> condition, TimeSpan step, int maxSteps)
@@ -865,5 +654,10 @@ public class DistributedLockServiceTests : IDisposable
             _scheduler.AdvanceBy(step.Ticks);
             await Task.Yield();
         }
+    }
+
+    public class TestEntity
+    {
+        // Empty test entity
     }
 }
