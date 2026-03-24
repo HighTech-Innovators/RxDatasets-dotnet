@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,7 @@ public class HybridBigtableStorageReader<T>(
     : IStorageReader<T>
 {
     private readonly string _datasetPrefix = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value);
+    private bool Log => storageConfig.Value.LogStorageAccess;
 
     public async Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
     {
@@ -26,39 +28,41 @@ public class HybridBigtableStorageReader<T>(
 
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, snapshotVersion);
         if (artifact == null)
         {
-            if (storageConfig.Value.LogStorageAccess)
+            if (Log)
             {
-                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version}", snapshotVersion);
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version} ({ElapsedMs}ms)", snapshotVersion, sw!.ElapsedMilliseconds);
             }
             return await legacyReader.ReadSnapshotData(snapshotVersion);
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
-            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
+            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Data);
     }
 
     public async Task ReadSnapshotData(ulong snapshotVersion, Action<Stream> callback)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, snapshotVersion);
         if (artifact == null)
         {
-            if (storageConfig.Value.LogStorageAccess)
+            if (Log)
             {
-                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version}", snapshotVersion);
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version} ({ElapsedMs}ms)", snapshotVersion, sw!.ElapsedMilliseconds);
             }
             await legacyReader.ReadSnapshotData(snapshotVersion, callback);
             return;
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
-            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
+            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
 
         if (artifact.DataLength == 0)
@@ -70,11 +74,12 @@ public class HybridBigtableStorageReader<T>(
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
-            if (storageConfig.Value.LogStorageAccess)
-            {
-                logger.LogInformation("Streaming Snapshot Data from GCS (Fallback Key: {Key})", artifact.DataFallbackObjectKey);
-            }
+            var swGcs = Log ? Stopwatch.StartNew() : null;
             await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, callback);
+            if (Log)
+            {
+                logger.LogInformation("Streamed Snapshot Data from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", artifact.DataFallbackObjectKey, swGcs!.ElapsedMilliseconds);
+            }
             return;
         }
 
@@ -84,19 +89,20 @@ public class HybridBigtableStorageReader<T>(
 
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Delta, version);
         if (artifact == null)
         {
-            if (storageConfig.Value.LogStorageAccess)
+            if (Log)
             {
-                logger.LogInformation("Falling back to Legacy GCS reader for Delta {Version}", version);
+                logger.LogInformation("Falling back to Legacy GCS reader for Delta {Version} ({ElapsedMs}ms)", version, sw!.ElapsedMilliseconds);
             }
             return await legacyReader.ReadDeltaIndex(version);
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
-            logger.LogInformation("Read Delta v{Version} Index ({Length} bytes) from Bigtable", version, artifact.IndexLength);
+            logger.LogInformation("Read Delta v{Version} Index ({Length} bytes) from Bigtable in {ElapsedMs}ms", version, artifact.IndexLength, sw!.ElapsedMilliseconds);
         }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
     }
@@ -106,12 +112,7 @@ public class HybridBigtableStorageReader<T>(
         ulong toVersionInclusive,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        if (storageConfig.Value.LogStorageAccess)
-        {
-            logger.LogInformation(
-                "Reading delta index range v{From}..v{To} ({Count} versions) from Bigtable",
-                fromVersionExclusive + 1, toVersionInclusive, toVersionInclusive - fromVersionExclusive);
-        }
+        var sw = Log ? Stopwatch.StartNew() : null;
 
         var yielded = new HashSet<ulong>();
         long totalBytes = 0;
@@ -125,16 +126,16 @@ public class HybridBigtableStorageReader<T>(
             yield return (artifact.Version, payload);
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
             logger.LogInformation(
-                "Read {Count} delta indices ({Bytes} bytes total) from Bigtable range scan",
-                yielded.Count, totalBytes);
+                "Scanned delta index range v{From}..v{To}: {Count} indices ({Bytes} bytes) from Bigtable in {ElapsedMs}ms",
+                fromVersionExclusive + 1, toVersionInclusive, yielded.Count, totalBytes, sw!.ElapsedMilliseconds);
         }
 
         // Fall back to legacy reader for any versions missing from Bigtable
         var legacyCount = (toVersionInclusive - fromVersionExclusive) - (ulong)yielded.Count;
-        if (legacyCount > 0 && storageConfig.Value.LogStorageAccess)
+        if (legacyCount > 0 && Log)
         {
             logger.LogInformation(
                 "Falling back to Legacy GCS reader for {Count} deltas missing from Bigtable",
@@ -154,27 +155,35 @@ public class HybridBigtableStorageReader<T>(
 
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, version);
         if (artifact == null)
         {
-            if (storageConfig.Value.LogStorageAccess)
+            if (Log)
             {
-                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot Index {Version}", version);
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot Index {Version} ({ElapsedMs}ms)", version, sw!.ElapsedMilliseconds);
             }
             return await legacyReader.ReadSnapshotIndex(version);
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
-            logger.LogInformation("Read Snapshot v{Version} Index ({Length} bytes) from Bigtable", version, artifact.IndexLength);
+            logger.LogInformation("Read Snapshot v{Version} Index ({Length} bytes) from Bigtable in {ElapsedMs}ms", version, artifact.IndexLength, sw!.ElapsedMilliseconds);
         }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
     }
 
     public async Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var deltaRows = await rowStore.ListArtifacts(_datasetPrefix, ObjectNameTypeEnum.Delta);
         var snapshotRows = await rowStore.ListArtifacts(_datasetPrefix, ObjectNameTypeEnum.Snapshot);
+
+        if (Log)
+        {
+            logger.LogInformation("Listed versions ({Deltas} deltas, {Snapshots} snapshots) from Bigtable in {ElapsedMs}ms",
+                deltaRows.Count, snapshotRows.Count, sw!.ElapsedMilliseconds);
+        }
 
         var legacyVersions = await TryListLegacyVersions();
 
@@ -216,13 +225,14 @@ public class HybridBigtableStorageReader<T>(
 
         foreach (var source in sources)
         {
+            var sw = Log ? Stopwatch.StartNew() : null;
             var artifact = await rowStore.GetArtifact(_datasetPrefix, source.type, source.version);
             if (artifact != null)
             {
-                if (storageConfig.Value.LogStorageAccess)
+                if (Log)
                 {
-                    logger.LogInformation("Read {Type} v{Version} Data range (offset {Position}, {Length} bytes) from Bigtable",
-                        source.type, source.version, source.position, length);
+                    logger.LogInformation("Read {Type} v{Version} Data range (offset {Position}, {Length} bytes) from Bigtable in {ElapsedMs}ms",
+                        source.type, source.version, source.position, length, sw!.ElapsedMilliseconds);
                 }
                 return await ReadRange(artifact, source.position, length);
             }
@@ -242,15 +252,16 @@ public class HybridBigtableStorageReader<T>(
 
     public async Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, snapshotVersion);
         if (artifact == null)
         {
             return await legacyReader.GetSnapshotDataContentLength(snapshotVersion);
         }
 
-        if (storageConfig.Value.LogStorageAccess)
+        if (Log)
         {
-            logger.LogInformation("Read Snapshot v{Version} content length ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
+            logger.LogInformation("Read Snapshot v{Version} content length ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
         return artifact.DataLength;
     }
@@ -295,11 +306,13 @@ public class HybridBigtableStorageReader<T>(
 
         if (!string.IsNullOrEmpty(fallbackObjectKey))
         {
-            if (storageConfig.Value.LogStorageAccess)
+            var sw = Log ? Stopwatch.StartNew() : null;
+            var data = await blobStorage.DownloadBytes(fallbackObjectKey);
+            if (Log)
             {
-                logger.LogInformation("Reading {PayloadType} from GCS (Fallback Key: {Key})", payloadType, fallbackObjectKey);
+                logger.LogInformation("Read {PayloadType} ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", payloadType, data.Length, fallbackObjectKey, sw!.ElapsedMilliseconds);
             }
-            return await blobStorage.DownloadBytes(fallbackObjectKey);
+            return data;
         }
 
         throw new FileNotFoundException($"The requested {payloadType} payload is missing from the hybrid artifact row.");
@@ -324,11 +337,13 @@ public class HybridBigtableStorageReader<T>(
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
-            if (storageConfig.Value.LogStorageAccess)
+            var sw = Log ? Stopwatch.StartNew() : null;
+            var data = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey, position, length);
+            if (Log)
             {
-                logger.LogInformation("Reading Data (Range) from GCS (Fallback Key: {Key})", artifact.DataFallbackObjectKey);
+                logger.LogInformation("Read Data range ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", length, artifact.DataFallbackObjectKey, sw!.ElapsedMilliseconds);
             }
-            return await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey, position, length);
+            return data;
         }
 
         throw new FileNotFoundException("The requested hybrid artifact data payload is missing.");

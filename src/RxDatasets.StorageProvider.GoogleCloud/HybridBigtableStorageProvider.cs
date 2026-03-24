@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -49,6 +50,8 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         _lockService = lockService;
         _startIfInitFails = startIfInitFails;
     }
+
+    private bool Log => _storageConfig.Value.LogStorageAccess;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -199,7 +202,12 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
                 _processedVersionsInfo.ProcessedVersions.TryAdd(who, version);
             }
 
+            var sw = Log ? Stopwatch.StartNew() : null;
             await _rowStore.PutProcessedVersion(GetDatasetPrefix(), who, version);
+            if (Log)
+            {
+                _logger.LogInformation("Wrote ProcessedVersion ({Who}={Version}) to Bigtable in {ElapsedMs}ms", who, version, sw!.ElapsedMilliseconds);
+            }
             await _notificationsHub.Notify(new VersionProcessedNotification(who, version));
         }
         finally
@@ -349,17 +357,26 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
     private async Task DeleteArtifact(ulong version, ObjectNameTypeEnum type)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var artifact = await _rowStore.GetArtifact(GetDatasetPrefix(), type, version);
         if (artifact != null)
         {
             await DeleteFallbackObject(artifact.IndexFallbackObjectKey);
             await DeleteFallbackObject(artifact.DataFallbackObjectKey);
             await _rowStore.DeleteArtifact(GetDatasetPrefix(), type, version);
+            if (Log)
+            {
+                _logger.LogInformation("Deleted {Type} v{Version} from Bigtable in {ElapsedMs}ms", type, version, sw!.ElapsedMilliseconds);
+            }
             return;
         }
 
         var folderKey = DatasetHelper.GetObjectFolder<T>(version, type, _storageConfig.Value);
         await _blobStorage.DeleteFolder(folderKey + '/');
+        if (Log)
+        {
+            _logger.LogInformation("Deleted {Type} v{Version} from GCS (legacy) in {ElapsedMs}ms", type, version, sw!.ElapsedMilliseconds);
+        }
     }
 
     private async Task DeleteFallbackObject(string? objectKey)
@@ -380,6 +397,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
     private async Task WriteArtifact(ObjectNameTypeEnum type, ulong version, byte[] index, byte[] data)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         var plan = _rowStore.CreateWritePlan(index.Length, data.LongLength);
         var indexFallbackObjectKey = plan.StoreIndexInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type);
         var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
@@ -387,11 +405,19 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         if (indexFallbackObjectKey != null)
         {
             await _blobStorage.UploadBytes(indexFallbackObjectKey, index);
+            if (Log)
+            {
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, index.Length, sw!.ElapsedMilliseconds);
+            }
         }
 
         if (dataFallbackObjectKey != null)
         {
             await _blobStorage.UploadBytes(dataFallbackObjectKey, data);
+            if (Log)
+            {
+                _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, data.Length, sw!.ElapsedMilliseconds);
+            }
         }
 
         await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
@@ -404,10 +430,17 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             dataFallbackObjectKey,
             index.LongLength,
             data.LongLength));
+
+        if (Log)
+        {
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+        }
     }
 
     private async Task WriteArtifact(ObjectNameTypeEnum type, ulong version, byte[] index, Stream data)
     {
+        var sw = Log ? Stopwatch.StartNew() : null;
         if (data.CanSeek)
         {
             data.Position = 0;
@@ -420,6 +453,10 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         if (indexFallbackObjectKey != null)
         {
             await _blobStorage.UploadBytes(indexFallbackObjectKey, index);
+            if (Log)
+            {
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, index.Length, sw!.ElapsedMilliseconds);
+            }
         }
 
         byte[]? inlineData = null;
@@ -437,6 +474,10 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
                 }
 
                 await _blobStorage.UploadFileStream(dataFallbackObjectKey!, data);
+                if (Log)
+                {
+                    _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS (stream) in {ElapsedMs}ms", type, version, data.Length, sw!.ElapsedMilliseconds);
+                }
             }
         }
 
@@ -450,6 +491,12 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             dataFallbackObjectKey,
             index.LongLength,
             data.Length));
+
+        if (Log)
+        {
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+        }
     }
 
     private async Task<byte[]> ReadAllBytes(Stream stream)
