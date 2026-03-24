@@ -246,6 +246,18 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             throw new InvalidOperationException("Too many versions to load");
         }
 
+        // For a single delta, use ReadDeltaIndex to benefit from the per-version cache
+        // (e.g. when the reader picks up a delta that was just written through the cache layer).
+        // For multiple deltas, use the range method for a single Bigtable scan.
+        if (iterations == 1)
+        {
+            var version = fromVersion + 1;
+            var indexBytes = await storageProvider.ReadDeltaIndex(version);
+            var singleIndex = DeltaIndex.Parser.ParseFrom(indexBytes.Span);
+            singleIndex.ValidateAgainstVersion(version);
+            return [singleIndex];
+        }
+
         var indexes = new List<DeltaIndex>((int)iterations);
         await foreach (var (version, indexBytes) in storageProvider.ReadDeltaIndexRange(fromVersion, toVersion))
         {

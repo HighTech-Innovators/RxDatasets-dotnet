@@ -40,6 +40,7 @@ public interface IVersionedArtifactRowStore
     Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default);
     IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive, CancellationToken cancellationToken = default);
+    Task<ulong?> GetLatestArtifactVersion(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default);
     Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
     Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
     Task DeleteRequestLock(string datasetPrefix, string requestLockName, CancellationToken cancellationToken = default);
@@ -118,46 +119,102 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         await EnsureInitialized();
 
         var rowKey = GetArtifactRowKey(datasetPrefix, artifact.Type, artifact.Version);
-        var entry = new MutateRowsRequest.Types.Entry
-        {
-            RowKey = ByteString.CopyFromUtf8(rowKey),
-            Mutations =
-            {
-                new Mutation { DeleteFromRow = new Mutation.Types.DeleteFromRow() }
-            }
-        };
 
-        AddStringCell(entry, MetadataFamily, QualifierKind, GetKindSegment(artifact.Type));
-        AddStringCell(entry, MetadataFamily, QualifierVersion, artifact.Version.ToString(CultureInfo.InvariantCulture));
-        AddStringCell(entry, MetadataFamily, QualifierCreatedAt, artifact.CreatedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
-        AddStringCell(entry, MetadataFamily, QualifierIndexLength, artifact.IndexLength.ToString(CultureInfo.InvariantCulture));
-        AddStringCell(entry, MetadataFamily, QualifierDataLength, artifact.DataLength.ToString(CultureInfo.InvariantCulture));
+        var mutations = new List<Mutation>();
+
+        AddMutation(mutations, MetadataFamily, QualifierKind, GetKindSegment(artifact.Type));
+        AddMutation(mutations, MetadataFamily, QualifierVersion, artifact.Version.ToString(CultureInfo.InvariantCulture));
+        AddMutation(mutations, MetadataFamily, QualifierCreatedAt, artifact.CreatedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
+        AddMutation(mutations, MetadataFamily, QualifierIndexLength, artifact.IndexLength.ToString(CultureInfo.InvariantCulture));
+        AddMutation(mutations, MetadataFamily, QualifierDataLength, artifact.DataLength.ToString(CultureInfo.InvariantCulture));
 
         if (artifact.InlineIndex != null)
         {
-            AddBytesCell(entry, PayloadFamily, QualifierIndex, artifact.InlineIndex);
+            AddMutation(mutations, PayloadFamily, QualifierIndex, artifact.InlineIndex);
         }
 
         if (artifact.InlineData != null)
         {
-            AddBytesCell(entry, PayloadFamily, QualifierData, artifact.InlineData);
+            AddMutation(mutations, PayloadFamily, QualifierData, artifact.InlineData);
         }
 
         if (!string.IsNullOrEmpty(artifact.IndexFallbackObjectKey))
         {
-            AddStringCell(entry, FallbackFamily, QualifierIndexObject, artifact.IndexFallbackObjectKey);
+            AddMutation(mutations, FallbackFamily, QualifierIndexObject, artifact.IndexFallbackObjectKey);
         }
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
-            AddStringCell(entry, FallbackFamily, QualifierDataObject, artifact.DataFallbackObjectKey);
+            AddMutation(mutations, FallbackFamily, QualifierDataObject, artifact.DataFallbackObjectKey);
         }
 
-        await _bigtableClient.MutateRowsAsync(new MutateRowsRequest
+        if (artifact.Type == ObjectNameTypeEnum.Delta)
         {
-            TableNameAsTableName = GetTableName(),
-            Entries = { entry }
-        }, cancellationToken: cancellationToken);
+            // Deltas are immutable — use CheckAndMutate to prevent overwriting.
+            // Only write if the row does NOT already have a version column.
+            var checkRequest = new CheckAndMutateRowRequest
+            {
+                TableNameAsTableName = GetTableName(),
+                RowKey = ByteString.CopyFromUtf8(rowKey),
+                PredicateFilter = new RowFilter
+                {
+                    Chain = new RowFilter.Types.Chain
+                    {
+                        Filters =
+                        {
+                            new RowFilter { FamilyNameRegexFilter = MetadataFamily },
+                            new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8(QualifierVersion) },
+                            new RowFilter { CellsPerColumnLimitFilter = 1 }
+                        }
+                    }
+                },
+                // FalseMutations execute when predicate does NOT match (row doesn't exist)
+                FalseMutations = { mutations }
+            };
+
+            var response = await _bigtableClient.CheckAndMutateRowAsync(checkRequest);
+
+            if (response.PredicateMatched)
+            {
+                throw new InvalidOperationException(
+                    $"Delta v{artifact.Version} for {datasetPrefix} already exists in Bigtable — refusing to overwrite");
+            }
+        }
+        else
+        {
+            // Snapshots can be re-created (e.g. after cleanup), so use unconditional write
+            var entry = new MutateRowsRequest.Types.Entry
+            {
+                RowKey = ByteString.CopyFromUtf8(rowKey),
+                Mutations = { new Mutation { DeleteFromRow = new Mutation.Types.DeleteFromRow() } }
+            };
+            entry.Mutations.Add(mutations);
+
+            await _bigtableClient.MutateRowsAsync(new MutateRowsRequest
+            {
+                TableNameAsTableName = GetTableName(),
+                Entries = { entry }
+            }, cancellationToken: cancellationToken);
+        }
+    }
+
+    private static void AddMutation(List<Mutation> mutations, string family, string qualifier, string value)
+    {
+        AddMutation(mutations, family, qualifier, System.Text.Encoding.UTF8.GetBytes(value));
+    }
+
+    private static void AddMutation(List<Mutation> mutations, string family, string qualifier, byte[] value)
+    {
+        mutations.Add(new Mutation
+        {
+            SetCell = new Mutation.Types.SetCell
+            {
+                FamilyName = family,
+                ColumnQualifier = ByteString.CopyFromUtf8(qualifier),
+                TimestampMicros = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000,
+                Value = ByteString.CopyFrom(value)
+            }
+        });
     }
 
     public async Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
@@ -251,6 +308,35 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         }
 
         return summaries;
+    }
+
+    public async Task<ulong?> GetLatestArtifactVersion(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+
+        var prefix = GetArtifactRowPrefix(datasetPrefix, type);
+        var request = new ReadRowsRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            Rows = new RowSet(),
+            // Strip all cell values — we only need the row keys to find the latest version
+            Filter = new RowFilter { StripValueTransformer = true }
+        };
+        request.Rows.RowRanges.Add(new RowRange
+        {
+            StartKeyClosed = ByteString.CopyFromUtf8(prefix),
+            EndKeyOpen = ByteString.CopyFromUtf8(GetPrefixEnd(prefix))
+        });
+
+        ulong? latest = null;
+        var rows = _bigtableClient.ReadRows(request);
+        await foreach (var row in rows.WithCancellation(cancellationToken))
+        {
+            // Rows arrive in ascending key order; last one wins
+            latest = ParseVersionFromRowKey(row.Key.ToStringUtf8());
+        }
+
+        return latest;
     }
 
     public async Task DeleteArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)

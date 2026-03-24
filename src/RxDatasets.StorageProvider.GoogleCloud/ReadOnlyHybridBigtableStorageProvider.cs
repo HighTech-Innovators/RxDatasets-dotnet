@@ -44,7 +44,13 @@ public class ReadOnlyHybridBigtableStorageProvider<T> : IReadOnlyStorageProvider
             await NotifyReadiness(ServiceStatus.Ready);
         }
 
-        _ = InitAndUpdateLoop(_cts.Token);
+        // Only poll for changes when there's no notifications hub to push updates.
+        // When running in the same process as the writer, notifications provide
+        // instant updates — polling would be redundant.
+        if (_notificationsHub == null)
+        {
+            _ = InitAndUpdateLoop(_cts.Token);
+        }
     }
 
     public virtual async Task StopAsync(CancellationToken cancellationToken)
@@ -212,6 +218,14 @@ public class ReadOnlyHybridBigtableStorageProvider<T> : IReadOnlyStorageProvider
             await Task.Delay(5 * 1000, cancellationToken);
             try
             {
+                // Fast check: only do the full ListVersions scan when something actually changed
+                if (_storageReader is HybridBigtableStorageReader<T> bigtableReader)
+                {
+                    var latestSnapshot = Snapshots.Count > 0 ? Snapshots.Max(s => s.Version) : 0ul;
+                    if (!await bigtableReader.HasChanges(DeltaInfo.LatestDeltaVersion, latestSnapshot))
+                        continue;
+                }
+
                 await Initialize(cancellationToken);
             }
             catch (Exception ex)

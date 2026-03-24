@@ -124,6 +124,15 @@ public class HybridBigtableGcsStorageTests
             return Task.FromResult(_artifacts.TryGetValue((datasetPrefix, type, version), out var artifact) ? artifact : null);
         }
 
+        public Task<ulong?> GetLatestArtifactVersion(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)
+        {
+            var latest = _artifacts
+                .Where(kvp => kvp.Key.DatasetPrefix == datasetPrefix && kvp.Key.Type == type)
+                .Select(kvp => (ulong?)kvp.Key.Version)
+                .Max();
+            return Task.FromResult(latest);
+        }
+
         public Task<IReadOnlyList<HybridArtifactSummary>> ListArtifacts(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)
         {
             IReadOnlyList<HybridArtifactSummary> result = _artifacts
