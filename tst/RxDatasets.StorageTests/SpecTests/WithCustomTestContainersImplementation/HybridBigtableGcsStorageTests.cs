@@ -1,147 +1,245 @@
-using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Reactive.Testing;
 using Moq;
 using RxDatasets.Abstractions;
-using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.GoogleCloud;
 using RxDatasets.StorageProviders;
-using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class HybridBigtableGcsStorageTests : StorageTestSpecWithTwoStepInit, IClassFixture<GoogleCloudContainerInstanceFixture>, IClassFixture<BigtableContainerInstanceFixture>, IAsyncLifetime
+public class HybridBigtableGcsStorageTests
 {
-    private readonly GoogleCloudContainerInstanceFixture _googleCloudContainer;
-    private readonly BigtableContainerInstanceFixture _bigtableContainer;
-    private IOptions<GoogleCloudConfig>? _googleCloudConfig;
+    private static readonly IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig());
 
-    public HybridBigtableGcsStorageTests(GoogleCloudContainerInstanceFixture googleCloudContainer, BigtableContainerInstanceFixture bigtableContainer)
+    [Fact]
+    public async Task Should_Store_Small_Deltas_Inline_And_Large_Data_In_Fallback_Blob_Storage()
     {
-        _googleCloudContainer = googleCloudContainer;
-        _bigtableContainer = bigtableContainer;
-    }
+        var rowStore = new InMemoryVersionedArtifactRowStore(1024);
+        var blobStorage = new InMemoryDiskStorage<object>();
+        var legacyReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, blobStorage);
+        var hybridReader = new HybridBigtableStorageReader<object>(
+            Mock.Of<ILogger<HybridBigtableStorageReader<object>>>(),
+            StorageConfig,
+            rowStore,
+            blobStorage,
+            legacyReader);
 
-    public async Task InitializeAsync()
-    {
-        var tasks = new List<Task>();
-        if (_googleCloudContainer.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
-            tasks.Add(_googleCloudContainer.Container.StartAsync());
-        if (_bigtableContainer.Container.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
-            tasks.Add(_bigtableContainer.Container.StartAsync());
-        
-        await Task.WhenAll(tasks);
+        var provider = new HybridBigtableStorageProvider<object>(
+            Mock.Of<ILogger<HybridBigtableStorageProvider<object>>>(),
+            StorageConfig,
+            blobStorage,
+            rowStore,
+            new NotificationsHubSync<object>(),
+            hybridReader,
+            false);
+        await provider.StartAsync(CancellationToken.None);
 
-        // Set the emulator host environment variable for the Google Cloud Storage client
-        var gcsEmulatorHost = _googleCloudContainer.GetConnectionString().Replace("http://", "").Replace("https://", "").TrimEnd('/');
-        Environment.SetEnvironmentVariable("STORAGE_EMULATOR_HOST", gcsEmulatorHost);
+        var smallDeltaData = new byte[500];
+        var largeDeltaData = new byte[2000];
+        new Random(1).NextBytes(smallDeltaData);
+        new Random(2).NextBytes(largeDeltaData);
 
-        // Set the emulator host environment variable for the Bigtable client
-        var bigtableEmulatorHost = _bigtableContainer.GetConnectionString();
-        Environment.SetEnvironmentVariable("BIGTABLE_EMULATOR_HOST", bigtableEmulatorHost);
+        await provider.StoreDelta(1, [1, 2, 3], smallDeltaData);
+        await provider.StoreDelta(2, [4, 5, 6], new MemoryStream(largeDeltaData));
 
-        // Disable authentication for the emulator
-        Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", "");
-        Environment.SetEnvironmentVariable("GCLOUD_PROJECT", "test-project");
+        var datasetPrefix = DatasetHelper.GetObjectNamePrefix<object>(StorageConfig.Value);
+        var firstDelta = await rowStore.GetArtifact(datasetPrefix, ObjectNameTypeEnum.Delta, 1);
+        var secondDelta = await rowStore.GetArtifact(datasetPrefix, ObjectNameTypeEnum.Delta, 2);
 
-        _googleCloudConfig = Options.Create(new GoogleCloudConfig()
-        {
-            BucketName = "default-test-bucket",
-            ProjectId = "test-project",
-            BigtableProjectId = "test-project",
-            BigtableInstanceId = "test-instance",
-            BigtableTableId = "test-table",
-            SizeThresholdBytes = 1024 // 1KB threshold for testing
-        });
-    }
+        firstDelta.Should().NotBeNull();
+        firstDelta!.InlineIndex.Should().Equal([1, 2, 3]);
+        firstDelta.InlineData.Should().Equal(smallDeltaData);
+        firstDelta.DataFallbackObjectKey.Should().BeNull();
 
-    public async Task DisposeAsync()
-    {
-        Environment.SetEnvironmentVariable("STORAGE_EMULATOR_HOST", null);
-        Environment.SetEnvironmentVariable("BIGTABLE_EMULATOR_HOST", null);
-        Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", null);
-        Environment.SetEnvironmentVariable("GCLOUD_PROJECT", null);
-        // Containers are disposed by xUnit fixture management
-        await Task.CompletedTask;
-    }
+        secondDelta.Should().NotBeNull();
+        secondDelta!.InlineIndex.Should().Equal([4, 5, 6]);
+        secondDelta.InlineData.Should().BeNull();
+        secondDelta.DataFallbackObjectKey.Should().NotBeNull();
 
-    protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
-        CancellationToken ct,
-        [CallerMemberName] string memberName = "")
-    {
-        _googleCloudConfig!.Value.BucketName = new string(memberName.ToLower().Replace("_", "").TakeLast(63).ToArray());
-        _googleCloudConfig!.Value.BigtableTableId = new string(memberName.ToLower().Replace("_", "").TakeLast(50).ToArray());
+        var fallbackLength = await blobStorage.GetObjectContentLength(secondDelta.DataFallbackObjectKey!);
+        fallbackLength.Should().Be(largeDeltaData.Length);
 
-        // Create GCS bucket
-        var testClientBuilder = new Google.Cloud.Storage.V1.StorageClientBuilder();
-        var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
-        if (!string.IsNullOrEmpty(emulatorHost))
-        {
-            testClientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";
-            testClientBuilder.UnauthenticatedAccess = true;
-        }
-        var testClient = testClientBuilder.Build();
-
-        try
-        {
-            await testClient.CreateBucketAsync("test-project", new Google.Apis.Storage.v1.Data.Bucket
-            {
-                Name = _googleCloudConfig.Value.BucketName,
-                Location = "us-central1"
-            });
-        }
-        catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.Conflict)
-        {
-            // Bucket already exists
-        }
-
-        // Bigtable table creation is handled by HybridBigtableGcsStorage initialization
-
-        var storageLogger = new Mock<ILogger<HybridBigtableGcsStorage<object>>>();
-        var persistentStorageLogger = new Mock<ILogger<ObjectStorageProvider<object>>>();
-
-        INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
-
-        IDiskStorage<object> hybridStorage = new HybridBigtableGcsStorage<object>(storageLogger.Object, _googleCloudConfig, false);
-        IStorageReader<object> readOnlyStorage = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, hybridStorage);
-
-        IStorageProvider<object> persistentStorageProvider = new ObjectStorageProvider<object>(persistentStorageLogger.Object, StorageConfig, hybridStorage, notificationsHub, readOnlyStorage, false);
-        await ((ObjectStorageProvider<object>)persistentStorageProvider).StartAsync(CancellationToken.None);
-
-        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), persistentStorageProvider, notificationsHub);
-        await datasetReader.StartAsync(CancellationToken.None);
-
-        return (datasetReader, new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), persistentStorageProvider, Options.Create(new WriterConfig())));
+        var largeBytes = await hybridReader.ReadDataFromSources([(ObjectNameTypeEnum.Delta, 2, 0)], largeDeltaData.Length);
+        largeBytes.ToArray().Should().BeEquivalentTo(largeDeltaData);
     }
 
     [Fact]
-    public async Task Should_Store_Small_Files_In_Bigtable_And_Large_In_GCS()
+    public async Task Should_Store_Processed_Versions_In_Row_Store()
     {
-        var ct = CancellationToken.None;
-        var (reader, writer) = await SetupStorageAsync(ct);
-        
-        // Small object (< 1KB)
-        var smallData = new byte[500];
-        new Random().NextBytes(smallData);
-        await writer.Put("small-object", smallData, ct);
+        var rowStore = new InMemoryVersionedArtifactRowStore(1024);
+        var blobStorage = new InMemoryDiskStorage<object>();
+        var legacyReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), StorageConfig, blobStorage);
+        var hybridReader = new HybridBigtableStorageReader<object>(
+            Mock.Of<ILogger<HybridBigtableStorageReader<object>>>(),
+            StorageConfig,
+            rowStore,
+            blobStorage,
+            legacyReader);
 
-        // Large object (> 1KB)
-        var largeData = new byte[2000];
-        new Random().NextBytes(largeData);
-        await writer.Put("large-object", largeData, ct);
+        var provider = new HybridBigtableStorageProvider<object>(
+            Mock.Of<ILogger<HybridBigtableStorageProvider<object>>>(),
+            StorageConfig,
+            blobStorage,
+            rowStore,
+            new NotificationsHubSync<object>(),
+            hybridReader,
+            false);
+        await provider.StartAsync(CancellationToken.None);
 
-        // Verify retrieval
-        var retrievedSmall = await reader.Get("small-object");
-        retrievedSmall.Value.entityBytes.ToArray().Should().BeEquivalentTo(smallData);
+        await provider.StoreProcessedVersion("consumer-a", 12);
+        await provider.StoreProcessedVersion("consumer-b", 5);
 
-        var retrievedLarge = await reader.Get("large-object");
-        retrievedLarge.Value.entityBytes.ToArray().Should().BeEquivalentTo(largeData);
+        var datasetPrefix = DatasetHelper.GetObjectNamePrefix<object>(StorageConfig.Value);
+        var processedVersions = await rowStore.GetProcessedVersions(datasetPrefix);
 
-        // TODO: Verify internal storage location if possible (requires exposing internal clients or checking side effects)
-        // For now, we rely on the fact that it works end-to-end.
+        processedVersions["consumer-a"].Should().Be(12);
+        processedVersions["consumer-b"].Should().Be(5);
+        (await provider.GetProcessedVersion("consumer-a")).Should().Be(12);
+        (await provider.GetLowestProcessedVersion()).Should().Be(5);
+    }
+
+    private sealed class InMemoryVersionedArtifactRowStore(long maxInlinePayloadBytes) : IVersionedArtifactRowStore
+    {
+        private readonly Dictionary<(string DatasetPrefix, ObjectNameTypeEnum Type, ulong Version), HybridArtifactRecord> _artifacts = [];
+        private readonly Dictionary<string, Dictionary<string, ulong>> _processedVersions = [];
+
+        public ArtifactWritePlan CreateWritePlan(long indexLength, long dataLength)
+        {
+            return new ArtifactWritePlan(indexLength <= maxInlinePayloadBytes, dataLength <= maxInlinePayloadBytes);
+        }
+
+        public Task UpsertArtifact(string datasetPrefix, HybridArtifactRecord artifact, CancellationToken cancellationToken = default)
+        {
+            _artifacts[(datasetPrefix, artifact.Type, artifact.Version)] = artifact;
+            return Task.CompletedTask;
+        }
+
+        public Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_artifacts.TryGetValue((datasetPrefix, type, version), out var artifact) ? artifact : null);
+        }
+
+        public Task<IReadOnlyList<HybridArtifactSummary>> ListArtifacts(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<HybridArtifactSummary> result = _artifacts
+                .Where(kvp => kvp.Key.DatasetPrefix == datasetPrefix && kvp.Key.Type == type)
+                .Select(kvp => new HybridArtifactSummary(kvp.Key.Version, kvp.Value.CreatedAt))
+                .OrderBy(summary => summary.Version)
+                .ToList();
+            return Task.FromResult(result);
+        }
+
+        public Task DeleteArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
+        {
+            _artifacts.Remove((datasetPrefix, type, version));
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyDictionary<string, ulong>> GetProcessedVersions(string datasetPrefix, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyDictionary<string, ulong> result = _processedVersions.TryGetValue(datasetPrefix, out var processedVersions)
+                ? new Dictionary<string, ulong>(processedVersions, StringComparer.Ordinal)
+                : new Dictionary<string, ulong>(StringComparer.Ordinal);
+            return Task.FromResult(result);
+        }
+
+        public Task PutProcessedVersion(string datasetPrefix, string who, ulong version, CancellationToken cancellationToken = default)
+        {
+            if (!_processedVersions.TryGetValue(datasetPrefix, out var processedVersions))
+            {
+                processedVersions = new Dictionary<string, ulong>(StringComparer.Ordinal);
+                _processedVersions[datasetPrefix] = processedVersions;
+            }
+
+            processedVersions[who] = version;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class InMemoryDiskStorage<T> : IDiskStorage<T>
+    {
+        private readonly ConcurrentDictionary<string, byte[]> _objects = new(StringComparer.Ordinal);
+
+        public Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey)
+        {
+            if (_objects.TryGetValue(objectKey, out var data))
+            {
+                return Task.FromResult<ReadOnlyMemory<byte>>(data);
+            }
+
+            throw new FileNotFoundException("File not found", objectKey);
+        }
+
+        public async Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length)
+        {
+            var data = await DownloadBytes(objectKey);
+            return data.Slice((int)position, length);
+        }
+
+        public async Task DownloadWithCallBack(string objectKey, Action<Stream> callback)
+        {
+            var data = await DownloadBytes(objectKey);
+            using var stream = new MemoryStream(data.ToArray(), writable: false);
+            callback(stream);
+        }
+
+        public Task UploadBytes(string objectKey, byte[] bytes)
+        {
+            _objects[objectKey] = bytes.ToArray();
+            return Task.CompletedTask;
+        }
+
+        public async Task UploadFileStream(string objectKey, Stream stream)
+        {
+            using var memoryStream = new MemoryStream();
+            if (stream.CanSeek)
+            {
+                stream.Position = 0;
+            }
+
+            await stream.CopyToAsync(memoryStream);
+            _objects[objectKey] = memoryStream.ToArray();
+        }
+
+        public Task DeleteFile(string objectKey)
+        {
+            _objects.TryRemove(objectKey, out _);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteFolder(string prefix)
+        {
+            var normalizedPrefix = prefix.EndsWith('/') ? prefix : prefix + '/';
+            foreach (var key in _objects.Keys.Where(key => key.StartsWith(normalizedPrefix, StringComparison.Ordinal)).ToList())
+            {
+                _objects.TryRemove(key, out _);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<List<(string ObjectKey, DateTimeOffset DateTime)>> ListObjects(string prefix)
+        {
+            var result = _objects.Keys
+                .Where(key => key.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(key => (key, DateTimeOffset.UtcNow))
+                .ToList();
+            return Task.FromResult(result);
+        }
+
+        public Task<long> GetObjectContentLength(string objectKey)
+        {
+            if (_objects.TryGetValue(objectKey, out var data))
+            {
+                return Task.FromResult((long)data.Length);
+            }
+
+            throw new FileNotFoundException("File not found", objectKey);
+        }
     }
 }

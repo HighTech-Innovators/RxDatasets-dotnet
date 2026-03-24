@@ -35,8 +35,15 @@ namespace RxDatasets
         private bool _withDistributedLock;
         private bool _withSnapshot;
         private bool _withCleanup;
+        private Action<IServiceCollection, bool, bool>? _customStorageRegistration;
 
         public IServiceCollection Services => services;
+
+        public DtoServerBuilder<TEntity> WithCustomStorageRegistration(Action<IServiceCollection, bool, bool> registration)
+        {
+            _customStorageRegistration = registration;
+            return this;
+        }
 
         public DtoServerBuilder<TEntity> WithCache()
         {
@@ -183,6 +190,13 @@ namespace RxDatasets
 
             // Register the usage of ObjectStorage
             services.AddValidatedConfigSection<StorageConfig>();
+
+            if (_customStorageRegistration != null)
+            {
+                _customStorageRegistration(services, readOnlyMode, _withCache);
+                return;
+            }
+
             services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
 
             if (readOnlyMode)

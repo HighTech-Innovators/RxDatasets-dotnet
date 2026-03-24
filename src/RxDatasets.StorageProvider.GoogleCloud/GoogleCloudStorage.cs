@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Pipelines;
 using System.Net.Http.Headers;
@@ -60,7 +60,15 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             // Initialize write queue manager with flush action and clock
             _writeQueueManager = new WriteQueueManager(_logger, FlushQueuedWriteAsync, _clock);
 
-            _initializationTask = retryInitialization ? InitializationLoop() : Initialize();
+            if (retryInitialization)
+            {
+                _initializationTask = InitializationLoop();
+            }
+            else
+            {
+                Initialize().GetAwaiter().GetResult();
+                _initializationTask = Task.CompletedTask;
+            }
         }
 
         public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
@@ -489,9 +497,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 }
             }
             catch (Exception ex)
-            {
+        {
                 _logger.LogWarning(ex, "Error during queue flush on disposal");
-            }
+        }
 
             try
             {
@@ -499,7 +507,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 _storageClient?.Dispose();
             }
             catch (Exception ex)
-            {
+        {
                 _logger.LogWarning(ex, "Error disposing Google Cloud Storage client");
             }
 
@@ -528,8 +536,8 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             try
             {
-                _storageClient?.Dispose();
-            }
+            _storageClient?.Dispose();
+        }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing Google Cloud Storage client");

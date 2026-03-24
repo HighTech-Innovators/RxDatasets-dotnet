@@ -15,5 +15,13 @@ public class GoogleCloudConfig
     public string? BigtableProjectId { get; set; }
     public string? BigtableInstanceId { get; set; }
     public string? BigtableTableId { get; set; }
-    public long SizeThresholdBytes { get; set; } = 1024 * 1024; // 1MB default
+
+    public long MaxInlinePayloadBytes { get; set; } = 1024 * 1024;
+
+    [Obsolete("Use MaxInlinePayloadBytes instead.")]
+    public long SizeThresholdBytes
+    {
+        get => MaxInlinePayloadBytes;
+        set => MaxInlinePayloadBytes = value;
+    }
 }

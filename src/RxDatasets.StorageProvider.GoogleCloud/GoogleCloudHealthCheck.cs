@@ -9,24 +9,15 @@ public class GoogleCloudHealthCheck<T>(IServiceProvider serviceProvider) : IHeal
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        var storageProvider = serviceProvider.GetRequiredService<IDiskStorage<T>>();
-        if (storageProvider is not HybridBigtableGcsStorage<T> provider)
-            return HealthCheckResult.Degraded();
-
-        var isLastResultFilled = provider?.LastResult != null;
-        var isLastCheckStillValid = DateTimeOffset.Now - provider!.LastResult.ObtainedAt < TimeSpan.FromMinutes(5);
-
-        if (isLastResultFilled && isLastCheckStillValid)
-            return provider?.LastResult.Exception == null ? HealthCheckResult.Healthy() : HealthCheckResult.Unhealthy(exception: provider.LastResult.Exception);
-
         try
         {
-            await provider.ListObjects("");
+            var storageReader = serviceProvider.GetRequiredService<IStorageReader<T>>();
+            await storageReader.ListVersions();
+            return HealthCheckResult.Healthy();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            //ignored
+            return HealthCheckResult.Unhealthy(exception: ex);
         }
-        return provider.LastResult.Exception != null ? HealthCheckResult.Unhealthy() : HealthCheckResult.Healthy();
     }
 }

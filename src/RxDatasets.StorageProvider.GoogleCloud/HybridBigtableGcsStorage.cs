@@ -75,7 +75,14 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             }
             _bigtableClient = bigtableClientBuilder.Build();
 
-            _ = retryInitialization ? InitializationLoop() : Initialize();
+            if (retryInitialization)
+            {
+                _ = InitializationLoop();
+            }
+            else
+            {
+                Initialize().GetAwaiter().GetResult();
+            }
         }
 
         public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
