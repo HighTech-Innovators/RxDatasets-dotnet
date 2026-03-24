@@ -79,7 +79,15 @@ public class SnapshotCreationPluginTests
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
         snapshots.Count.Should().Be(1);
-        scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4, currently nothing happens
+        scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4
+
+        // Wait for the scheduled snapshot creation to complete
+        for (var i = 0; i < 50; i++)
+        {
+            var (_, _, s2) = await storageProvider.ListVersions();
+            if (s2.Count >= 2) break;
+            await Task.Delay(100);
+        }
 
         (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(2);

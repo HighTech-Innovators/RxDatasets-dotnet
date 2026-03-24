@@ -74,7 +74,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             return true;
 
         // If not, schedule for later
-        _scheduler.Schedule(timeUntilNext, _ => HandleNewDeltas(CancellationToken.None).Wait());
+        _scheduler.Schedule(timeUntilNext, _ => Task.Run(async () => await HandleNewDeltas(CancellationToken.None)).GetAwaiter().GetResult());
 
         return false;
     }
