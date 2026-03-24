@@ -92,6 +92,57 @@ public class HybridBigtableStorageReader<T>(
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
     }
 
+    public async IAsyncEnumerable<(ulong Version, ReadOnlyMemory<byte> IndexBytes)> ReadDeltaIndexRange(
+        ulong fromVersionExclusive,
+        ulong toVersionInclusive,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation(
+                "Reading delta index range v{From}..v{To} ({Count} versions) from Bigtable",
+                fromVersionExclusive + 1, toVersionInclusive, toVersionInclusive - fromVersionExclusive);
+        }
+
+        var yielded = new HashSet<ulong>();
+        long totalBytes = 0;
+
+        await foreach (var artifact in rowStore.GetArtifactRange(
+            _datasetPrefix, ObjectNameTypeEnum.Delta, fromVersionExclusive, toVersionInclusive, cancellationToken))
+        {
+            var payload = await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
+            yielded.Add(artifact.Version);
+            totalBytes += payload.Length;
+            yield return (artifact.Version, payload);
+        }
+
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation(
+                "Read {Count} delta indices ({Bytes} bytes total) from Bigtable range scan",
+                yielded.Count, totalBytes);
+        }
+
+        // Fall back to legacy reader for any versions missing from Bigtable
+        var legacyCount = (toVersionInclusive - fromVersionExclusive) - (ulong)yielded.Count;
+        if (legacyCount > 0 && storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation(
+                "Falling back to Legacy GCS reader for {Count} deltas missing from Bigtable",
+                legacyCount);
+        }
+
+        for (ulong v = fromVersionExclusive + 1; v <= toVersionInclusive; v++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (yielded.Contains(v))
+                continue;
+
+            var bytes = await legacyReader.ReadDeltaIndex(v);
+            yield return (v, bytes);
+        }
+    }
+
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, version);

@@ -251,6 +251,20 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         });
     }
 
+    public async IAsyncEnumerable<(ulong Version, ReadOnlyMemory<byte> IndexBytes)> ReadDeltaIndexRange(
+        ulong fromVersionExclusive,
+        ulong toVersionInclusive,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var (version, indexBytes) in _readOnlyStorageProvider
+            .ReadDeltaIndexRange(fromVersionExclusive, toVersionInclusive, cancellationToken))
+        {
+            var cacheKey = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
+            MemoryCache.Set(cacheKey, indexBytes, new MemoryCacheEntryOptions { Size = indexBytes.Length });
+            yield return (version, indexBytes);
+        }
+    }
+
     public Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
     {
         return _readOnlyStorageProvider.ListVersions();

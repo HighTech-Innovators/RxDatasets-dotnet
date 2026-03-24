@@ -134,6 +134,23 @@ public class HybridBigtableGcsStorageTests
             return Task.FromResult(result);
         }
 
+        public async IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
+            string datasetPrefix,
+            ObjectNameTypeEnum type,
+            ulong fromVersionExclusive,
+            ulong toVersionInclusive,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            foreach (var kvp in _artifacts
+                .Where(kvp => kvp.Key.DatasetPrefix == datasetPrefix && kvp.Key.Type == type
+                    && kvp.Key.Version > fromVersionExclusive && kvp.Key.Version <= toVersionInclusive)
+                .OrderBy(kvp => kvp.Key.Version))
+            {
+                yield return kvp.Value;
+            }
+            await Task.CompletedTask;
+        }
+
         public Task DeleteArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
         {
             _artifacts.Remove((datasetPrefix, type, version));

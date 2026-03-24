@@ -39,6 +39,7 @@ public interface IVersionedArtifactRowStore
     Task<(string Token, DateTimeOffset Expiry)?> TryAcquireLock(string datasetPrefix, string lockName, TimeSpan duration, CancellationToken cancellationToken = default);
     Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive, CancellationToken cancellationToken = default);
     Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
     Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
     Task DeleteRequestLock(string datasetPrefix, string requestLockName, CancellationToken cancellationToken = default);
@@ -181,6 +182,37 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         }
 
         return null;
+    }
+
+    public async IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
+        string datasetPrefix,
+        ObjectNameTypeEnum type,
+        ulong fromVersionExclusive,
+        ulong toVersionInclusive,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await EnsureInitialized();
+
+        var startKey = GetArtifactRowKey(datasetPrefix, type, fromVersionExclusive + 1);
+        // +1 because EndKeyClosed is inclusive and version is zero-padded D20
+        var endKey = GetArtifactRowKey(datasetPrefix, type, toVersionInclusive);
+
+        var request = new ReadRowsRequest
+        {
+            TableNameAsTableName = GetTableName(),
+            Rows = new RowSet()
+        };
+        request.Rows.RowRanges.Add(new RowRange
+        {
+            StartKeyClosed = ByteString.CopyFromUtf8(startKey),
+            EndKeyClosed = ByteString.CopyFromUtf8(endKey)
+        });
+
+        var rows = _bigtableClient.ReadRows(request);
+        await foreach (var row in rows.WithCancellation(cancellationToken))
+        {
+            yield return ParseArtifactRow(row);
+        }
     }
 
     public async Task<IReadOnlyList<HybridArtifactSummary>> ListArtifacts(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)

@@ -112,6 +112,18 @@ public class ReadOnlyHybridBigtableStorageProvider<T> : IReadOnlyStorageProvider
         return await _storageReader.GetSnapshotDataContentLength(snapshotVersion);
     }
 
+    public async IAsyncEnumerable<(ulong Version, ReadOnlyMemory<byte> IndexBytes)> ReadDeltaIndexRange(
+        ulong fromVersionExclusive,
+        ulong toVersionInclusive,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await EnsureProviderIsInitialized();
+        await foreach (var item in _storageReader.ReadDeltaIndexRange(fromVersionExclusive, toVersionInclusive, cancellationToken))
+        {
+            yield return item;
+        }
+    }
+
     protected async Task EnsureProviderIsInitialized()
     {
         if (InitTask is { IsFaulted: true })

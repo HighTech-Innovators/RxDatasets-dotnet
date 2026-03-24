@@ -14,6 +14,22 @@ public interface IStorageProviderReader
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length);
     Task<long> GetSnapshotDataContentLength(ulong snapshotVersion);
 
+    /// <summary>
+    /// Reads delta indices for a range of versions in a single operation.
+    /// Backends that support range scans (e.g. Bigtable) can override this for efficiency.
+    /// </summary>
+    async IAsyncEnumerable<(ulong Version, ReadOnlyMemory<byte> IndexBytes)> ReadDeltaIndexRange(
+        ulong fromVersionExclusive,
+        ulong toVersionInclusive,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        for (ulong v = fromVersionExclusive + 1; v <= toVersionInclusive; v++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var bytes = await ReadDeltaIndex(v);
+            yield return (v, bytes);
+        }
+    }
 }
 
 public interface IStorageProviderWriter

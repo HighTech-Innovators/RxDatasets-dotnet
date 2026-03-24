@@ -246,19 +246,16 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             throw new InvalidOperationException("Too many versions to load");
         }
 
-        List<Task<DeltaIndex>> indexes = Enumerable.Range(1, (int)iterations)
-            .Select(async i =>
-            {
-                var version = fromVersion + (ulong)i;
-                var readDeltaIndex = await storageProvider.ReadDeltaIndex(version);
-                var index = DeltaIndex.Parser.ParseFrom(readDeltaIndex.Span);
-                index.ValidateAgainstVersion(version);
-                return index;
-            })
-            .ToList();
+        var indexes = new List<DeltaIndex>((int)iterations);
+        await foreach (var (version, indexBytes) in storageProvider.ReadDeltaIndexRange(fromVersion, toVersion))
+        {
+            var index = DeltaIndex.Parser.ParseFrom(indexBytes.Span);
+            index.ValidateAgainstVersion(version);
+            indexes.Add(index);
+        }
 
-        return (await Task.WhenAll(indexes))
-            .OrderBy(x => x.DeltaVersion).ThenBy((x) => x.DeltaVersionLegacy)
+        return indexes
+            .OrderBy(x => x.DeltaVersion).ThenBy(x => x.DeltaVersionLegacy)
             .ToList();
     }
 
