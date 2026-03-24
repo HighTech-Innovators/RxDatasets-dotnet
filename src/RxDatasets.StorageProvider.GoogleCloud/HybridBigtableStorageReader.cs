@@ -36,6 +36,10 @@ public class HybridBigtableStorageReader<T>(
             return await legacyReader.ReadSnapshotData(snapshotVersion);
         }
 
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
+        }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Data);
     }
 
@@ -50,6 +54,11 @@ public class HybridBigtableStorageReader<T>(
             }
             await legacyReader.ReadSnapshotData(snapshotVersion, callback);
             return;
+        }
+
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
         }
 
         if (artifact.DataLength == 0)
@@ -70,10 +79,6 @@ public class HybridBigtableStorageReader<T>(
         }
 
         using var stream = new MemoryStream(artifact.InlineData ?? []);
-        if (storageConfig.Value.LogStorageAccess)
-        {
-            logger.LogInformation("Streaming Snapshot Data from Bigtable (Inline, {Length} bytes)", stream.Length);
-        }
         callback(stream);
     }
 
@@ -89,6 +94,10 @@ public class HybridBigtableStorageReader<T>(
             return await legacyReader.ReadDeltaIndex(version);
         }
 
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Read Delta v{Version} Index ({Length} bytes) from Bigtable", version, artifact.IndexLength);
+        }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
     }
 
@@ -155,6 +164,10 @@ public class HybridBigtableStorageReader<T>(
             return await legacyReader.ReadSnapshotIndex(version);
         }
 
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Read Snapshot v{Version} Index ({Length} bytes) from Bigtable", version, artifact.IndexLength);
+        }
         return await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
     }
 
@@ -206,6 +219,11 @@ public class HybridBigtableStorageReader<T>(
             var artifact = await rowStore.GetArtifact(_datasetPrefix, source.type, source.version);
             if (artifact != null)
             {
+                if (storageConfig.Value.LogStorageAccess)
+                {
+                    logger.LogInformation("Read {Type} v{Version} Data range (offset {Position}, {Length} bytes) from Bigtable",
+                        source.type, source.version, source.position, length);
+                }
                 return await ReadRange(artifact, source.position, length);
             }
 
@@ -230,6 +248,10 @@ public class HybridBigtableStorageReader<T>(
             return await legacyReader.GetSnapshotDataContentLength(snapshotVersion);
         }
 
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Read Snapshot v{Version} content length ({Length} bytes) from Bigtable", snapshotVersion, artifact.DataLength);
+        }
         return artifact.DataLength;
     }
 
@@ -268,10 +290,6 @@ public class HybridBigtableStorageReader<T>(
 
         if (inlinePayload != null)
         {
-            if (storageConfig.Value.LogStorageAccess)
-            {
-                logger.LogInformation("Read {Length} bytes for {PayloadType} from Bigtable (Inline)", inlinePayload.Length, payloadType);
-            }
             return inlinePayload;
         }
 
@@ -301,10 +319,6 @@ public class HybridBigtableStorageReader<T>(
 
         if (artifact.InlineData != null)
         {
-            if (storageConfig.Value.LogStorageAccess)
-            {
-                logger.LogInformation("Read {Length} bytes for Data (Range) from Bigtable (Inline)", length);
-            }
             return new ReadOnlyMemory<byte>(artifact.InlineData, (int)position, length);
         }
 
