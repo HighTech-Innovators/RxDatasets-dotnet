@@ -29,6 +29,10 @@ public class HybridBigtableStorageReader<T>(
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, snapshotVersion);
         if (artifact == null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version}", snapshotVersion);
+            }
             return await legacyReader.ReadSnapshotData(snapshotVersion);
         }
 
@@ -40,6 +44,10 @@ public class HybridBigtableStorageReader<T>(
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, snapshotVersion);
         if (artifact == null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot {Version}", snapshotVersion);
+            }
             await legacyReader.ReadSnapshotData(snapshotVersion, callback);
             return;
         }
@@ -53,11 +61,19 @@ public class HybridBigtableStorageReader<T>(
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Streaming Snapshot Data from GCS (Fallback Key: {Key})", artifact.DataFallbackObjectKey);
+            }
             await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, callback);
             return;
         }
 
         using var stream = new MemoryStream(artifact.InlineData ?? []);
+        if (storageConfig.Value.LogStorageAccess)
+        {
+            logger.LogInformation("Streaming Snapshot Data from Bigtable (Inline, {Length} bytes)", stream.Length);
+        }
         callback(stream);
     }
 
@@ -66,6 +82,10 @@ public class HybridBigtableStorageReader<T>(
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Delta, version);
         if (artifact == null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Falling back to Legacy GCS reader for Delta {Version}", version);
+            }
             return await legacyReader.ReadDeltaIndex(version);
         }
 
@@ -77,6 +97,10 @@ public class HybridBigtableStorageReader<T>(
         var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, version);
         if (artifact == null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Falling back to Legacy GCS reader for Snapshot Index {Version}", version);
+            }
             return await legacyReader.ReadSnapshotIndex(version);
         }
 
@@ -193,11 +217,19 @@ public class HybridBigtableStorageReader<T>(
 
         if (inlinePayload != null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Read {Length} bytes for {PayloadType} from Bigtable (Inline)", inlinePayload.Length, payloadType);
+            }
             return inlinePayload;
         }
 
         if (!string.IsNullOrEmpty(fallbackObjectKey))
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Reading {PayloadType} from GCS (Fallback Key: {Key})", payloadType, fallbackObjectKey);
+            }
             return await blobStorage.DownloadBytes(fallbackObjectKey);
         }
 
@@ -218,11 +250,19 @@ public class HybridBigtableStorageReader<T>(
 
         if (artifact.InlineData != null)
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Read {Length} bytes for Data (Range) from Bigtable (Inline)", length);
+            }
             return new ReadOnlyMemory<byte>(artifact.InlineData, (int)position, length);
         }
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
+            if (storageConfig.Value.LogStorageAccess)
+            {
+                logger.LogInformation("Reading Data (Range) from GCS (Fallback Key: {Key})", artifact.DataFallbackObjectKey);
+            }
             return await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey, position, length);
         }
 

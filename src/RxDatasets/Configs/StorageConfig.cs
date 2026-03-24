@@ -11,6 +11,7 @@ public class StorageConfig
     public string DtoName { get; set; } = "";
 
     public UploadVerificationMode UploadVerificationMode { get; set; } = UploadVerificationMode.DoNotVerify;
+    public bool LogStorageAccess { get; set; } = false;
 }
 
 public enum UploadVerificationMode

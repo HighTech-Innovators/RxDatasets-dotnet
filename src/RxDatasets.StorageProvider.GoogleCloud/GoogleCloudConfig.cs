@@ -16,6 +16,7 @@ public class GoogleCloudConfig
     public string? BigtableInstanceId { get; set; }
     public string? BigtableTableId { get; set; }
 
+    public bool LogStorageAccess { get; set; } = false;
     public long MaxInlinePayloadBytes { get; set; } = 1024 * 1024;
 
     [Obsolete("Use MaxInlinePayloadBytes instead.")]
