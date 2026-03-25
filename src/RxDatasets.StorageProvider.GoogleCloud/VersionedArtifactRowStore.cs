@@ -161,10 +161,11 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         if (artifact.InlineData != null)
         {
             AddMutation(mutations, PayloadFamily, QualifierData, artifact.InlineData);
-            if (artifact.DataEncoding != null)
-            {
-                AddMutation(mutations, MetadataFamily, QualifierDataEncoding, artifact.DataEncoding);
-            }
+        }
+
+        if (artifact.DataEncoding != null)
+        {
+            AddMutation(mutations, MetadataFamily, QualifierDataEncoding, artifact.DataEncoding);
         }
 
         if (!string.IsNullOrEmpty(artifact.IndexFallbackObjectKey))
