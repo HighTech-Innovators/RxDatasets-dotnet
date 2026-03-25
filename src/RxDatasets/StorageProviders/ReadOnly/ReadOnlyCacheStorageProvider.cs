@@ -1,4 +1,5 @@
-﻿using System.Reactive.Disposables;
+﻿using System.Collections.Concurrent;
+using System.Reactive.Disposables;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,30 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     });
     private ulong _currentlyCachedSnapshot;
     private readonly CompositeDisposable _subscriptions = new();
+
+    // Coalesces concurrent requests for the same cache key into a single RPC.
+    // MemoryCache.GetOrCreateAsync races when multiple callers arrive before the first completes.
+    private readonly ConcurrentDictionary<string, Lazy<Task<ReadOnlyMemory<byte>>>> _inflightRequests = new();
+
+    private async Task<ReadOnlyMemory<byte>> GetOrCreateCoalesced(string cacheKey, Func<Task<ReadOnlyMemory<byte>>> factory)
+    {
+        if (MemoryCache.TryGetValue(cacheKey, out ReadOnlyMemory<byte> cached))
+            return cached;
+
+        var lazy = _inflightRequests.GetOrAdd(cacheKey,
+            _ => new Lazy<Task<ReadOnlyMemory<byte>>>(factory, LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            var result = await lazy.Value;
+            MemoryCache.Set(cacheKey, result, new MemoryCacheEntryOptions { Size = result.Length });
+            return result;
+        }
+        finally
+        {
+            _inflightRequests.TryRemove(cacheKey, out _);
+        }
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -137,16 +162,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     protected string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
     private string GetPositionedCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot, long position, int length) => $"{deltaOrSnapshot}_{indexData}_{version}_pos{position}_len{length}";
 
-    public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
+    public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
-        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
-        var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
-        {
-            var data = await _readOnlyStorageProvider.ReadDeltaIndex(version);
-            entry.Size = data.Length;
-            return data;
-        });
-        return value;
+        var cacheKey = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta);
+        return GetOrCreateCoalesced(cacheKey, () => _readOnlyStorageProvider.ReadDeltaIndex(version));
     }
 
 
@@ -159,16 +178,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         });
     }
 
-    public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
+    public Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
-        var cache = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot);
-        var value = await MemoryCache.GetOrCreateAsync(cache, async entry =>
-        {
-            var data = await _readOnlyStorageProvider.ReadSnapshotIndex(version);
-            entry.Size = data.Length;
-            return data;
-        });
-        return value;
+        var cacheKey = GetCacheKey(version, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot);
+        return GetOrCreateCoalesced(cacheKey, () => _readOnlyStorageProvider.ReadSnapshotIndex(version));
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(List<(ObjectNameTypeEnum type, ulong version, long position)> sources, int length)
@@ -205,6 +218,8 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         return dataFromSources;
     }
 
+    private readonly ConcurrentDictionary<string, Lazy<Task<long>>> _inflightContentLengthRequests = new();
+
     public async Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var cacheKeyWholeSnapshot = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
@@ -214,7 +229,19 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             return data.Length;
         }
 
-        return await _readOnlyStorageProvider.GetSnapshotDataContentLength(snapshotVersion);
+        var lengthCacheKey = $"contentlength_{snapshotVersion}";
+        var lazy = _inflightContentLengthRequests.GetOrAdd(lengthCacheKey,
+            _ => new Lazy<Task<long>>(() => _readOnlyStorageProvider.GetSnapshotDataContentLength(snapshotVersion),
+                LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            return await lazy.Value;
+        }
+        finally
+        {
+            _inflightContentLengthRequests.TryRemove(lengthCacheKey, out _);
+        }
     }
 
 
@@ -240,15 +267,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         throw new NotImplementedException();
     }
 
-    public async Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
+    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
         var cacheKey = GetCacheKey(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
-        return await MemoryCache.GetOrCreateAsync(cacheKey, async entry =>
-        {
-            var readSnapshotData = await _readOnlyStorageProvider.ReadSnapshotData(snapshotVersion);
-            entry.Size = readSnapshotData.Length;
-            return readSnapshotData;
-        });
+        return GetOrCreateCoalesced(cacheKey, () => _readOnlyStorageProvider.ReadSnapshotData(snapshotVersion));
     }
 
     public async IAsyncEnumerable<(ulong Version, ReadOnlyMemory<byte> IndexBytes)> ReadDeltaIndexRange(
