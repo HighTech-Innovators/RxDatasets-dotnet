@@ -348,6 +348,22 @@ public class HybridBigtableStorageReader<T>(
             {
                 logger.LogInformation("Read {PayloadType} ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", payloadType, data.Length, fallbackObjectKey, sw!.ElapsedMilliseconds);
             }
+
+            // Decompress GCS-stored index if compressed
+            if (payloadType == ObjectNameIndexOrDataEnum.Index
+                && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            {
+                var swDecompress = Log ? Stopwatch.StartNew() : null;
+                var compressedLen = data.Length;
+                var decompressed = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(data.ToArray());
+                if (Log)
+                {
+                    logger.LogInformation("Decompressed Index: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
+                        compressedLen, decompressed.Length, swDecompress!.ElapsedMilliseconds);
+                }
+                return decompressed;
+            }
+
             return data;
         }
 

@@ -399,16 +399,20 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
     private async Task WriteArtifact(ObjectNameTypeEnum type, ulong version, byte[] index, byte[] data)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var plan = _rowStore.CreateWritePlan(index.Length, data.LongLength);
-        var indexFallbackObjectKey = plan.StoreIndexInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type);
-        var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
 
-        if (indexFallbackObjectKey != null)
+        // Compress index first, then decide placement based on compressed size
+        var (compressedIndex, indexEncoding) = CompressIndex(type, version, index);
+        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, data.LongLength);
+        var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
+        string? indexFallbackObjectKey = null;
+
+        if (!plan.StoreIndexInline)
         {
-            await _blobStorage.UploadBytes(indexFallbackObjectKey, index);
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + ".br";
+            await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
-                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, index.Length, sw!.ElapsedMilliseconds);
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes compressed) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
             }
         }
 
@@ -421,18 +425,11 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             }
         }
 
-        byte[]? inlineIndex = null;
-        string? indexEncoding = null;
-        if (plan.StoreIndexInline)
-        {
-            (inlineIndex, indexEncoding) = CompressIndex(type, version, index);
-        }
-
         await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
             type,
             version,
             DateTimeOffset.UtcNow,
-            inlineIndex,
+            plan.StoreIndexInline ? compressedIndex : null,
             data.Length == 0 ? null : plan.StoreDataInline ? data : null,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
@@ -442,8 +439,8 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (Log)
         {
-            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
-                type, version, index.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CompressedLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, compressedIndex.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
         }
     }
 
@@ -455,16 +452,19 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             data.Position = 0;
         }
 
-        var plan = _rowStore.CreateWritePlan(index.Length, data.Length);
-        var indexFallbackObjectKey = plan.StoreIndexInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type);
+        // Compress index first, then decide placement based on compressed size
+        var (compressedIndex, indexEncoding) = CompressIndex(type, version, index);
+        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, data.Length);
         var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
+        string? indexFallbackObjectKey = null;
 
-        if (indexFallbackObjectKey != null)
+        if (!plan.StoreIndexInline)
         {
-            await _blobStorage.UploadBytes(indexFallbackObjectKey, index);
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + ".br";
+            await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
-                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, index.Length, sw!.ElapsedMilliseconds);
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes compressed) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
             }
         }
 
@@ -490,18 +490,11 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             }
         }
 
-        byte[]? inlineIndex = null;
-        string? indexEncoding = null;
-        if (plan.StoreIndexInline)
-        {
-            (inlineIndex, indexEncoding) = CompressIndex(type, version, index);
-        }
-
         await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
             type,
             version,
             DateTimeOffset.UtcNow,
-            inlineIndex,
+            plan.StoreIndexInline ? compressedIndex : null,
             inlineData,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
@@ -511,8 +504,8 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (Log)
         {
-            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
-                type, version, index.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CompressedLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, compressedIndex.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
         }
     }
 
