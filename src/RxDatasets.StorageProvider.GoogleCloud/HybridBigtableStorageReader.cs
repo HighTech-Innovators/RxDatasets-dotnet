@@ -336,14 +336,7 @@ public class HybridBigtableStorageReader<T>(
             // Decompress if the index was stored compressed
             if (inlinePayload != null && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
             {
-                var sw = Log ? Stopwatch.StartNew() : null;
-                var compressedLen = inlinePayload.Length;
                 inlinePayload = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlinePayload);
-                if (Log)
-                {
-                    logger.LogInformation("Decompressed Index: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
-                        compressedLen, inlinePayload.Length, sw!.ElapsedMilliseconds);
-                }
             }
         }
         else
@@ -359,12 +352,11 @@ public class HybridBigtableStorageReader<T>(
             if (inlinePayload != null && string.Equals(artifact.DataEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
             {
                 var sw = Log ? Stopwatch.StartNew() : null;
-                var compressedLen = inlinePayload.Length;
                 inlinePayload = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlinePayload);
-                if (Log)
+                if (Log && sw!.ElapsedMilliseconds >= 2)
                 {
-                    logger.LogInformation("Decompressed Data: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
-                        compressedLen, inlinePayload.Length, sw!.ElapsedMilliseconds);
+                    logger.LogInformation("Decompressed Data: {DecompressedLen} bytes in {ElapsedMs}ms",
+                        inlinePayload.Length, sw.ElapsedMilliseconds);
                 }
             }
         }
