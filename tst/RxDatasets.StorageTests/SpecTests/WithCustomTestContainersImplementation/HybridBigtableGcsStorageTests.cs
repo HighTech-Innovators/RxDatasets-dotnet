@@ -14,14 +14,7 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 
 public class HybridBigtableGcsStorageTests
 {
-    private static readonly IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig
-    {
-        // Disable compression in tests that assert on exact byte sizes of random (incompressible) data
-        DeltaIndexCompressionLevel = 0,
-        DeltaDataCompressionLevel = 0,
-        SnapshotIndexCompressionLevel = 0,
-        SnapshotDataCompressionLevel = 0,
-    });
+    private static readonly IOptions<StorageConfig> StorageConfig = Options.Create(new StorageConfig());
 
     [Fact]
     public async Task Should_Store_Small_Deltas_Inline_And_Large_Data_In_Fallback_Blob_Storage()
@@ -136,15 +129,15 @@ public class HybridBigtableGcsStorageTests
 
             // Decompress inline payloads if compressed (mirrors real Bigtable read behavior)
             var decompressedIndex = artifact.InlineIndex;
-            if (decompressedIndex != null && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            if (decompressedIndex != null && !string.IsNullOrEmpty(artifact.IndexEncoding))
             {
-                decompressedIndex = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(decompressedIndex);
+                decompressedIndex = GoogleCloudVersionedArtifactRowStore.Decompress(decompressedIndex, artifact.IndexEncoding);
             }
 
             var decompressedData = artifact.InlineData;
-            if (decompressedData != null && string.Equals(artifact.DataEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            if (decompressedData != null && !string.IsNullOrEmpty(artifact.DataEncoding))
             {
-                decompressedData = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(decompressedData);
+                decompressedData = GoogleCloudVersionedArtifactRowStore.Decompress(decompressedData, artifact.DataEncoding);
             }
 
             if (decompressedIndex != artifact.InlineIndex || decompressedData != artifact.InlineData)

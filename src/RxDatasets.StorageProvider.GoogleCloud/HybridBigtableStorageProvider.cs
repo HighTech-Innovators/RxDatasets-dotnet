@@ -409,7 +409,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (!plan.StoreIndexInline)
         {
-            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? ".br" : "");
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? $".{indexEncoding}" : "");
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
@@ -419,7 +419,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (compressedData.Length > 0 && !plan.StoreDataInline)
         {
-            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? ".br" : "");
+            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? $".{dataEncoding}" : "");
             await _blobStorage.UploadBytes(dataFallbackObjectKey, compressedData);
             if (Log)
             {
@@ -467,7 +467,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (!plan.StoreIndexInline)
         {
-            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? ".br" : "");
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? $".{indexEncoding}" : "");
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
@@ -477,7 +477,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (compressedData.Length > 0 && !plan.StoreDataInline)
         {
-            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? ".br" : "");
+            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? $".{dataEncoding}" : "");
             await _blobStorage.UploadBytes(dataFallbackObjectKey, compressedData);
             if (Log)
             {
@@ -509,17 +509,20 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
     private const double MinCompressionReduction = 0.25;
 
     private (byte[] Compressed, string? Encoding) TryCompress(
-        ObjectNameTypeEnum type, ulong version, string payloadLabel, byte[] payload, int qualityLevel)
+        ObjectNameTypeEnum type, ulong version, string payloadLabel, byte[] payload, CompressionSetting setting)
     {
-        if (qualityLevel <= 0 || payload.Length < MinCompressionSizeBytes)
+        if (setting.Algorithm == CompressionAlgorithm.None || payload.Length < MinCompressionSizeBytes)
             return (payload, null);
 
-        var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
-            : qualityLevel <= 1 ? CompressionLevel.Fastest
-            : (CompressionLevel)qualityLevel;
+        var encoding = setting.Algorithm switch
+        {
+            CompressionAlgorithm.Brotli => GoogleCloudVersionedArtifactRowStore.EncodingBrotli,
+            CompressionAlgorithm.Lz4 => GoogleCloudVersionedArtifactRowStore.EncodingLz4,
+            _ => throw new ArgumentOutOfRangeException(nameof(setting), setting.Algorithm, "Unknown algorithm")
+        };
 
         var sw = Log ? Stopwatch.StartNew() : null;
-        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(payload, level);
+        var compressed = GoogleCloudVersionedArtifactRowStore.Compress(payload, encoding, setting.Level);
 
         double reduction = 1.0 - (double)compressed.Length / payload.Length;
         if (reduction < MinCompressionReduction)
@@ -527,8 +530,8 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             if (Log)
             {
                 _logger.LogInformation(
-                    "Skipped compression for {Type} v{Version} {Label}: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0} < {MinRatio:P0} threshold) in {ElapsedMs}ms",
-                    type, version, payloadLabel, payload.Length, compressed.Length, reduction, MinCompressionReduction, sw!.ElapsedMilliseconds);
+                    "Skipped {Algo} compression for {Type} v{Version} {Label}: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0} < {MinRatio:P0} threshold) in {ElapsedMs}ms",
+                    setting.Algorithm, type, version, payloadLabel, payload.Length, compressed.Length, reduction, MinCompressionReduction, sw!.ElapsedMilliseconds);
             }
             return (payload, null);
         }
@@ -536,29 +539,29 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         if (Log)
         {
             _logger.LogInformation(
-                "Compressed {Type} v{Version} {Label}: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
-                type, version, payloadLabel, payload.Length, compressed.Length, reduction, sw!.ElapsedMilliseconds);
+                "Compressed {Type} v{Version} {Label} ({Algo}): {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
+                type, version, payloadLabel, setting.Algorithm, payload.Length, compressed.Length, reduction, sw!.ElapsedMilliseconds);
         }
 
-        return (compressed, GoogleCloudVersionedArtifactRowStore.EncodingBrotli);
+        return (compressed, encoding);
     }
 
     private (byte[] Compressed, string? Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
     {
-        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
-            ? _storageConfig.Value.SnapshotIndexCompressionLevel
-            : _storageConfig.Value.DeltaIndexCompressionLevel;
-        return TryCompress(type, version, "Index", index, qualityLevel);
+        var setting = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotIndexCompression
+            : _storageConfig.Value.DeltaIndexCompression;
+        return TryCompress(type, version, "Index", index, setting);
     }
 
     private (byte[] Compressed, string? Encoding) CompressData(ObjectNameTypeEnum type, ulong version, byte[] data)
     {
         if (data.Length == 0)
             return (data, null);
-        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
-            ? _storageConfig.Value.SnapshotDataCompressionLevel
-            : _storageConfig.Value.DeltaDataCompressionLevel;
-        return TryCompress(type, version, "Data", data, qualityLevel);
+        var setting = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotDataCompression
+            : _storageConfig.Value.DeltaDataCompression;
+        return TryCompress(type, version, "Data", data, setting);
     }
 
     private async Task<byte[]> ReadAllBytes(Stream stream)

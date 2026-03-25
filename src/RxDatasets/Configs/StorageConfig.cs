@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace RxDatasets.Configs;
 
@@ -14,26 +14,24 @@ public class StorageConfig
     public bool LogStorageAccess { get; set; } = false;
 
     /// <summary>
-    /// Brotli compression level for delta indices (0 = no compression, 1 = fastest, 11 = smallest).
+    /// Compression for delta indices. Default: None.
     /// </summary>
-    public int DeltaIndexCompressionLevel { get; set; } = 1;
+    public CompressionSetting DeltaIndexCompression { get; set; } = new();
 
     /// <summary>
-    /// Brotli compression level for snapshot indices (0 = no compression, 1 = fastest, 11 = smallest).
-    /// Snapshots are written in the background so higher compression is free.
+    /// Compression for snapshot indices. Default: None.
     /// </summary>
-    public int SnapshotIndexCompressionLevel { get; set; } = 11;
+    public CompressionSetting SnapshotIndexCompression { get; set; } = new();
 
     /// <summary>
-    /// Brotli compression level for delta data (0 = no compression, 1 = fastest, 11 = smallest).
+    /// Compression for delta data. Default: None.
     /// </summary>
-    public int DeltaDataCompressionLevel { get; set; } = 1;
+    public CompressionSetting DeltaDataCompression { get; set; } = new();
 
     /// <summary>
-    /// Brotli compression level for snapshot data (0 = no compression, 1 = fastest, 11 = smallest).
-    /// Snapshots are written in the background so higher compression is free.
+    /// Compression for snapshot data. Default: None.
     /// </summary>
-    public int SnapshotDataCompressionLevel { get; set; } = 11;
+    public CompressionSetting SnapshotDataCompression { get; set; } = new();
 }
 
 public enum UploadVerificationMode
@@ -41,4 +39,24 @@ public enum UploadVerificationMode
     VerifyAll,
     VerifyLargeDataOnly,
     DoNotVerify
+}
+
+public enum CompressionAlgorithm
+{
+    None,
+    Brotli,
+    Lz4
+}
+
+public class CompressionSetting
+{
+    /// <summary>
+    /// Compression algorithm: None, Brotli, or Lz4.
+    /// </summary>
+    public CompressionAlgorithm Algorithm { get; set; } = CompressionAlgorithm.None;
+
+    /// <summary>
+    /// For Brotli: 1 (fastest) to 11 (smallest). For LZ4: 0 (fastest) to 12 (max).
+    /// </summary>
+    public int Level { get; set; } = 1;
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using K4os.Compression.LZ4;
 using Google.Api.Gax;
 using Google.Cloud.Bigtable.Admin.V2;
 using Google.Cloud.Bigtable.Common.V2;
@@ -81,6 +82,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private const string QualifierIndexEncoding = "index-encoding";
     private const string QualifierDataEncoding = "data-encoding";
     public const string EncodingBrotli = "br";
+    public const string EncodingLz4 = "lz4";
 
     private readonly BigtableClient _bigtableClient;
     private readonly BigtableTableAdminClient _tableAdminClient;
@@ -913,8 +915,34 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         return prefix + '\uffff';
     }
 
+    public static byte[] Compress(byte[] data, string encoding, int qualityLevel = 1)
+    {
+        return encoding switch
+        {
+            EncodingBrotli => CompressBrotli(data, qualityLevel >= 11 ? CompressionLevel.SmallestSize
+                : qualityLevel <= 1 ? CompressionLevel.Fastest
+                : (CompressionLevel)qualityLevel),
+            EncodingLz4 => CompressLz4(data, qualityLevel),
+            _ => throw new ArgumentOutOfRangeException(nameof(encoding), encoding, "Unknown encoding")
+        };
+    }
+
+    public static byte[] Decompress(byte[] data, string encoding)
+    {
+        return encoding switch
+        {
+            EncodingBrotli => DecompressBrotli(data),
+            EncodingLz4 => DecompressLz4(data),
+            _ => throw new ArgumentOutOfRangeException(nameof(encoding), encoding, "Unknown encoding")
+        };
+    }
+
+    // Keep for back-compat with existing callers
     public static byte[] CompressBrotliPublic(byte[] data, CompressionLevel level = CompressionLevel.Fastest)
         => CompressBrotli(data, level);
+
+    public static byte[] DecompressBrotliPublic(byte[] data)
+        => DecompressBrotli(data);
 
     private static byte[] CompressBrotli(byte[] data, CompressionLevel level = CompressionLevel.Fastest)
     {
@@ -926,9 +954,6 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         return output.ToArray();
     }
 
-    public static byte[] DecompressBrotliPublic(byte[] data)
-        => DecompressBrotli(data);
-
     private static byte[] DecompressBrotli(byte[] data)
     {
         using var input = new MemoryStream(data);
@@ -936,6 +961,20 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         using var output = new MemoryStream();
         brotli.CopyTo(output);
         return output.ToArray();
+    }
+
+    private static byte[] CompressLz4(byte[] data, int level = 0)
+    {
+        // LZ4Level: L00_FAST (0) through L12_MAX (12)
+        var lz4Level = level <= 0 ? LZ4Level.L00_FAST
+            : level >= 12 ? LZ4Level.L12_MAX
+            : (LZ4Level)level;
+        return LZ4Pickler.Pickle(data, lz4Level);
+    }
+
+    private static byte[] DecompressLz4(byte[] data)
+    {
+        return LZ4Pickler.Unpickle(data);
     }
 
     private static RowFilter? BuildScopeFilter(ArtifactReadScope scope)
