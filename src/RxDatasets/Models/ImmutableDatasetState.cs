@@ -1,16 +1,17 @@
-﻿using System.Collections.Immutable;
-
 namespace RxDatasets.Models;
 
-public record ImmutableDatasetState(ImmutableDictionary<string, ImmutableSnapshotEntity> Entities, ulong SnapshotVersion, ulong LatestVersion)
+public record ImmutableDatasetState(EntityTrie Entities, ulong SnapshotVersion, ulong LatestVersion)
 {
     public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
     {
-        Dictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>();
-        snapshotIndex.Entities.ToList().ForEach(x => entities.Add(x.Key, ImmutableSnapshotEntity.FromProto(x.Value)));
+        var builder = new EntityTrie.Builder();
+        foreach (var kvp in snapshotIndex.Entities)
+        {
+            builder.Add(kvp.Key, ImmutableSnapshotEntity.FromProto(kvp.Value));
+        }
 
         var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
-        return new ImmutableDatasetState(entities.ToImmutableDictionary(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
+        return new ImmutableDatasetState(builder.Build(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
     }
 
     public SnapshotIndex ToProto()

@@ -138,7 +138,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
             var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
+                new ImmutableDatasetState(EntityTrie.FromDictionary(newSnapshotEntities), newSnapshotVersion,
                     currentIndex.LatestVersion);
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();

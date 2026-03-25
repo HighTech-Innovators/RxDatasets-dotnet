@@ -100,8 +100,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         catch (FileNotFoundException)
         {
             // There are no snapshots available
-            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableSnapshotEntity>().ToImmutableDictionary(),
-                0, version);
+            snapshotIndex = new ImmutableDatasetState(EntityTrie.Empty, 0, version);
         }
 
         if (snapshotIndex.SnapshotVersion == 0)

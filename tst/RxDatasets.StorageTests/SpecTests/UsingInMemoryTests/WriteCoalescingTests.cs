@@ -368,7 +368,7 @@ public class WriteCoalescingTests
         var crcA = DatasetHelper.ComputeCrc32(dataA);
 
         // Build an index with "foo" = A
-        var entities = ImmutableDictionary<string, ImmutableSnapshotEntity>.Empty.Add(
+        var entities = EntityTrie.Empty.SetItem(
             "foo",
             new ImmutableSnapshotEntity(
                 LastDeletedVersion: [],

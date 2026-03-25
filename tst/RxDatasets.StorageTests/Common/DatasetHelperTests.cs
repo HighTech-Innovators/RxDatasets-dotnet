@@ -81,7 +81,7 @@ public class DatasetHelperTests
     public void DeleteImplicitly_Should_Return_Entities_Not_In_ReceivedNames_And_Not_Deleted()
     {
         // Arrange
-        ImmutableDictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>
+        var entities = EntityTrie.FromDictionary(new Dictionary<string, ImmutableSnapshotEntity>
         {
             { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent1/child2/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
@@ -91,7 +91,7 @@ public class DatasetHelperTests
             { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent3/child3/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-        }.ToImmutableDictionary();
+        });
 
         var index = new ImmutableDatasetState(entities, 0, 0);
 
@@ -108,7 +108,7 @@ public class DatasetHelperTests
     public void DeleteUsingParents_Should_Return_Entities_Of_Parents_Not_In_ReceivedNames_And_Not_Deleted()
     {
         // Arrange
-        var entities = new Dictionary<string, ImmutableSnapshotEntity>
+        var entities = EntityTrie.FromDictionary(new Dictionary<string, ImmutableSnapshotEntity>
         {
             { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent2/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
@@ -118,7 +118,7 @@ public class DatasetHelperTests
             { "parent3/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
             { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-        }.ToImmutableDictionary();
+        });
 
         var index = new ImmutableDatasetState(entities, 0, 0);
 

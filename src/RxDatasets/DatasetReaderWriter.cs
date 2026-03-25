@@ -16,7 +16,6 @@ namespace RxDatasets;
 /// </summary>
 public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
 {
-    private readonly ParentsIndex _parentsIndex = new();
     private TaskCompletionSource _indexChangedTcs = new();
     private readonly IDisposable _updateSubscription;
 
@@ -45,15 +44,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         base.Dispose();
     }
 
-    protected override async Task OnDeltaApplied(DeltaIndex deltaIndex)
-    {
-        foreach (var entity in deltaIndex.NewEntities)
-            await _parentsIndex.OnNew(entity.Name);
-        foreach (var entity in deltaIndex.DeletedEntities)
-            await _parentsIndex.OnDelete(entity.Name);
-        foreach (var name in deltaIndex.DeletedNames)
-            await _parentsIndex.OnDelete(name);
-    }
+    protected override Task OnDeltaApplied(DeltaIndex deltaIndex) => Task.CompletedTask;
 
     private ImmutableDatasetState GetInitializedIndex()
     {
@@ -137,40 +128,37 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         return await Task.WhenAll(tasks);
     }
 
-    public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = GetInitializedIndex();
 
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
-            return (allNamesGetter.ToList(), indexRef.LatestVersion);
+            var allNames = indexRef.Entities
+                .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+                .Select(entity => entity.Key)
+                .ToList();
+            return Task.FromResult((allNames, indexRef.LatestVersion));
         }
 
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (childrenIndex.ToList(), indexRef.LatestVersion);
+        var trimmedParent = parent.TrimEnd('/');
+        var children = indexRef.Entities.ListDescendants(trimmedParent).ToList();
+        return Task.FromResult((children, indexRef.LatestVersion));
     }
 
-    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var indexRef = GetInitializedIndex();
 
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
-            return (uint)indexRef.Entities
-                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
+            return Task.FromResult((uint)indexRef.Entities
+                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted));
         }
 
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (uint)childrenIndex.Count();
+        var trimmedParent = parent.TrimEnd('/');
+        return Task.FromResult((uint)indexRef.Entities.CountDescendants(trimmedParent));
     }
 
     public Task<ChangeSet> GetChangedNames(ulong fromVersion)

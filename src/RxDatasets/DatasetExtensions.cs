@@ -48,11 +48,11 @@ public static class DatasetExtensions
     /// <param name="delta"></param>
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
-        var tempSnapshotEntities = index.Entities;
+        var trie = index.Entities;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
         foreach (var newEntity in delta.NewEntities)
         {
-            if (!index.Entities.TryGetValue(newEntity.Name, out var existingEntity))
+            if (!trie.TryGetValue(newEntity.Name, out var existingEntity))
             {
                 existingEntity = ImmutableSnapshotEntity.FromProto(new SnapshotEntity());
             }
@@ -65,12 +65,12 @@ public static class DatasetExtensions
                 newEntity.Length,
                 newEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(newEntity.Name, updatedEntity);
+            trie = trie.SetItem(newEntity.Name, updatedEntity);
         }
 
         foreach (var changedEntity in delta.ChangedEntities)
         {
-            var existingEntity = index.Entities[changedEntity.Name];
+            var existingEntity = trie[changedEntity.Name];
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion,
@@ -80,12 +80,12 @@ public static class DatasetExtensions
                 changedEntity.Length,
                 changedEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(changedEntity.Name, updatedEntity);
+            trie = trie.SetItem(changedEntity.Name, updatedEntity);
         }
 
         foreach (var deletedName in delta.DeletedNames)
         {
-            var existingEntity = index.Entities[deletedName];
+            var existingEntity = trie[deletedName];
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion.Add(deltaVersion),
@@ -95,12 +95,12 @@ public static class DatasetExtensions
                 0,
                 existingEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedName, updatedEntity);
+            trie = trie.SetItem(deletedName, updatedEntity);
         }
 
         foreach (var deletedEntity in delta.DeletedEntities)
         {
-            var existingEntity = index.Entities[deletedEntity.Name];
+            var existingEntity = trie[deletedEntity.Name];
 
             var updatedEntity = new ImmutableSnapshotEntity(
                 existingEntity.LastDeletedVersion.Add(deltaVersion),
@@ -110,10 +110,10 @@ public static class DatasetExtensions
                 0,
                 existingEntity.Crc32);
 
-            tempSnapshotEntities = tempSnapshotEntities.SetItem(deletedEntity.Name, updatedEntity);
+            trie = trie.SetItem(deletedEntity.Name, updatedEntity);
         }
 
-        return new ImmutableDatasetState(tempSnapshotEntities, index.SnapshotVersion, deltaVersion);
+        return new ImmutableDatasetState(trie, index.SnapshotVersion, deltaVersion);
     }
 
     public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState index, IEnumerable<DeltaIndex> deltas)

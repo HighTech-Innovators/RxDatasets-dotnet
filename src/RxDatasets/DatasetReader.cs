@@ -20,7 +20,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _mostRecentSnapshotIndex;
-    private readonly ParentsIndex _parentsIndex = new();
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -313,43 +312,37 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return changedNames;
     }
 
-    public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
 
-
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
-            return (allNamesGetter.ToList(), indexRef.LatestVersion);
+            var allNames = indexRef.Entities
+                .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+                .Select(entity => entity.Key)
+                .ToList();
+            return Task.FromResult((allNames, indexRef.LatestVersion));
         }
 
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (childrenIndex.ToList(), indexRef.LatestVersion);
-
+        var trimmedParent = parent.TrimEnd('/');
+        var children = indexRef.Entities.ListDescendants(trimmedParent).ToList();
+        return Task.FromResult((children, indexRef.LatestVersion));
     }
 
-    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var indexRef = ThrowIfNotInitialized();
 
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
-            // For root path, count all non-deleted entities
-            return (uint)indexRef.Entities
-                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
+            return Task.FromResult((uint)indexRef.Entities
+                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted));
         }
 
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (uint)childrenIndex.Count();
+        var trimmedParent = parent.TrimEnd('/');
+        return Task.FromResult((uint)indexRef.Entities.CountDescendants(trimmedParent));
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
@@ -360,27 +353,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
             tempState = tempState.ApplyDeltas(deltas);
-            var thereIsStillData = await _parentsIndex.CleanIndex();
-            if (thereIsStillData)
-            {
-                foreach (DeltaIndex delta in deltas)
-                {
-                    foreach (var newEntity in delta.NewEntities)
-                    {
-                        await _parentsIndex.OnNew(newEntity.Name);
-                    }
-
-                    foreach (var deletedEntity in delta.DeletedNames)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity);
-                    }
-                    foreach (var deletedEntity in delta.DeletedEntities)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity.Name);
-                    }
-                }
-            }
-
             _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
         }
 
