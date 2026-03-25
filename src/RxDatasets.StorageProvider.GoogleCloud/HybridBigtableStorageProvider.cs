@@ -400,11 +400,12 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
     {
         var sw = Log ? Stopwatch.StartNew() : null;
 
-        // Compress index first, then decide placement based on compressed size
+        // Compress first, then decide placement based on compressed sizes
         var (compressedIndex, indexEncoding) = CompressIndex(type, version, index);
-        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, data.LongLength);
-        var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
+        var (compressedData, dataEncoding) = CompressData(type, version, data);
+        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, compressedData.LongLength);
         string? indexFallbackObjectKey = null;
+        string? dataFallbackObjectKey = null;
 
         if (!plan.StoreIndexInline)
         {
@@ -412,16 +413,17 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
-                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes compressed) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
             }
         }
 
-        if (dataFallbackObjectKey != null)
+        if (compressedData.Length > 0 && !plan.StoreDataInline)
         {
-            await _blobStorage.UploadBytes(dataFallbackObjectKey, data);
+            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? ".br" : "");
+            await _blobStorage.UploadBytes(dataFallbackObjectKey, compressedData);
             if (Log)
             {
-                _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, data.Length, sw!.ElapsedMilliseconds);
+                _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, compressedData.Length, sw!.ElapsedMilliseconds);
             }
         }
 
@@ -430,17 +432,18 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             version,
             DateTimeOffset.UtcNow,
             plan.StoreIndexInline ? compressedIndex : null,
-            data.Length == 0 ? null : plan.StoreDataInline ? data : null,
+            compressedData.Length == 0 ? null : plan.StoreDataInline ? compressedData : null,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
             index.LongLength,
             data.LongLength,
-            indexEncoding));
+            indexEncoding,
+            dataEncoding));
 
         if (Log)
         {
-            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CompressedLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
-                type, version, index.Length, compressedIndex.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CIndexLen}, data: {DataLen}->{CDataLen} bytes) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, compressedIndex.Length, data.Length, compressedData.Length, sw!.ElapsedMilliseconds);
         }
     }
 
@@ -452,11 +455,15 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             data.Position = 0;
         }
 
-        // Compress index first, then decide placement based on compressed size
+        // Read stream into bytes so we can compress before deciding placement
+        var rawData = data.Length > 0 ? await ReadAllBytes(data) : [];
+
+        // Compress first, then decide placement based on compressed sizes
         var (compressedIndex, indexEncoding) = CompressIndex(type, version, index);
-        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, data.Length);
-        var dataFallbackObjectKey = data.Length == 0 || plan.StoreDataInline ? null : GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type);
+        var (compressedData, dataEncoding) = CompressData(type, version, rawData);
+        var plan = _rowStore.CreateWritePlan(compressedIndex.Length, compressedData.LongLength);
         string? indexFallbackObjectKey = null;
+        string? dataFallbackObjectKey = null;
 
         if (!plan.StoreIndexInline)
         {
@@ -464,29 +471,17 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
-                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes compressed) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
+                _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
             }
         }
 
-        byte[]? inlineData = null;
-        if (data.Length > 0)
+        if (compressedData.Length > 0 && !plan.StoreDataInline)
         {
-            if (plan.StoreDataInline)
+            dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? ".br" : "");
+            await _blobStorage.UploadBytes(dataFallbackObjectKey, compressedData);
+            if (Log)
             {
-                inlineData = await ReadAllBytes(data);
-            }
-            else
-            {
-                if (data.CanSeek)
-                {
-                    data.Position = 0;
-                }
-
-                await _blobStorage.UploadFileStream(dataFallbackObjectKey!, data);
-                if (Log)
-                {
-                    _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS (stream) in {ElapsedMs}ms", type, version, data.Length, sw!.ElapsedMilliseconds);
-                }
+                _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, compressedData.Length, sw!.ElapsedMilliseconds);
             }
         }
 
@@ -495,17 +490,18 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             version,
             DateTimeOffset.UtcNow,
             plan.StoreIndexInline ? compressedIndex : null,
-            inlineData,
+            compressedData.Length == 0 ? null : plan.StoreDataInline ? compressedData : null,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
             index.LongLength,
-            data.Length,
-            indexEncoding));
+            rawData.LongLength,
+            indexEncoding,
+            dataEncoding));
 
         if (Log)
         {
-            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CompressedLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
-                type, version, index.Length, compressedIndex.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
+            _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CIndexLen}, data: {DataLen}->{CDataLen} bytes) to Bigtable in {ElapsedMs}ms",
+                type, version, index.Length, compressedIndex.Length, rawData.Length, compressedData.Length, sw!.ElapsedMilliseconds);
         }
     }
 
@@ -534,7 +530,38 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
                 sw!.ElapsedMilliseconds);
         }
 
-        return (compressed, "br");
+        return (compressed, GoogleCloudVersionedArtifactRowStore.EncodingBrotli);
+    }
+
+    private (byte[] Compressed, string? Encoding) CompressData(ObjectNameTypeEnum type, ulong version, byte[] data)
+    {
+        if (data.Length == 0)
+            return (data, null);
+
+        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotDataCompressionLevel
+            : _storageConfig.Value.DeltaDataCompressionLevel;
+
+        if (qualityLevel <= 0)
+            return (data, null);
+
+        var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
+            : qualityLevel <= 1 ? CompressionLevel.Fastest
+            : (CompressionLevel)qualityLevel;
+
+        var sw = Log ? Stopwatch.StartNew() : null;
+        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(data, level);
+
+        if (Log)
+        {
+            _logger.LogInformation(
+                "Compressed {Type} v{Version} Data: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
+                type, version, data.Length, compressed.Length,
+                1.0 - (double)compressed.Length / data.Length,
+                sw!.ElapsedMilliseconds);
+        }
+
+        return (compressed, GoogleCloudVersionedArtifactRowStore.EncodingBrotli);
     }
 
     private async Task<byte[]> ReadAllBytes(Stream stream)

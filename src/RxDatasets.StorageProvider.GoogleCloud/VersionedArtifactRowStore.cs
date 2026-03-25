@@ -36,7 +36,8 @@ public sealed record HybridArtifactRecord(
     string? DataFallbackObjectKey,
     long IndexLength,
     long DataLength,
-    string? IndexEncoding = null);
+    string? IndexEncoding = null,
+    string? DataEncoding = null);
 
 public readonly record struct HybridArtifactSummary(ulong Version, DateTimeOffset CreatedAt);
 
@@ -78,6 +79,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private const string QualifierIndexObject = "index-object";
     private const string QualifierDataObject = "data-object";
     private const string QualifierIndexEncoding = "index-encoding";
+    private const string QualifierDataEncoding = "data-encoding";
     public const string EncodingBrotli = "br";
 
     private readonly BigtableClient _bigtableClient;
@@ -157,6 +159,10 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         if (artifact.InlineData != null)
         {
             AddMutation(mutations, PayloadFamily, QualifierData, artifact.InlineData);
+            if (artifact.DataEncoding != null)
+            {
+                AddMutation(mutations, MetadataFamily, QualifierDataEncoding, artifact.DataEncoding);
+            }
         }
 
         if (!string.IsNullOrEmpty(artifact.IndexFallbackObjectKey))
@@ -826,6 +832,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
 
         var inlineIndex = TryReadBytes(row, PayloadFamily, QualifierIndex);
         var indexEncoding = TryReadString(row, MetadataFamily, QualifierIndexEncoding);
+        var dataEncoding = TryReadString(row, MetadataFamily, QualifierDataEncoding);
 
         return new HybridArtifactRecord(
             type,
@@ -837,7 +844,8 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
             TryReadString(row, FallbackFamily, QualifierDataObject),
             indexLength,
             dataLength,
-            indexEncoding);
+            indexEncoding,
+            dataEncoding);
     }
 
     private static string? TryReadString(Row row, string familyName, string qualifier)

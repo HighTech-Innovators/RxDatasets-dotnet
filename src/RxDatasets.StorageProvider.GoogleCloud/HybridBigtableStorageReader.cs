@@ -75,18 +75,40 @@ public class HybridBigtableStorageReader<T>(
             return;
         }
 
+        var isCompressed = string.Equals(artifact.DataEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal);
+
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
             var swGcs = Log ? Stopwatch.StartNew() : null;
-            await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, callback);
-            if (Log)
+            if (isCompressed)
             {
-                logger.LogInformation("Streamed Snapshot Data from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", artifact.DataFallbackObjectKey, swGcs!.ElapsedMilliseconds);
+                var compressed = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey);
+                var decompressed = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(compressed.ToArray());
+                if (Log)
+                {
+                    logger.LogInformation("Read and decompressed Snapshot Data ({CompressedLen} -> {DecompressedLen} bytes) from GCS in {ElapsedMs}ms",
+                        compressed.Length, decompressed.Length, swGcs!.ElapsedMilliseconds);
+                }
+                using var decompressedStream = new MemoryStream(decompressed);
+                callback(decompressedStream);
+            }
+            else
+            {
+                await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, callback);
+                if (Log)
+                {
+                    logger.LogInformation("Streamed Snapshot Data from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", artifact.DataFallbackObjectKey, swGcs!.ElapsedMilliseconds);
+                }
             }
             return;
         }
 
-        using var stream = new MemoryStream(artifact.InlineData ?? []);
+        var inlineData = artifact.InlineData ?? [];
+        if (isCompressed && inlineData.Length > 0)
+        {
+            inlineData = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlineData);
+        }
+        using var stream = new MemoryStream(inlineData);
         callback(stream);
     }
 
@@ -333,6 +355,18 @@ public class HybridBigtableStorageReader<T>(
 
             inlinePayload = artifact.InlineData;
             fallbackObjectKey = artifact.DataFallbackObjectKey;
+
+            if (inlinePayload != null && string.Equals(artifact.DataEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            {
+                var sw = Log ? Stopwatch.StartNew() : null;
+                var compressedLen = inlinePayload.Length;
+                inlinePayload = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlinePayload);
+                if (Log)
+                {
+                    logger.LogInformation("Decompressed Data: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
+                        compressedLen, inlinePayload.Length, sw!.ElapsedMilliseconds);
+                }
+            }
         }
 
         if (inlinePayload != null)
@@ -349,17 +383,17 @@ public class HybridBigtableStorageReader<T>(
                 logger.LogInformation("Read {PayloadType} ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", payloadType, data.Length, fallbackObjectKey, sw!.ElapsedMilliseconds);
             }
 
-            // Decompress GCS-stored index if compressed
-            if (payloadType == ObjectNameIndexOrDataEnum.Index
-                && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            // Decompress GCS-stored payload if compressed
+            var encoding = payloadType == ObjectNameIndexOrDataEnum.Index ? artifact.IndexEncoding : artifact.DataEncoding;
+            if (string.Equals(encoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
             {
                 var swDecompress = Log ? Stopwatch.StartNew() : null;
                 var compressedLen = data.Length;
                 var decompressed = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(data.ToArray());
                 if (Log)
                 {
-                    logger.LogInformation("Decompressed Index: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
-                        compressedLen, decompressed.Length, swDecompress!.ElapsedMilliseconds);
+                    logger.LogInformation("Decompressed {PayloadType}: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
+                        payloadType, compressedLen, decompressed.Length, swDecompress!.ElapsedMilliseconds);
                 }
                 return decompressed;
             }
@@ -382,18 +416,39 @@ public class HybridBigtableStorageReader<T>(
             throw new ArgumentOutOfRangeException(nameof(position));
         }
 
+        var isCompressed = string.Equals(artifact.DataEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal);
+
         if (artifact.InlineData != null)
         {
-            return new ReadOnlyMemory<byte>(artifact.InlineData, (int)position, length);
+            var inlineData = artifact.InlineData;
+            if (isCompressed)
+            {
+                inlineData = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlineData);
+            }
+            return new ReadOnlyMemory<byte>(inlineData, (int)position, length);
         }
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
-            var sw = Log ? Stopwatch.StartNew() : null;
+            if (isCompressed)
+            {
+                // Must download and decompress the whole blob, then slice
+                var sw = Log ? Stopwatch.StartNew() : null;
+                var compressed = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey);
+                var decompressed = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(compressed.ToArray());
+                if (Log)
+                {
+                    logger.LogInformation("Read and decompressed Data ({CompressedLen} -> {DecompressedLen} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms",
+                        compressed.Length, decompressed.Length, artifact.DataFallbackObjectKey, sw!.ElapsedMilliseconds);
+                }
+                return new ReadOnlyMemory<byte>(decompressed, (int)position, length);
+            }
+
+            var swPlain = Log ? Stopwatch.StartNew() : null;
             var data = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey, position, length);
             if (Log)
             {
-                logger.LogInformation("Read Data range ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", length, artifact.DataFallbackObjectKey, sw!.ElapsedMilliseconds);
+                logger.LogInformation("Read Data range ({Length} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms", length, artifact.DataFallbackObjectKey, swPlain!.ElapsedMilliseconds);
             }
             return data;
         }
