@@ -5,9 +5,20 @@ public record ImmutableDatasetState(EntityTrie Entities, ulong SnapshotVersion, 
     public static ImmutableDatasetState FromProto(SnapshotIndex snapshotIndex)
     {
         var builder = new EntityTrie.Builder();
-        foreach (var kvp in snapshotIndex.Entities)
+
+        if (snapshotIndex.Nested != null
+            && (snapshotIndex.Nested.Leaves.Count > 0 || snapshotIndex.Nested.Children.Count > 0))
         {
-            builder.Add(kvp.Key, ImmutableSnapshotEntity.FromProto(kvp.Value));
+            // New nested trie format
+            NestedIndexHelper.ReadNestedSnapshot(snapshotIndex.Nested, builder);
+        }
+        else
+        {
+            // Legacy flat format
+            foreach (var kvp in snapshotIndex.Entities)
+            {
+                builder.Add(kvp.Key, ImmutableSnapshotEntity.FromProto(kvp.Value));
+            }
         }
 
         var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
@@ -16,16 +27,14 @@ public record ImmutableDatasetState(EntityTrie Entities, ulong SnapshotVersion, 
 
     public SnapshotIndex ToProto()
     {
-        SnapshotIndex snapshotIndex = new SnapshotIndex()
+        var snapshotIndex = new SnapshotIndex()
         {
             SnapshotVersionLegacy = 0,
-            SnapshotVersion = this.SnapshotVersion
+            SnapshotVersion = this.SnapshotVersion,
+            Nested = NestedIndexHelper.ToNestedSnapshot(Entities)
         };
 
-        foreach (var entity in Entities)
-        {
-            snapshotIndex.Entities.Add(entity.Key, entity.Value.ToProto());
-        }
+        // Flat entities field left empty — new readers use nested
 
         return snapshotIndex;
     }

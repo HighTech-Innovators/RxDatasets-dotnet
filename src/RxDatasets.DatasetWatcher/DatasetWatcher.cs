@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Models;
 
 namespace RxDatasets.DatasetWatcher;
 
@@ -22,7 +23,7 @@ public class DatasetWatcher<T>(
     {
         await datasetObserver.OnDatasetVersionStart(nextToReportedVersion);
         var deltaIndex = await storageReader.ReadDeltaIndex(nextToReportedVersion);
-        var deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
+        var deltaIndexParsed = NestedIndexHelper.ParseDeltaIndex(deltaIndex.Span);
         deltaIndexParsed.ValidateAgainstVersion(nextToReportedVersion);
 
         var deltaVersion = deltaIndexParsed.DeltaVersion > 0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
@@ -68,6 +69,8 @@ public class DatasetWatcher<T>(
         var snapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         await datasetObserver.OnDatasetVersionStart(snapshotVersion);
 
+        // Read entities from nested format if present, otherwise use flat
+        NestedIndexHelper.EnsureFlat(snapshotIndex);
         foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
         {
             var entityData = data.Slice((int)snapshotEntity.Position, snapshotEntity.Length);

@@ -158,7 +158,10 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
         mutableSnapshotIndex.ValidateAgainstVersion(snapshotVersion);
-        var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
+
+        // Collect all non-deleted entities from either nested or flat format for validation
+        var allEntities = GetAllSnapshotEntities(mutableSnapshotIndex);
+        var lastEntityInDataFile = allEntities
             .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
 
         if (lastEntityInDataFile is not null)
@@ -184,6 +187,33 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
         var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
         return snapshotIndex;
+    }
+
+    /// <summary>
+    /// Extracts all SnapshotEntity values from a SnapshotIndex, handling both
+    /// nested (trie) and flat (legacy) formats.
+    /// </summary>
+    internal static IEnumerable<SnapshotEntity> GetAllSnapshotEntities(SnapshotIndex snapshotIndex)
+    {
+        if (snapshotIndex.Nested != null
+            && (snapshotIndex.Nested.Leaves.Count > 0 || snapshotIndex.Nested.Children.Count > 0))
+        {
+            return CollectNestedSnapshotEntities(snapshotIndex.Nested);
+        }
+
+        return snapshotIndex.Entities.Values;
+    }
+
+    private static IEnumerable<SnapshotEntity> CollectNestedSnapshotEntities(SnapshotBucket bucket)
+    {
+        foreach (var entity in bucket.Leaves.Values)
+            yield return entity;
+
+        foreach (var child in bucket.Children.Values)
+        {
+            foreach (var entity in CollectNestedSnapshotEntities(child))
+                yield return entity;
+        }
     }
     public static string GetObjectNamePrefix<T>(StorageConfig storageConfig) =>
         $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
@@ -252,7 +282,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         {
             var version = fromVersion + 1;
             var indexBytes = await storageProvider.ReadDeltaIndex(version);
-            var singleIndex = DeltaIndex.Parser.ParseFrom(indexBytes.Span);
+            var singleIndex = NestedIndexHelper.ParseDeltaIndex(indexBytes.Span);
             singleIndex.ValidateAgainstVersion(version);
             return [singleIndex];
         }
@@ -260,7 +290,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         var indexes = new List<DeltaIndex>((int)iterations);
         await foreach (var (version, indexBytes) in storageProvider.ReadDeltaIndexRange(fromVersion, toVersion))
         {
-            var index = DeltaIndex.Parser.ParseFrom(indexBytes.Span);
+            var index = NestedIndexHelper.ParseDeltaIndex(indexBytes.Span);
             index.ValidateAgainstVersion(version);
             indexes.Add(index);
         }

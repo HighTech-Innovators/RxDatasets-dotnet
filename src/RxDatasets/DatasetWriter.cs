@@ -389,7 +389,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var newIndex = _index!.ApplyDelta(deltaIndex);
         using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
         {
-            await _storageProvider.StoreDelta(newIndex.LatestVersion, deltaIndex.ToByteArray(), deltaDataStream);
+            await _storageProvider.StoreDelta(newIndex.LatestVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex), deltaDataStream);
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
@@ -648,7 +648,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         concatenatedByteStream.Position = 0;
-        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
+        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex), concatenatedByteStream);
 
         var newIndex = _index!.ApplyDelta(deltaIndex);
         await OnDeltaApplied(deltaIndex);

@@ -442,7 +442,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             try
             {
                 var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -528,7 +528,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             try
             {
                 var deltaBytes = await _storageProvider.ReadDeltaIndex(currentVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -634,7 +634,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             try
             {
                 var deltaBytes = await _storageProvider.ReadDeltaIndex(nextVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -697,7 +697,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         try
         {
             var deltaBytes = await _storageProvider.ReadDeltaIndex(version);
-            deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
         }
         catch (FileNotFoundException)
         {

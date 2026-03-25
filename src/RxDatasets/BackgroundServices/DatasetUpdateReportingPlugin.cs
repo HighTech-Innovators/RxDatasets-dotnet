@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using RxDatasets.Models;
 
 namespace RxDatasets.BackgroundServices
 {
@@ -41,7 +42,7 @@ namespace RxDatasets.BackgroundServices
             try
             {
                 var deltaIndex = await storageProvider.ReadDeltaIndex(deltaVersion);
-                deltaIndexParsed = DeltaIndex.Parser.ParseFrom(deltaIndex.Span);
+                deltaIndexParsed = NestedIndexHelper.ParseDeltaIndex(deltaIndex.Span);
                 deltaIndexParsed.ValidateAgainstVersion(deltaVersion);
 
             }

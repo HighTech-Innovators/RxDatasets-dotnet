@@ -216,7 +216,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
             try
             {
                 var deltaBytes = await ReadOnlyStorageProvider.ReadDeltaIndex(currentVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -299,7 +299,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
             try
             {
                 var deltaBytes = await ReadOnlyStorageProvider.ReadDeltaIndex(currentVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -367,7 +367,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
             try
             {
                 var deltaBytes = await ReadOnlyStorageProvider.ReadDeltaIndex(nextVersion);
-                deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+                deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
             }
             catch (FileNotFoundException)
             {
@@ -419,7 +419,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         try
         {
             var deltaBytes = await ReadOnlyStorageProvider.ReadDeltaIndex(version);
-            deltaIndex = DeltaIndex.Parser.ParseFrom(deltaBytes.Span);
+            deltaIndex = NestedIndexHelper.ParseDeltaIndex(deltaBytes.Span);
         }
         catch (FileNotFoundException)
         {

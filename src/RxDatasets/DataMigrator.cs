@@ -133,6 +133,7 @@ public class DataMigrator<T> : IDataMigrator
             var bytes = await _storage.DownloadBytes(snapshotFile.Key);
             var snapshotIndex = SnapshotIndex.Parser.ParseFrom(bytes.ToArray());
 
+            NestedIndexHelper.EnsureFlat(snapshotIndex);
             foreach (var kvp in snapshotIndex.Entities)
             {
                 string entityName = kvp.Key;
@@ -188,7 +189,7 @@ public class DataMigrator<T> : IDataMigrator
         try
         {
             var bytes = await _storage.DownloadBytes(key);
-            var deltaIndex = DeltaIndex.Parser.ParseFrom(bytes.ToArray());
+            var deltaIndex = NestedIndexHelper.ParseDeltaIndex(bytes.ToArray());
             bool changed = false;
 
             // Get the current delta version
@@ -287,7 +288,7 @@ public class DataMigrator<T> : IDataMigrator
 
             if (changed)
             {
-                await _storage.UploadBytes(key, deltaIndex.ToByteArray());
+                await _storage.UploadBytes(key, NestedIndexHelper.SerializeDeltaIndex(deltaIndex));
                 log($"Saved changes to {key}");
             }
         }

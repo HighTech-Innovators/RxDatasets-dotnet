@@ -1,4 +1,4 @@
-﻿syntax = "proto3";
+syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 
@@ -11,9 +11,18 @@ message SnapshotEntity {
 	uint32 crc32 = 7;
 }
 
+// Recursive bucket for nested snapshot storage.
+// Each node holds leaf entities (keyed by their segment at this level)
+// and child buckets (keyed by the next path segment).
+message SnapshotBucket {
+	map<string, SnapshotEntity> leaves = 1;
+	map<string, SnapshotBucket> children = 2;
+}
+
 message SnapshotIndex {
 	uint64 snapshot_version_legacy = 1;
-	map<string, SnapshotEntity> entities = 2;
+	map<string, SnapshotEntity> entities = 2;       // flat format (legacy)
+	SnapshotBucket nested = 33;                      // nested trie format
 	uint64 snapshot_version = 32;
 }
 
@@ -30,6 +39,17 @@ message DeletedEntity {
 	uint64 previous_version = 2;
 }
 
+// Recursive bucket for nested delta storage.
+// Entity name fields store only the leaf segment; the full name
+// is reconstructed by concatenating the path from root to leaf.
+message DeltaBucket {
+	repeated DeltaEntity new_entities = 1;
+	repeated DeltaEntity changed_entities = 2;
+	repeated DeletedEntity deleted_entities = 3;
+	repeated string deleted_names = 4;
+	map<string, DeltaBucket> children = 5;
+}
+
 message DeltaIndex {
 	uint64 delta_version_legacy = 1;
 	repeated string deleted_names = 2; // Obsolete - no previous version
@@ -37,6 +57,7 @@ message DeltaIndex {
 	repeated DeltaEntity new_entities = 4;
   google.protobuf.Timestamp timestamp = 5;
   repeated DeletedEntity deleted_entities = 6;
+	DeltaBucket nested = 33;                         // nested trie format
 	uint64 delta_version = 32;
 }
 
