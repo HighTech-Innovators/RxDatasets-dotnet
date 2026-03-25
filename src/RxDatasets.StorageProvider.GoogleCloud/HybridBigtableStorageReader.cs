@@ -42,7 +42,7 @@ public class HybridBigtableStorageReader<T>(
             return await legacyReader.ReadSnapshotData(snapshotVersion);
         }
 
-        if (Log)
+        if (Log && artifact.InlineData != null)
         {
             logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
@@ -63,7 +63,7 @@ public class HybridBigtableStorageReader<T>(
             return;
         }
 
-        if (Log)
+        if (Log && artifact.InlineData != null)
         {
             logger.LogInformation("Read Snapshot v{Version} Data ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
@@ -252,7 +252,7 @@ public class HybridBigtableStorageReader<T>(
             var artifact = await GetArtifact(source.type, source.version, ArtifactReadScope.MetaAndData);
             if (artifact != null)
             {
-                if (Log)
+                if (Log && artifact.InlineData != null)
                 {
                     logger.LogInformation("Read {Type} v{Version} Data range (offset {Position}, {Length} bytes) from Bigtable in {ElapsedMs}ms",
                         source.type, source.version, source.position, length, sw!.ElapsedMilliseconds);
