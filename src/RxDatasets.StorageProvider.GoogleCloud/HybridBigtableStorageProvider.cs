@@ -408,7 +408,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (!plan.StoreIndexInline)
         {
-            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + ".br";
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? ".br" : "");
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
@@ -460,7 +460,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         if (!plan.StoreIndexInline)
         {
-            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + ".br";
+            indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? ".br" : "");
             await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
             if (Log)
             {
@@ -509,11 +509,18 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         }
     }
 
-    private (byte[] Compressed, string Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
+    private (byte[] Compressed, string? Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
     {
-        var level = type == ObjectNameTypeEnum.Snapshot
-            ? CompressionLevel.SmallestSize
-            : CompressionLevel.Fastest;
+        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotIndexCompressionLevel
+            : _storageConfig.Value.DeltaIndexCompressionLevel;
+
+        if (qualityLevel <= 0)
+            return (index, null); // no compression
+
+        var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
+            : qualityLevel <= 1 ? CompressionLevel.Fastest
+            : (CompressionLevel)qualityLevel;
 
         var sw = Log ? Stopwatch.StartNew() : null;
         var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(index, level);
