@@ -209,6 +209,18 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
         var dataFromSources = await _readOnlyStorageProvider.ReadDataFromSources(sources, length);
 
+        if (dataFromSources.Length > length)
+        {
+            // Provider returned the full blob (partial read not efficient) — cache it whole
+            // so subsequent reads for other entities in the same version hit the cache.
+            sources.ForEach(s =>
+            {
+                var cacheKeyWhole = GetCacheKey(s.version, ObjectNameIndexOrDataEnum.Data, s.type);
+                SetCache(cacheKeyWhole, dataFromSources);
+            });
+            return dataFromSources.Slice((int)sources[0].position, length);
+        }
+
         sources.ForEach(s =>
         {
             var cacheKeySpecificRange = GetPositionedCacheKey(s.version, ObjectNameIndexOrDataEnum.Data, s.type, s.position, length);

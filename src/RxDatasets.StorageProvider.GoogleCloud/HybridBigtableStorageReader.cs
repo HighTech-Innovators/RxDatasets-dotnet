@@ -417,14 +417,16 @@ public class HybridBigtableStorageReader<T>(
             {
                 inlineData = GoogleCloudVersionedArtifactRowStore.Decompress(inlineData, artifact.DataEncoding!);
             }
-            return new ReadOnlyMemory<byte>(inlineData, (int)position, length);
+            // Return the full blob — the cache layer will cache it whole and slice for the caller.
+            // This avoids redundant Bigtable fetches when BatchGet reads multiple entities from the same version.
+            return new ReadOnlyMemory<byte>(inlineData);
         }
 
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
             if (isCompressed)
             {
-                // Must download and decompress the whole blob, then slice
+                // Must download and decompress the whole blob — return it fully so the cache layer can reuse it.
                 var sw = Log ? Stopwatch.StartNew() : null;
                 var compressed = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey);
                 var decompressed = GoogleCloudVersionedArtifactRowStore.Decompress(compressed.ToArray(), artifact.DataEncoding!);
@@ -433,7 +435,7 @@ public class HybridBigtableStorageReader<T>(
                     logger.LogInformation("Read and decompressed Data ({CompressedLen} -> {DecompressedLen} bytes) from GCS (Fallback Key: {Key}) in {ElapsedMs}ms",
                         compressed.Length, decompressed.Length, artifact.DataFallbackObjectKey, sw!.ElapsedMilliseconds);
                 }
-                return new ReadOnlyMemory<byte>(decompressed, (int)position, length);
+                return new ReadOnlyMemory<byte>(decompressed);
             }
 
             var swPlain = Log ? Stopwatch.StartNew() : null;
