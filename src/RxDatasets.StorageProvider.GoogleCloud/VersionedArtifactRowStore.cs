@@ -12,6 +12,17 @@ using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageProvider.GoogleCloud;
 
+[Flags]
+public enum ArtifactReadScope
+{
+    Meta = 1,
+    Index = 2,
+    Data = 4,
+    MetaAndIndex = Meta | Index,
+    MetaAndData = Meta | Data,
+    All = Meta | Index | Data
+}
+
 public readonly record struct ArtifactWritePlan(bool StoreIndexInline, bool StoreDataInline);
 
 public sealed record HybridArtifactRecord(
@@ -32,6 +43,7 @@ public interface IVersionedArtifactRowStore
     ArtifactWritePlan CreateWritePlan(long indexLength, long dataLength);
     Task UpsertArtifact(string datasetPrefix, HybridArtifactRecord artifact, CancellationToken cancellationToken = default);
     Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default);
+    Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, ArtifactReadScope scope, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<HybridArtifactSummary>> ListArtifacts(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default);
     Task DeleteArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<string, ulong>> GetProcessedVersions(string datasetPrefix, CancellationToken cancellationToken = default);
@@ -40,6 +52,7 @@ public interface IVersionedArtifactRowStore
     Task<bool> RenewLock(string datasetPrefix, string lockName, string lockToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task ReleaseLock(string datasetPrefix, string lockName, string lockToken, CancellationToken cancellationToken = default);
     IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive, ArtifactReadScope scope, CancellationToken cancellationToken = default);
     Task<ulong?> GetLatestArtifactVersion(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default);
     Task RequestLock(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
     Task<bool> ShouldYield(string datasetPrefix, string requestLockName, string instanceId, CancellationToken cancellationToken = default);
@@ -217,7 +230,10 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         });
     }
 
-    public async Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
+    public Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
+        => GetArtifact(datasetPrefix, type, version, ArtifactReadScope.All, cancellationToken);
+
+    public async Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, ArtifactReadScope scope, CancellationToken cancellationToken = default)
     {
         await EnsureInitialized();
 
@@ -228,6 +244,10 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
             Rows = new RowSet()
         };
         request.Rows.RowKeys.Add(ByteString.CopyFromUtf8(rowKey));
+
+        var filter = BuildScopeFilter(scope);
+        if (filter != null)
+            request.Filter = filter;
 
         var rows = _bigtableClient.ReadRows(request);
         await foreach (var row in rows.WithCancellation(cancellationToken))
@@ -241,17 +261,22 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         return null;
     }
 
+    public IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
+        string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive,
+        CancellationToken cancellationToken = default)
+        => GetArtifactRange(datasetPrefix, type, fromVersionExclusive, toVersionInclusive, ArtifactReadScope.All, cancellationToken);
+
     public async IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
         string datasetPrefix,
         ObjectNameTypeEnum type,
         ulong fromVersionExclusive,
         ulong toVersionInclusive,
+        ArtifactReadScope scope,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await EnsureInitialized();
 
         var startKey = GetArtifactRowKey(datasetPrefix, type, fromVersionExclusive + 1);
-        // +1 because EndKeyClosed is inclusive and version is zero-padded D20
         var endKey = GetArtifactRowKey(datasetPrefix, type, toVersionInclusive);
 
         var request = new ReadRowsRequest
@@ -264,6 +289,10 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
             StartKeyClosed = ByteString.CopyFromUtf8(startKey),
             EndKeyClosed = ByteString.CopyFromUtf8(endKey)
         });
+
+        var filter = BuildScopeFilter(scope);
+        if (filter != null)
+            request.Filter = filter;
 
         var rows = _bigtableClient.ReadRows(request);
         await foreach (var row in rows.WithCancellation(cancellationToken))
@@ -862,6 +891,60 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private static string GetPrefixEnd(string prefix)
     {
         return prefix + '\uffff';
+    }
+
+    private static RowFilter? BuildScopeFilter(ArtifactReadScope scope)
+    {
+        if (scope == ArtifactReadScope.All)
+            return null; // no filter — read everything
+
+        var families = new List<string> { MetadataFamily, FallbackFamily };
+        if (scope.HasFlag(ArtifactReadScope.Index))
+            families.Add(PayloadFamily); // we'll filter columns below
+        if (scope.HasFlag(ArtifactReadScope.Data))
+            families.Add(PayloadFamily);
+
+        // Build a family-level regex: "meta|fallback|payload"
+        var familyRegex = string.Join("|", families.Distinct());
+
+        if (!scope.HasFlag(ArtifactReadScope.Index) && !scope.HasFlag(ArtifactReadScope.Data))
+        {
+            // Meta-only: exclude payload family entirely
+            return new RowFilter { FamilyNameRegexFilter = familyRegex };
+        }
+
+        if (scope.HasFlag(ArtifactReadScope.Index) && scope.HasFlag(ArtifactReadScope.Data))
+        {
+            // Both payloads: no column filtering needed, just family filter
+            return new RowFilter { FamilyNameRegexFilter = familyRegex };
+        }
+
+        // One payload column only — use an interleave to combine
+        // (meta + fallback unfiltered) with (payload filtered to specific column)
+        var payloadQualifier = scope.HasFlag(ArtifactReadScope.Index) ? QualifierIndex : QualifierData;
+        return new RowFilter
+        {
+            Interleave = new RowFilter.Types.Interleave
+            {
+                Filters =
+                {
+                    // meta + fallback families
+                    new RowFilter { FamilyNameRegexFilter = $"{MetadataFamily}|{FallbackFamily}" },
+                    // payload family, specific column only
+                    new RowFilter
+                    {
+                        Chain = new RowFilter.Types.Chain
+                        {
+                            Filters =
+                            {
+                                new RowFilter { FamilyNameRegexFilter = PayloadFamily },
+                                new RowFilter { ColumnQualifierRegexFilter = ByteString.CopyFromUtf8(payloadQualifier) }
+                            }
+                        }
+                    }
+                }
+            }
+        };
     }
 
 }

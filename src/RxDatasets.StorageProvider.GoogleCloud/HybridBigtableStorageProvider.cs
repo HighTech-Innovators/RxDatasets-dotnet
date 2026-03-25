@@ -276,7 +276,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
 
         try
         {
-            await _rowStore.GetArtifact(GetDatasetPrefix(), ObjectNameTypeEnum.Delta, deltaVersion);
+            await _rowStore.GetArtifact(GetDatasetPrefix(), ObjectNameTypeEnum.Delta, deltaVersion, ArtifactReadScope.Meta);
         }
         catch
         {
@@ -358,7 +358,7 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
     private async Task DeleteArtifact(ulong version, ObjectNameTypeEnum type)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await _rowStore.GetArtifact(GetDatasetPrefix(), type, version);
+        var artifact = await _rowStore.GetArtifact(GetDatasetPrefix(), type, version, ArtifactReadScope.Meta);
         if (artifact != null)
         {
             await DeleteFallbackObject(artifact.IndexFallbackObjectKey);

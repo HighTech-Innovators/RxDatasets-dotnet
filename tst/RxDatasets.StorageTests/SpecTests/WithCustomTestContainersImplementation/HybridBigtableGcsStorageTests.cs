@@ -120,6 +120,9 @@ public class HybridBigtableGcsStorageTests
         }
 
         public Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
+            => GetArtifact(datasetPrefix, type, version, ArtifactReadScope.All, cancellationToken);
+
+        public Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, ArtifactReadScope scope, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(_artifacts.TryGetValue((datasetPrefix, type, version), out var artifact) ? artifact : null);
         }
@@ -143,11 +146,17 @@ public class HybridBigtableGcsStorageTests
             return Task.FromResult(result);
         }
 
+        public IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
+            string datasetPrefix, ObjectNameTypeEnum type, ulong fromVersionExclusive, ulong toVersionInclusive,
+            CancellationToken cancellationToken = default)
+            => GetArtifactRange(datasetPrefix, type, fromVersionExclusive, toVersionInclusive, ArtifactReadScope.All, cancellationToken);
+
         public async IAsyncEnumerable<HybridArtifactRecord> GetArtifactRange(
             string datasetPrefix,
             ObjectNameTypeEnum type,
             ulong fromVersionExclusive,
             ulong toVersionInclusive,
+            ArtifactReadScope scope,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             foreach (var kvp in _artifacts

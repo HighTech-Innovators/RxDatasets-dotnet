@@ -19,21 +19,8 @@ public class HybridBigtableStorageReader<T>(
     private readonly string _datasetPrefix = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value);
     private bool Log => storageConfig.Value.LogStorageAccess;
 
-    // Avoid re-fetching the same artifact row multiple times during init
-    // (e.g. ReadSnapshotIndex + GetSnapshotDataContentLength + ReadSnapshotData for the same version)
-    private (ObjectNameTypeEnum Type, ulong Version, HybridArtifactRecord Record)? _lastArtifact;
-
-    private async Task<HybridArtifactRecord?> GetArtifactCached(ObjectNameTypeEnum type, ulong version, CancellationToken cancellationToken = default)
-    {
-        if (_lastArtifact is { } last && last.Type == type && last.Version == version)
-            return last.Record;
-
-        var artifact = await rowStore.GetArtifact(_datasetPrefix, type, version, cancellationToken);
-        if (artifact != null)
-            _lastArtifact = (type, version, artifact);
-
-        return artifact;
-    }
+    private Task<HybridArtifactRecord?> GetArtifact(ObjectNameTypeEnum type, ulong version, ArtifactReadScope scope)
+        => rowStore.GetArtifact(_datasetPrefix, type, version, scope);
 
     public async Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
     {
@@ -45,7 +32,7 @@ public class HybridBigtableStorageReader<T>(
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await GetArtifactCached(ObjectNameTypeEnum.Snapshot, snapshotVersion);
+        var artifact = await GetArtifact(ObjectNameTypeEnum.Snapshot, snapshotVersion, ArtifactReadScope.MetaAndData);
         if (artifact == null)
         {
             if (Log)
@@ -65,7 +52,7 @@ public class HybridBigtableStorageReader<T>(
     public async Task ReadSnapshotData(ulong snapshotVersion, Action<Stream> callback)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await GetArtifactCached(ObjectNameTypeEnum.Snapshot, snapshotVersion);
+        var artifact = await GetArtifact(ObjectNameTypeEnum.Snapshot, snapshotVersion, ArtifactReadScope.MetaAndData);
         if (artifact == null)
         {
             if (Log)
@@ -106,7 +93,7 @@ public class HybridBigtableStorageReader<T>(
     public async Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await GetArtifactCached(ObjectNameTypeEnum.Delta, version);
+        var artifact = await GetArtifact(ObjectNameTypeEnum.Delta, version, ArtifactReadScope.MetaAndIndex);
         if (artifact == null)
         {
             if (Log)
@@ -134,7 +121,7 @@ public class HybridBigtableStorageReader<T>(
         long totalBytes = 0;
 
         await foreach (var artifact in rowStore.GetArtifactRange(
-            _datasetPrefix, ObjectNameTypeEnum.Delta, fromVersionExclusive, toVersionInclusive, cancellationToken))
+            _datasetPrefix, ObjectNameTypeEnum.Delta, fromVersionExclusive, toVersionInclusive, ArtifactReadScope.MetaAndIndex, cancellationToken))
         {
             var payload = await ReadPayload(artifact, ObjectNameIndexOrDataEnum.Index);
             yielded.Add(artifact.Version);
@@ -172,7 +159,7 @@ public class HybridBigtableStorageReader<T>(
     public async Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await rowStore.GetArtifact(_datasetPrefix, ObjectNameTypeEnum.Snapshot, version);
+        var artifact = await GetArtifact(ObjectNameTypeEnum.Snapshot, version, ArtifactReadScope.MetaAndIndex);
         if (artifact == null)
         {
             if (Log)
@@ -262,7 +249,7 @@ public class HybridBigtableStorageReader<T>(
         foreach (var source in sources)
         {
             var sw = Log ? Stopwatch.StartNew() : null;
-            var artifact = await GetArtifactCached(source.type, source.version);
+            var artifact = await GetArtifact(source.type, source.version, ArtifactReadScope.MetaAndData);
             if (artifact != null)
             {
                 if (Log)
@@ -289,7 +276,7 @@ public class HybridBigtableStorageReader<T>(
     public async Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
         var sw = Log ? Stopwatch.StartNew() : null;
-        var artifact = await GetArtifactCached(ObjectNameTypeEnum.Snapshot, snapshotVersion);
+        var artifact = await GetArtifact(ObjectNameTypeEnum.Snapshot, snapshotVersion, ArtifactReadScope.Meta);
         if (artifact == null)
         {
             return await legacyReader.GetSnapshotDataContentLength(snapshotVersion);
