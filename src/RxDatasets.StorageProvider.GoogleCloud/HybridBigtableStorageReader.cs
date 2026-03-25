@@ -230,30 +230,11 @@ public class HybridBigtableStorageReader<T>(
                 deltaRows.Count, snapshotRows.Count, sw!.ElapsedMilliseconds);
         }
 
-        List<ulong> deltaVersions;
-        List<SnapshotType> snapshots;
-
-        if (deltaRows.Count > 0 || snapshotRows.Count > 0)
-        {
-            // Bigtable has data — no need to consult the legacy GCS path.
-            deltaVersions = deltaRows.Select(r => r.Version).Order().ToList();
-            snapshots = snapshotRows
-                .Select(r => new SnapshotType(r.Version, r.CreatedAt))
-                .OrderBy(s => s.Version)
-                .ToList();
-        }
-        else
-        {
-            // Nothing in Bigtable — fall back to legacy GCS reader for unmigrated datasets.
-            var legacyVersions = await TryListLegacyVersions();
-
-            deltaVersions = Enumerable.Range(0, legacyVersions.NewestDelta >= legacyVersions.OldestDelta && legacyVersions.NewestDelta > 0
-                        ? checked((int)(legacyVersions.NewestDelta - legacyVersions.OldestDelta + 1))
-                        : 0)
-                    .Select(i => legacyVersions.OldestDelta + (ulong)i)
-                    .ToList();
-            snapshots = legacyVersions.Snapshots;
-        }
+        var deltaVersions = deltaRows.Select(r => r.Version).Order().ToList();
+        var snapshots = snapshotRows
+            .Select(r => new SnapshotType(r.Version, r.CreatedAt))
+            .OrderBy(s => s.Version)
+            .ToList();
 
         return (
             deltaVersions.Count == 0 ? 0ul : deltaVersions.First(),
@@ -315,18 +296,6 @@ public class HybridBigtableStorageReader<T>(
             logger.LogInformation("Read Snapshot v{Version} content length ({Length} bytes) from Bigtable in {ElapsedMs}ms", snapshotVersion, artifact.DataLength, sw!.ElapsedMilliseconds);
         }
         return artifact.DataLength;
-    }
-
-    private async Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> TryListLegacyVersions()
-    {
-        try
-        {
-            return await legacyReader.ListVersions();
-        }
-        catch (FileNotFoundException)
-        {
-            return (0ul, 0ul, []);
-        }
     }
 
     private async Task<ReadOnlyMemory<byte>> ReadPayload(HybridArtifactRecord artifact, ObjectNameIndexOrDataEnum payloadType)
