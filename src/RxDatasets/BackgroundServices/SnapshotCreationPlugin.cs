@@ -161,32 +161,73 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
+        // Separate deleted entities (no data to read) from live entities
+        var liveEntities = new List<KeyValuePair<string, ImmutableSnapshotEntity>>();
         foreach (var entity in currentIndex.Entities.Where(x =>
                      x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
-            stoppingToken.ThrowIfCancellationRequested();
-
             if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
-                var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Add(entity.Key, entity.Value with { Position = 0, Length = 0 });
             }
             else
             {
-                var entityLength = entity.Value.Length;
-
-                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                var targetEntityPosition = targetSnapshotStreamPosition;
-
-                var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
-
-                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
-                targetSnapshotStreamPosition += entityLength;
-
-                var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                liveEntities.Add(entity);
             }
+        }
+
+        if (liveEntities.Count == 0)
+            return targetSnapshotStreamPosition;
+
+        // Group entities by their source delta version to avoid fetching the same delta multiple times
+        var entitiesByDelta = liveEntities
+            .GroupBy(e => e.Value.GetLatestEntityVersion())
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Pre-fetch all unique delta data blobs in parallel (limited concurrency)
+        var deltaDataBlobs = new Dictionary<ulong, ReadOnlyMemory<byte>>();
+        using var throttle = new SemaphoreSlim(10);
+        var fetchTasks = entitiesByDelta.Keys.Select(async deltaVersion =>
+        {
+            await throttle.WaitAsync(stoppingToken);
+            try
+            {
+                // Use ReadSnapshotData-style full blob read via ReadDataFromSources with position=0
+                // and the full delta data length. We need to find the max extent for this delta.
+                var maxExtent = entitiesByDelta[deltaVersion]
+                    .Max(e => e.Value.Position + e.Value.Length);
+                var blob = await _storageProvider.ReadDataFromSources(
+                    [(ObjectNameTypeEnum.Delta, deltaVersion, 0)], (int)maxExtent);
+                lock (deltaDataBlobs)
+                {
+                    deltaDataBlobs[deltaVersion] = blob;
+                }
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        }).ToList();
+
+        await Task.WhenAll(fetchTasks);
+
+        // Write entities to the snapshot stream from pre-fetched blobs
+        foreach (var entity in liveEntities)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+
+            var entityLength = entity.Value.Length;
+            targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+            var targetEntityPosition = targetSnapshotStreamPosition;
+
+            var deltaVersion = entity.Value.GetLatestEntityVersion();
+            var deltaBlob = deltaDataBlobs[deltaVersion];
+            var entityBytes = deltaBlob.Slice((int)entity.Value.Position, entityLength);
+
+            await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
+            targetSnapshotStreamPosition += entityLength;
+
+            newSnapshotEntities.Add(entity.Key, entity.Value with { Position = targetEntityPosition, Length = entityLength });
         }
 
         return targetSnapshotStreamPosition;
