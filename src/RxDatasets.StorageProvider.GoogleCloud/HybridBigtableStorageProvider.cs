@@ -505,63 +505,60 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         }
     }
 
-    private (byte[] Compressed, string? Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
-    {
-        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
-            ? _storageConfig.Value.SnapshotIndexCompressionLevel
-            : _storageConfig.Value.DeltaIndexCompressionLevel;
+    private const int MinCompressionSizeBytes = 10 * 1024;
+    private const double MinCompressionReduction = 0.25;
 
-        if (qualityLevel <= 0)
-            return (index, null); // no compression
+    private (byte[] Compressed, string? Encoding) TryCompress(
+        ObjectNameTypeEnum type, ulong version, string payloadLabel, byte[] payload, int qualityLevel)
+    {
+        if (qualityLevel <= 0 || payload.Length < MinCompressionSizeBytes)
+            return (payload, null);
 
         var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
             : qualityLevel <= 1 ? CompressionLevel.Fastest
             : (CompressionLevel)qualityLevel;
 
         var sw = Log ? Stopwatch.StartNew() : null;
-        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(index, level);
+        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(payload, level);
+
+        double reduction = 1.0 - (double)compressed.Length / payload.Length;
+        if (reduction < MinCompressionReduction)
+        {
+            if (Log)
+            {
+                _logger.LogInformation(
+                    "Skipped compression for {Type} v{Version} {Label}: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0} < {MinRatio:P0} threshold) in {ElapsedMs}ms",
+                    type, version, payloadLabel, payload.Length, compressed.Length, reduction, MinCompressionReduction, sw!.ElapsedMilliseconds);
+            }
+            return (payload, null);
+        }
 
         if (Log)
         {
             _logger.LogInformation(
-                "Compressed {Type} v{Version} Index: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
-                type, version, index.Length, compressed.Length,
-                1.0 - (double)compressed.Length / index.Length,
-                sw!.ElapsedMilliseconds);
+                "Compressed {Type} v{Version} {Label}: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
+                type, version, payloadLabel, payload.Length, compressed.Length, reduction, sw!.ElapsedMilliseconds);
         }
 
         return (compressed, GoogleCloudVersionedArtifactRowStore.EncodingBrotli);
+    }
+
+    private (byte[] Compressed, string? Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
+    {
+        var qualityLevel = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotIndexCompressionLevel
+            : _storageConfig.Value.DeltaIndexCompressionLevel;
+        return TryCompress(type, version, "Index", index, qualityLevel);
     }
 
     private (byte[] Compressed, string? Encoding) CompressData(ObjectNameTypeEnum type, ulong version, byte[] data)
     {
         if (data.Length == 0)
             return (data, null);
-
         var qualityLevel = type == ObjectNameTypeEnum.Snapshot
             ? _storageConfig.Value.SnapshotDataCompressionLevel
             : _storageConfig.Value.DeltaDataCompressionLevel;
-
-        if (qualityLevel <= 0)
-            return (data, null);
-
-        var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
-            : qualityLevel <= 1 ? CompressionLevel.Fastest
-            : (CompressionLevel)qualityLevel;
-
-        var sw = Log ? Stopwatch.StartNew() : null;
-        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(data, level);
-
-        if (Log)
-        {
-            _logger.LogInformation(
-                "Compressed {Type} v{Version} Data: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
-                type, version, data.Length, compressed.Length,
-                1.0 - (double)compressed.Length / data.Length,
-                sw!.ElapsedMilliseconds);
-        }
-
-        return (compressed, GoogleCloudVersionedArtifactRowStore.EncodingBrotli);
+        return TryCompress(type, version, "Data", data, qualityLevel);
     }
 
     private async Task<byte[]> ReadAllBytes(Stream stream)
