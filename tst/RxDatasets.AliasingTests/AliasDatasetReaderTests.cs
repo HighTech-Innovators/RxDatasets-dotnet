@@ -1053,16 +1053,18 @@ public class AliasDatasetReaderTests : IAsyncLifetime
             TimeSpan.FromSeconds(30),
             "retry delay should be scheduled after failure");
 
-        // Trigger first retry
+        // Trigger first retry and yield to let the async continuation resume
         scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+        await Task.Delay(50);
 
         // Wait for the second retry delay to be scheduled
         await clock.WaitUntilAnyDelaysPending(
             TimeSpan.FromSeconds(30),
             "second retry delay should be scheduled");
 
-        // Trigger second retry
+        // Trigger second retry and yield to let the async continuation resume
         scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+        await Task.Delay(50);
 
         // Wait for the reader to recover and initialize (with timeout)
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));

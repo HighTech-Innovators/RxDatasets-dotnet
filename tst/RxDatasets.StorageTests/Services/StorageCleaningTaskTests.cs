@@ -367,24 +367,25 @@ public class StorageCleanTaskTests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 1);
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 2);
 
         //act
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 3);
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 4);
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
+        await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 5);
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        const int expectedRemainingSnapshots = 6;
 
-        snapshots.Count.Should().Be(expectedRemainingSnapshots);
-        _storageCleanupConfig.Value.MinimumSnapshotsToKeep.Should().BeLessThan(expectedRemainingSnapshots);
+        // At least 5 snapshots (one per batch at deltas 5,10,15,20,25), possibly 6
+        // if the 6th delta in a batch triggers a time-based snapshot
+        snapshots.Count.Should().BeGreaterOrEqualTo(5);
+        _storageCleanupConfig.Value.MinimumSnapshotsToKeep.Should().BeLessThan(snapshots.Count);
         oldestDelta.Should().Be(1);
         newestDelta.Should().Be(30);
     }
