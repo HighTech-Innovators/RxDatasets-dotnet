@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using Google.Api.Gax;
 using Google.Cloud.Bigtable.Admin.V2;
@@ -34,7 +35,8 @@ public sealed record HybridArtifactRecord(
     string? IndexFallbackObjectKey,
     string? DataFallbackObjectKey,
     long IndexLength,
-    long DataLength);
+    long DataLength,
+    string? IndexEncoding = null);
 
 public readonly record struct HybridArtifactSummary(ulong Version, DateTimeOffset CreatedAt);
 
@@ -75,6 +77,8 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private const string QualifierData = "data";
     private const string QualifierIndexObject = "index-object";
     private const string QualifierDataObject = "data-object";
+    private const string QualifierIndexEncoding = "index-encoding";
+    public const string EncodingBrotli = "br";
 
     private readonly BigtableClient _bigtableClient;
     private readonly BigtableTableAdminClient _tableAdminClient;
@@ -144,6 +148,10 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         if (artifact.InlineIndex != null)
         {
             AddMutation(mutations, PayloadFamily, QualifierIndex, artifact.InlineIndex);
+            if (artifact.IndexEncoding != null)
+            {
+                AddMutation(mutations, MetadataFamily, QualifierIndexEncoding, artifact.IndexEncoding);
+            }
         }
 
         if (artifact.InlineData != null)
@@ -816,16 +824,20 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         var indexLength = long.Parse(TryReadString(row, MetadataFamily, QualifierIndexLength) ?? "0", CultureInfo.InvariantCulture);
         var dataLength = long.Parse(TryReadString(row, MetadataFamily, QualifierDataLength) ?? "0", CultureInfo.InvariantCulture);
 
+        var inlineIndex = TryReadBytes(row, PayloadFamily, QualifierIndex);
+        var indexEncoding = TryReadString(row, MetadataFamily, QualifierIndexEncoding);
+
         return new HybridArtifactRecord(
             type,
             version,
             createdAt,
-            TryReadBytes(row, PayloadFamily, QualifierIndex),
+            inlineIndex,
             TryReadBytes(row, PayloadFamily, QualifierData),
             TryReadString(row, FallbackFamily, QualifierIndexObject),
             TryReadString(row, FallbackFamily, QualifierDataObject),
             indexLength,
-            dataLength);
+            dataLength,
+            indexEncoding);
     }
 
     private static string? TryReadString(Row row, string familyName, string qualifier)
@@ -891,6 +903,31 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private static string GetPrefixEnd(string prefix)
     {
         return prefix + '\uffff';
+    }
+
+    public static byte[] CompressBrotliPublic(byte[] data, CompressionLevel level = CompressionLevel.Fastest)
+        => CompressBrotli(data, level);
+
+    private static byte[] CompressBrotli(byte[] data, CompressionLevel level = CompressionLevel.Fastest)
+    {
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, level))
+        {
+            brotli.Write(data);
+        }
+        return output.ToArray();
+    }
+
+    public static byte[] DecompressBrotliPublic(byte[] data)
+        => DecompressBrotli(data);
+
+    private static byte[] DecompressBrotli(byte[] data)
+    {
+        using var input = new MemoryStream(data);
+        using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        brotli.CopyTo(output);
+        return output.ToArray();
     }
 
     private static RowFilter? BuildScopeFilter(ArtifactReadScope scope)

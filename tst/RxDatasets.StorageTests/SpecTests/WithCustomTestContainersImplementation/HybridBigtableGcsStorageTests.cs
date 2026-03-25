@@ -124,7 +124,19 @@ public class HybridBigtableGcsStorageTests
 
         public Task<HybridArtifactRecord?> GetArtifact(string datasetPrefix, ObjectNameTypeEnum type, ulong version, ArtifactReadScope scope, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(_artifacts.TryGetValue((datasetPrefix, type, version), out var artifact) ? artifact : null);
+            if (!_artifacts.TryGetValue((datasetPrefix, type, version), out var artifact))
+                return Task.FromResult<HybridArtifactRecord?>(null);
+
+            // Decompress inline index if compressed (mirrors real Bigtable read behavior)
+            if (artifact.InlineIndex != null && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            {
+                artifact = artifact with
+                {
+                    InlineIndex = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(artifact.InlineIndex)
+                };
+            }
+
+            return Task.FromResult<HybridArtifactRecord?>(artifact);
         }
 
         public Task<ulong?> GetLatestArtifactVersion(string datasetPrefix, ObjectNameTypeEnum type, CancellationToken cancellationToken = default)

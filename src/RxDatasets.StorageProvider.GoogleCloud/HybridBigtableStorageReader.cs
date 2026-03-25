@@ -310,6 +310,19 @@ public class HybridBigtableStorageReader<T>(
         {
             inlinePayload = artifact.InlineIndex;
             fallbackObjectKey = artifact.IndexFallbackObjectKey;
+
+            // Decompress if the index was stored compressed
+            if (inlinePayload != null && string.Equals(artifact.IndexEncoding, GoogleCloudVersionedArtifactRowStore.EncodingBrotli, StringComparison.Ordinal))
+            {
+                var sw = Log ? Stopwatch.StartNew() : null;
+                var compressedLen = inlinePayload.Length;
+                inlinePayload = GoogleCloudVersionedArtifactRowStore.DecompressBrotliPublic(inlinePayload);
+                if (Log)
+                {
+                    logger.LogInformation("Decompressed Index: {CompressedLen} -> {DecompressedLen} bytes in {ElapsedMs}ms",
+                        compressedLen, inlinePayload.Length, sw!.ElapsedMilliseconds);
+                }
+            }
         }
         else
         {

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -420,16 +421,24 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             }
         }
 
+        byte[]? inlineIndex = null;
+        string? indexEncoding = null;
+        if (plan.StoreIndexInline)
+        {
+            (inlineIndex, indexEncoding) = CompressIndex(type, version, index);
+        }
+
         await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
             type,
             version,
             DateTimeOffset.UtcNow,
-            plan.StoreIndexInline ? index : null,
+            inlineIndex,
             data.Length == 0 ? null : plan.StoreDataInline ? data : null,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
             index.LongLength,
-            data.LongLength));
+            data.LongLength,
+            indexEncoding));
 
         if (Log)
         {
@@ -481,22 +490,51 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
             }
         }
 
+        byte[]? inlineIndex = null;
+        string? indexEncoding = null;
+        if (plan.StoreIndexInline)
+        {
+            (inlineIndex, indexEncoding) = CompressIndex(type, version, index);
+        }
+
         await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
             type,
             version,
             DateTimeOffset.UtcNow,
-            plan.StoreIndexInline ? index : null,
+            inlineIndex,
             inlineData,
             indexFallbackObjectKey,
             dataFallbackObjectKey,
             index.LongLength,
-            data.Length));
+            data.Length,
+            indexEncoding));
 
         if (Log)
         {
             _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen} bytes, data: {DataLen} bytes, inline: {Inline}) to Bigtable in {ElapsedMs}ms",
                 type, version, index.Length, data.Length, plan.StoreDataInline, sw!.ElapsedMilliseconds);
         }
+    }
+
+    private (byte[] Compressed, string Encoding) CompressIndex(ObjectNameTypeEnum type, ulong version, byte[] index)
+    {
+        var level = type == ObjectNameTypeEnum.Snapshot
+            ? CompressionLevel.SmallestSize
+            : CompressionLevel.Fastest;
+
+        var sw = Log ? Stopwatch.StartNew() : null;
+        var compressed = GoogleCloudVersionedArtifactRowStore.CompressBrotliPublic(index, level);
+
+        if (Log)
+        {
+            _logger.LogInformation(
+                "Compressed {Type} v{Version} Index: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
+                type, version, index.Length, compressed.Length,
+                1.0 - (double)compressed.Length / index.Length,
+                sw!.ElapsedMilliseconds);
+        }
+
+        return (compressed, "br");
     }
 
     private async Task<byte[]> ReadAllBytes(Stream stream)
