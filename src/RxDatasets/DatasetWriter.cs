@@ -699,6 +699,26 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<IDatasetWriter<T>.WriteResponse> EnqueueAndAwait(WriteIntent intent)
     {
+        // Fast path: no write in progress — execute directly, skip queue/TCS overhead
+        if (await _semaphore.WaitAsync(0).ConfigureAwait(false))
+        {
+            try
+            {
+                var (mergedChanges, perIntentResponses) = MergeIntents([intent], _index!);
+                if (mergedChanges.Length == 0)
+                    return perIntentResponses[0] with { NewDatasetVersion = _index!.LatestVersion };
+
+                var delta = new Delta(mergedChanges, _index!.LatestVersion + 1);
+                await ApplyDelta(delta);
+                return perIntentResponses[0] with { NewDatasetVersion = _index!.LatestVersion };
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+
+        // Slow path: another write holds the semaphore — enqueue for coalescing
         _pendingWrites.Enqueue(intent);
 
         if (Interlocked.CompareExchange(ref _batchInProgress, 1, 0) == 0)
@@ -713,31 +733,36 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         while (true)
         {
-            var batch = new List<WriteIntent>();
-            while (_pendingWrites.TryDequeue(out var intent))
-            {
-                if (intent.CancellationToken.IsCancellationRequested)
-                {
-                    intent.Completion.TrySetCanceled(intent.CancellationToken);
-                    continue;
-                }
-                batch.Add(intent);
-            }
-
-            if (batch.Count == 0)
+            // Quick exit check before acquiring the semaphore
+            if (_pendingWrites.IsEmpty)
             {
                 Interlocked.Exchange(ref _batchInProgress, 0);
 
-                // Double-check: items may have been enqueued after drain but before we released leader
+                // Double-check: items may have been enqueued after our check but before we released leader
                 if (!_pendingWrites.IsEmpty && Interlocked.CompareExchange(ref _batchInProgress, 1, 0) == 0)
                     continue;
 
                 return;
             }
 
+            // Acquire the semaphore first, THEN drain — this captures everything
+            // that arrived while we were waiting for the current write to finish.
             await _semaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+            var batch = new List<WriteIntent>();
             try
             {
+                while (_pendingWrites.TryDequeue(out var intent))
+                {
+                    if (intent.CancellationToken.IsCancellationRequested)
+                    {
+                        intent.Completion.TrySetCanceled(intent.CancellationToken);
+                        continue;
+                    }
+                    batch.Add(intent);
+                }
+
+                if (batch.Count == 0)
+                    continue;
                 var (mergedChanges, perIntentResponses) = MergeIntents(batch, _index!);
 
                 if (mergedChanges.Length == 0)
@@ -754,7 +779,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 await ApplyDelta(delta);
 
                 var version = _index!.LatestVersion;
-                _logger.LogInformation("Coalesced {Count} write intents into single delta; version {Version}", batch.Count, version);
+                if (batch.Count > 1)
+                    _logger.LogInformation("Coalesced {Count} write intents into single delta; version {Version}", batch.Count, version);
 
                 for (int i = 0; i < batch.Count; i++)
                 {
