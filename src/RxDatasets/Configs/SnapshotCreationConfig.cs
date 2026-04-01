@@ -13,4 +13,7 @@ public class SnapshotCreationConfig
     public virtual TimeSpan PeriodIntervalAsTimespan => TimeSpan.FromHours(PeriodInHours);
 
     public virtual ulong SnapshotInterval { get; set; } = 100;
+
+    public int StartupDelaySeconds { get; set; } = 0;
+    public virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(StartupDelaySeconds);
 }

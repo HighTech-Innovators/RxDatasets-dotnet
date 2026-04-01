@@ -38,6 +38,14 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
         _logger.LogInformation($"DatasetUpdateConsumingService<{_datasetUpdateConsumer.ConsumerIdentifier}> Started");
         try
         {
+            var startupDelay = _datasetUpdateConsumer.StartupDelay;
+            if (startupDelay > TimeSpan.Zero)
+            {
+                _logger.LogDebug("DatasetUpdateConsumingService<{Consumer}> delaying startup by {Delay}s",
+                    _datasetUpdateConsumer.ConsumerIdentifier, startupDelay.TotalSeconds);
+                await Task.Delay(startupDelay, stoppingToken);
+            }
+
             // Start the loop before subscribing - especially important for UNIT TEST scenarios
             // where the subscription is Sync, and the message we immediately get there must be handled before the subscription is 'done'.
             var workAndWaitLoop = WorkAndWaitLoop(stoppingToken);

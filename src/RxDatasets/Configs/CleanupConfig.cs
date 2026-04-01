@@ -16,6 +16,9 @@ public class CleanupConfig
     public bool KeepAllDeltas { get; set; } = true;
     public bool IsEnabled { get; set; } = true;
 
+    public int StartupDelaySeconds { get; set; } = 0;
+    public virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(StartupDelaySeconds);
+
 
     public virtual TimeSpan GetMinimumAgeToLiveInMinutes()
     {

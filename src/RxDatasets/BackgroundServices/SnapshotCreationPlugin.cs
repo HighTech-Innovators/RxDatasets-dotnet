@@ -36,6 +36,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
     public string ConsumerIdentifier { get; } = $"SnapshotCreationPlugin-of-{typeof(T)}";
 
+    public TimeSpan StartupDelay => _config.Value.StartupDelay;
+
     private async Task CreateSnapshotIfNecessary(CancellationToken stoppingToken)
     {
         using var slot = await Lock(stoppingToken);

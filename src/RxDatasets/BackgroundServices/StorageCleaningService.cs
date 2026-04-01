@@ -116,9 +116,21 @@ namespace RxDatasets.BackgroundServices
                     .Subscribe<VersionProcessedNotification>(_ => SearchForOutdatedData());
             }
 
-            _ = SearchForOutdatedData();
+            _ = InitialSearchWithDelayAsync(config.Value.StartupDelay, cancellationToken);
             logger.LogInformation(typeof(T).Name + " cleaning schedule started");
             return Task.CompletedTask;
+        }
+
+        private async Task InitialSearchWithDelayAsync(TimeSpan startupDelay, CancellationToken cancellationToken)
+        {
+            if (startupDelay > TimeSpan.Zero)
+            {
+                logger.LogDebug("{Type} cleanup service delaying initial search by {Delay}s",
+                    typeof(T).Name, startupDelay.TotalSeconds);
+                await Task.Delay(startupDelay, cancellationToken);
+            }
+            if (!cancellationToken.IsCancellationRequested)
+                await SearchForOutdatedData();
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
