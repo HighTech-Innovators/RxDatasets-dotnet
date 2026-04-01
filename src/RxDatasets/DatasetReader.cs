@@ -389,7 +389,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private async Task<HealthCheckResult> GetHealthCheckResult()
     {
         if (!_initializationTask!.IsCompletedSuccessfully)
-            return HealthCheckResult.Unhealthy("DatasetReader: Initialization task is not completed");
+        {
+            // Give initialization a short grace period before reporting unhealthy
+            await Task.WhenAny(_initializationTask, Task.Delay(TimeSpan.FromSeconds(10)));
+            if (!_initializationTask.IsCompletedSuccessfully)
+                return HealthCheckResult.Degraded("DatasetReader: Still initializing");
+        }
 
         try
         {

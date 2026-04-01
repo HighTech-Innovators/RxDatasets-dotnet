@@ -671,7 +671,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private async Task<HealthCheckResult> GetHealthCheckResult()
     {
         if (!InitializationTask!.IsCompletedSuccessfully)
-            return HealthCheckResult.Unhealthy("DatasetWriter: Initialization task is not completed");
+        {
+            // Give initialization a short grace period before reporting unhealthy
+            await Task.WhenAny(InitializationTask, Task.Delay(TimeSpan.FromSeconds(10)));
+            if (!InitializationTask.IsCompletedSuccessfully)
+                return HealthCheckResult.Degraded("DatasetWriter: Still initializing");
+        }
 
         try
         {
