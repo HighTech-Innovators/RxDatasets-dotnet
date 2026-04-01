@@ -258,7 +258,7 @@ namespace RxDatasets.BackgroundServices
                 var renewed = await lockProvider.RenewLockAsync(_lockName, _lockToken!, _renewalInterval, CancellationToken.None);
                 if (renewed)
                 {
-                    logger.LogInformation("Lock renewed.");
+                    logger.LogDebug("Lock renewed.");
                     _lastRenewalTime = _clock.UtcNow;
                 }
                 else

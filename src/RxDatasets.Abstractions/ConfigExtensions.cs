@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace RxDatasets.Abstractions
@@ -39,17 +40,12 @@ namespace RxDatasets.Abstractions
                 configuration.GetSection(key).Bind(options);
                 if (LoggedConfigKeys.Contains(key))
                     return;
-                var configSection = configuration.GetSection(key).GetChildren();
-                foreach (var child in configSection)
-                {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.Write("info: ");
-
-                    // Reset the color to the default
-                    Console.ResetColor();
-                    Console.WriteLine($"{typeof(TConfig).Namespace}.{typeof(TConfig).Name} \n      Key: {key}__{child.Key}, Value: {child.Value}");
-                }
-
+                var values = configuration.GetSection(key).GetChildren()
+                    .ToDictionary(c => $"{key}__{c.Key}", c => c.Value);
+                var logger = services.BuildServiceProvider()
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger($"{typeof(TConfig).Namespace}.{typeof(TConfig).Name}");
+                logger.LogInformation("Configuration: {Config}", values);
                 LoggedConfigKeys.Add(key);
             });
 
