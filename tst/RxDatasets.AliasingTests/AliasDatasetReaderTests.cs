@@ -104,11 +104,11 @@ public class AliasDatasetReaderTests : IAsyncLifetime
     /// </summary>
     private async Task<ulong> PutManyEntities(params TestEntity[] entities)
     {
-        async IAsyncEnumerable<(string name, byte[] entityBytes)> GetEntities()
+        async IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> GetEntities()
         {
             foreach (var entity in entities)
             {
-                yield return (entity.Id, entity.ToByteArray());
+                yield return (entity.Id, entity.ToByteArray(), null, null);
             }
         }
 

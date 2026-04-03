@@ -7,9 +7,9 @@ public interface IDatasetUpdateReporting<T>
     Task CommitDeltaTransaction(object state) => Task.CompletedTask;
     Task RollBackDeltaTransaction(object state) => Task.CompletedTask;
 
-    Task OnNewDto(string name, byte[] newProtoBytes, object? optionalTransaction);
-    Task OnChangedDto(string name, byte[] newProtoBytes, object? optionalTransaction);
-    Task OnDeletedDto(string name, object? optionalTransaction);
+    Task OnNewDto(string name, byte[] newProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? optionalTransaction);
+    Task OnChangedDto(string name, byte[] newProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? optionalTransaction);
+    Task OnDeletedDto(string name, string? trackingId, DateTimeOffset? slaTimestamp, object? optionalTransaction);
 
     string ReportingIdentifier { get; }
 }

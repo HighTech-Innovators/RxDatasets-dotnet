@@ -94,7 +94,7 @@ try
             try
             {
                 var bytes = System.Text.Encoding.UTF8.GetBytes(item.ToString());
-                var response = await writer.Put(item.Name, bytes, ct);
+                var response = await writer.Put(item.Name, bytes, ct: ct);
                 if (response.NumAddedEntities > 0 || response.NumUpdatedEntities > 0)
                 {
                     Interlocked.Increment(ref effectiveWrites);

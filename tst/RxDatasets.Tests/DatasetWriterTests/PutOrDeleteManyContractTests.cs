@@ -26,14 +26,14 @@ public class PutOrDeleteManyContractTests
         var originalData = GenerateTestData(1);
 
         // First put the entity
-        await _writer.Put(entityName, originalData);
+        await _writer.Put(entityName, originalData, null, null);
         var initialVersion = await _dataset.GetLatestVersion();
 
         // Act: Delete then put the same entity with identical data in one batch
-        var operations = new List<(string name, byte[]? entityBytes)>
+        var operations = new List<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)>
         {
-            (entityName, null), // delete
-            (entityName, originalData) // put back identical data
+            (entityName, null, null, null), // delete
+            (entityName, originalData, null, null) // put back identical data
         };
 
         var response = await _writer.PutOrDeleteMany(operations.ToAsyncEnumerable());
@@ -64,14 +64,14 @@ public class PutOrDeleteManyContractTests
         var modifiedData = GenerateTestData(2);
 
         // First put the entity
-        await _writer.Put(entityName, originalData);
+        await _writer.Put(entityName, originalData, null, null);
         var initialVersion = await _dataset.GetLatestVersion();
 
         // Act: Delete then put the same entity with different data in one batch
-        var operations = new List<(string name, byte[]? entityBytes)>
+        var operations = new List<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)>
         {
-            (entityName, null), // delete
-            (entityName, modifiedData) // put back different data
+            (entityName, null, null, null), // delete
+            (entityName, modifiedData, null, null) // put back different data
         };
 
         var response = await _writer.PutOrDeleteMany(operations.ToAsyncEnumerable());
@@ -100,15 +100,15 @@ public class PutOrDeleteManyContractTests
         var tempData2 = GenerateTestData(3);
 
         // First put the entity
-        await _writer.Put(entityName, originalData);
+        await _writer.Put(entityName, originalData, null, null);
         var initialVersion = await _dataset.GetLatestVersion();
 
         // Act: Multiple operations ending with original data
-        var operations = new List<(string name, byte[]? entityBytes)>
+        var operations = new List<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)>
         {
-            (entityName, tempData1), // put different data
-            (entityName, tempData2), // put more different data
-            (entityName, originalData) // put back original data
+            (entityName, tempData1, null, null), // put different data
+            (entityName, tempData2, null, null), // put more different data
+            (entityName, originalData, null, null) // put back original data
         };
 
         var response = await _writer.PutOrDeleteMany(operations.ToAsyncEnumerable());
@@ -128,3 +128,5 @@ public class PutOrDeleteManyContractTests
         retrievedEntity!.Value.entityBytes.ToArray().Should().BeEquivalentTo(originalData, "Entity data should be back to original");
     }
 }
+
+

@@ -142,7 +142,7 @@ public class WriteCoalescingTests
             Task.Run(async () =>
             {
                 var entities = Enumerable.Range(0, 3)
-                    .Select(i => ($"batch{batchId}/entity_{i}", TestData(batchId * 100 + i)));
+                    .Select(i => ($"batch{batchId}/entity_{i}", (byte[]?)TestData(batchId * 100 + i), (string?)null, (DateTimeOffset?)null));
                 return await writer.PutMany(entities.ToAsyncEnumerable());
             })).ToArray();
 
@@ -222,7 +222,7 @@ public class WriteCoalescingTests
         var putAllTask = Task.Run(async () =>
         {
             var entities = Enumerable.Range(10, 3)
-                .Select(i => ($"entity_{i}", TestData(i)));
+                .Select(i => ($"entity_{i}", (byte[]?)TestData(i), (string?)null, (DateTimeOffset?)null));
             return await writer.PutAll(entities.ToAsyncEnumerable());
         });
 
@@ -298,7 +298,7 @@ public class WriteCoalescingTests
         {
             barrier.SignalAndWait();
             var names = new[] { "entity_0", "entity_1", "entity_2" };
-            return await writer.DeleteMany(names.ToAsyncEnumerable());
+            return await writer.DeleteMany(names.Select(n => (n, (string?)null, (DateTimeOffset?)null)).ToAsyncEnumerable());
         });
         var putTask = Task.Run(async () =>
         {
@@ -336,10 +336,10 @@ public class WriteCoalescingTests
         var mixedTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            var operations = new (string name, byte[]? entityBytes)[]
+            var operations = new (string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)[]
             {
-                ("new_via_mixed", TestData(10)),
-                ("to_delete", null)
+                ("new_via_mixed", TestData(10), null, null),
+                ("to_delete", null, null, null)
             };
             return await writer.PutOrDeleteMany(operations.ToAsyncEnumerable());
         });
@@ -381,8 +381,8 @@ public class WriteCoalescingTests
 
         var intents = new List<DatasetWriter<object>.WriteIntent>
         {
-            new() { Operations = [("foo", dataB)], Completion = new() },
-            new() { Operations = [("foo", dataA)], Completion = new() }
+            new() { Operations = [("foo", dataB, null, null)], Completion = new() },
+            new() { Operations = [("foo", dataA, null, null)], Completion = new() }
         };
 
         var (mergedChanges, responses) = DatasetWriter<object>.MergeIntents(intents, index);
@@ -432,4 +432,6 @@ public class WriteCoalescingTests
         results[1].NumAddedEntities.Should().Be(1);
     }
 }
+
+
 
