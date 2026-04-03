@@ -144,11 +144,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
-            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null)], Completion = new(), CancellationToken = ct });
+            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
         using var slot = await Lock(ct);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
@@ -159,29 +159,29 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
         }
 
-        var delta = new Delta([(name, null, ChangeType.Deleted)], _index.LatestVersion + 1);
+        var delta = new Delta([(name, null, ChangeType.Deleted, trackingId, slaTimestamp)], _index.LatestVersion + 1);
         await ApplyDelta(delta);
 
         _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index.LatestVersion);
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<(string name, string? trackingId, DateTimeOffset? slaTimestamp)> names, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
         {
-            var materializedNames = new List<(string Name, byte[]? EntityBytes)>();
-            await foreach (var name in names.WithCancellation(ct))
-                materializedNames.Add((name, null));
+            var materializedNames = new List<(string Name, byte[]? EntityBytes, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
+            await foreach (var (name, trackingId, slaTimestamp) in names.WithCancellation(ct))
+                materializedNames.Add((name, null, trackingId, slaTimestamp));
             return await EnqueueAndAwait(new WriteIntent { Operations = materializedNames.ToArray(), Completion = new(), CancellationToken = ct });
         }
 
         using var slot = await Lock(ct);
 
-        var deletedNames = new List<string>(_index!.Entities.Count);
+        var deletedNames = new List<(string Name, string? TrackingId, DateTimeOffset? SlaTimestamp)>(_index!.Entities.Count);
 
-        await foreach (var name in names.WithCancellation(ct))
+        await foreach (var (name, trackingId, slaTimestamp) in names.WithCancellation(ct))
         {
             if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
                 existingEntity.GetLatestChangeType() == ChangeType.Deleted)
@@ -189,7 +189,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 continue;
             }
 
-            deletedNames.Add(name);
+            deletedNames.Add((name, trackingId, slaTimestamp));
         }
 
         if (!deletedNames.Any())
@@ -200,7 +200,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
         }
 
-        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+        var deleteChanges = deletedNames.Select(nm => (nm.Name, (byte[]?)null, ChangeType.Deleted, nm.TrackingId, nm.SlaTimestamp)).ToArray();
 
         var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
         await ApplyDelta(delta);
@@ -209,7 +209,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
     {
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -218,7 +218,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
-            return await EnqueueAndAwait(new WriteIntent { DeleteChildrenAncestor = prefix, Completion = new(), CancellationToken = ct });
+            return await EnqueueAndAwait(new WriteIntent { DeleteChildrenAncestor = prefix, TrackingId = trackingId, SlaTimestamp = slaTimestamp, Completion = new(), CancellationToken = ct });
 
         using var slot = await Lock(ct);
 
@@ -243,7 +243,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
         }
 
-        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+        var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted, trackingId, slaTimestamp)).ToArray();
 
         var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
         await ApplyDelta(delta);
@@ -267,21 +267,21 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"Validation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         EnsureNameIsValid(name);
         if (_writerConfig.Value.EnableWriteCoalescing)
-            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, entityBytes)], Completion = new(), CancellationToken = ct });
+            return await EnqueueAndAwait(new WriteIntent { Operations = [(name, entityBytes, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
         using var slot = await Lock(ct);
         Delta delta;
 
         if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
-            delta = new Delta([(name, entityBytes, ChangeType.New)], _index.LatestVersion + 1);
+            delta = new Delta([(name, entityBytes, ChangeType.New, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else if (await IsByteArrayUpdated(name, entityBytes))
-            delta = new Delta([(name, entityBytes, ChangeType.Changed)], _index.LatestVersion + 1);
+            delta = new Delta([(name, entityBytes, ChangeType.Changed, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else
             return new IDatasetWriter<T>.WriteResponse()
@@ -295,39 +295,39 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: true, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes, e.trackingId, e.slaTimestamp)), includeParents: false, performImplicitDeletes: true, ct);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
-        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: true, performImplicitDeletes: true, ct);
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
+        => await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes, e.trackingId, e.slaTimestamp)), includeParents: true, performImplicitDeletes: true, ct);
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
         {
-            var materialized = new List<(string Name, byte[]? EntityBytes)>();
-            await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+            var materialized = new List<(string Name, byte[]? EntityBytes, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
+            await foreach (var (name, entityBytes, trackingId, slaTimestamp) in entities.WithCancellation(ct))
             {
                 EnsureNameIsValid(name);
-                materialized.Add((name, entityBytes));
+                materialized.Add((name, entityBytes, trackingId, slaTimestamp));
             }
             return await EnqueueAndAwait(new WriteIntent { Operations = materialized.ToArray(), Completion = new(), CancellationToken = ct });
         }
-        return await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes)), includeParents: false, performImplicitDeletes: false, ct);
+        return await PutEntitiesAsync(entities.Select(e => (e.name, (byte[]?)e.entityBytes, e.trackingId, e.slaTimestamp)), includeParents: false, performImplicitDeletes: false, ct);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> changes, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
         {
-            var materialized = new List<(string Name, byte[]? EntityBytes)>();
-            await foreach (var (name, entityBytes) in changes.WithCancellation(ct))
+            var materialized = new List<(string Name, byte[]? EntityBytes, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
+            await foreach (var (name, entityBytes, trackingId, slaTimestamp) in changes.WithCancellation(ct))
             {
                 if (entityBytes != null)
                     EnsureNameIsValid(name);
-                materialized.Add((name, entityBytes));
+                materialized.Add((name, entityBytes, trackingId, slaTimestamp));
             }
             return await EnqueueAndAwait(new WriteIntent { Operations = materialized.ToArray(), Completion = new(), CancellationToken = ct });
         }
@@ -335,7 +335,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     }
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
-        IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
+        IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities,
         bool includeParents,
         bool performImplicitDeletes,
         CancellationToken ct)
@@ -409,7 +409,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<(DeltaIndex deltaIndex, HashSet<string> receivedNames, HashSet<string> allParents)> CreateDeltaIndexFromAsyncEnumerable(
         ImmutableDatasetState index,
-        IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
+        IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities,
         bool includeParents,
         Stream stream,
         CancellationToken ct)
@@ -420,9 +420,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         // Track final state per entity - last operation wins
         var entityFinalStates = new Dictionary<string, (uint crc32, long position, int length)?>();
+        var entityMetadata = new Dictionary<string, (string? trackingId, DateTimeOffset? slaTimestamp)>();
         long byteArrayPosition = 0;
 
-        await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+        await foreach (var (name, entityBytes, trackingId, slaTimestamp) in entities.WithCancellation(ct))
         {
             try
             {
@@ -432,6 +433,19 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             {
                 _logger.LogWarning(ex, "Skipping entity");
                 continue;
+            }
+
+            if (!entityMetadata.TryGetValue(name, out var currentMeta)) {
+                entityMetadata[name] = (trackingId, slaTimestamp);
+            } else {
+                var currentSla = currentMeta.slaTimestamp;
+                if (slaTimestamp.HasValue) {
+                    if (!currentSla.HasValue || slaTimestamp.Value < currentSla.Value) {
+                        entityMetadata[name] = (trackingId, slaTimestamp);
+                    }
+                } else if (!currentSla.HasValue && currentMeta.trackingId == null) {
+                     entityMetadata[name] = (trackingId, null);
+                }
             }
 
             if (includeParents)
@@ -480,7 +494,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 // Final state is delete
                 if (hasExistingEntity && !existingIsDeleted)
                 {
-                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = previousVersion });
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = previousVersion, TrackingId = entityMetadata[name].trackingId ?? "", SlaTimestamp = entityMetadata[name].slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(entityMetadata[name].slaTimestamp!.Value) : null });
                 }
                 continue;
             }
@@ -514,7 +528,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 Length = length,
                 Name = name,
                 Crc32 = finalCrc,
-                PreviousVersion = previousVersion
+                PreviousVersion = previousVersion,
+                TrackingId = entityMetadata[name].trackingId ?? "",
+                SlaTimestamp = entityMetadata[name].slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(entityMetadata[name].slaTimestamp!.Value) : null
             };
 
             if (changeType == ChangeType.New)
@@ -599,7 +615,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await using var concatenatedByteStream = new MemoryStream();
         long targetPosition = 0;
 
-        foreach (var (name, entityBytes, change, crc32) in delta.Changes)
+        foreach (var (name, entityBytes, change, crc32, trackingId, slaTimestamp) in delta.Changes)
         {
             ulong previousVersion = 0;
             if (_index!.Entities.TryGetValue(name, out var existingEntity))
@@ -618,7 +634,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Length = entityBytes.Length,
                         Name = name,
                         Crc32 = crc32,
-                        PreviousVersion = previousVersion
+                        PreviousVersion = previousVersion,
+                        TrackingId = trackingId ?? "",
+                        SlaTimestamp = slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(slaTimestamp.Value) : null
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
@@ -632,7 +650,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         Length = entityBytes.Length,
                         Name = name,
                         Crc32 = crc32,
-                        PreviousVersion = previousVersion
+                        PreviousVersion = previousVersion,
+                        TrackingId = trackingId ?? "",
+                        SlaTimestamp = slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(slaTimestamp.Value) : null
                     });
                     concatenatedByteStream.Write(entityBytes);
                     targetPosition += entityBytes.Length;
@@ -641,7 +661,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     deltaIndex.DeletedEntities.Add(new DeletedEntity
                     {
                         Name = name,
-                        PreviousVersion = previousVersion
+                        PreviousVersion = previousVersion,
+                        TrackingId = trackingId ?? "",
+                        SlaTimestamp = slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(slaTimestamp.Value) : null
                     });
                     break;
             }
@@ -805,15 +827,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     }
 
     internal static (
-        (string Name, byte[]? Entity, ChangeType Change)[] MergedChanges,
+        (string Name, byte[]? Entity, ChangeType Change, string? TrackingId, DateTimeOffset? SlaTimestamp)[] MergedChanges,
         IDatasetWriter<T>.WriteResponse[] PerIntentResponses
     ) MergeIntents(List<WriteIntent> intents, ImmutableDatasetState index)
     {
         var responses = new IDatasetWriter<T>.WriteResponse[intents.Count];
 
         // Virtual state tracks entities modified by intents processed so far.
-        // Value: (Bytes, Crc32, Exists) — null entry means deleted in virtual state
-        var virtualState = new Dictionary<string, (byte[]? Bytes, uint Crc32, bool Exists)>();
+        // Value: (Bytes, Crc32, Exists, TrackingId, SlaTimestamp) — null entry means deleted in virtual state
+        var virtualState = new Dictionary<string, (byte[]? Bytes, uint Crc32, bool Exists, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
 
         for (int i = 0; i < intents.Count; i++)
         {
@@ -837,18 +859,18 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         if (vs.Exists)
                         {
                             deleted++;
-                            virtualState[name] = (null, 0, false);
+                            virtualState[name] = (null, 0, false, UpdateTrackingId(vs.TrackingId, vs.SlaTimestamp, intent.TrackingId, intent.SlaTimestamp), UpdateSlaTimestamp(vs.SlaTimestamp, intent.SlaTimestamp));
                         }
                     }
                     else if (entity.GetLatestChangeType() != ChangeType.Deleted)
                     {
                         deleted++;
-                        virtualState[name] = (null, 0, false);
+                        virtualState[name] = (null, 0, false, intent.TrackingId, intent.SlaTimestamp);
                     }
                 }
 
                 // Also check entities that were added by prior intents but don't exist in the real index
-                foreach (var (name, vs) in virtualState)
+                foreach (var (name, vs) in virtualState.ToList())
                 {
                     if (!name.StartsWith(prefix, StringComparison.Ordinal))
                         continue;
@@ -858,30 +880,41 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         continue; // Already handled above
 
                     deleted++;
-                    virtualState[name] = (null, 0, false);
+                    virtualState[name] = (null, 0, false, UpdateTrackingId(vs.TrackingId, vs.SlaTimestamp, intent.TrackingId, intent.SlaTimestamp), UpdateSlaTimestamp(vs.SlaTimestamp, intent.SlaTimestamp));
                 }
             }
             else if (intent.Operations != null)
             {
-                // Last-write-wins within a single intent: compute final state per entity first,
-                // then compare against the virtual index state from before this intent.
-                // This matches the original PutOrDeleteMany behavior where delete+put of same
-                // data correctly reports "no change".
-                var intentFinalStates = new Dictionary<string, (byte[]? Bytes, uint Crc32)>();
-                foreach (var (name, entityBytes) in intent.Operations)
+                var intentFinalStates = new Dictionary<string, (byte[]? Bytes, uint Crc32, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
+                foreach (var (name, entityBytes, trackingId, slaTimestamp) in intent.Operations)
                 {
                     if (entityBytes == null)
                     {
-                        intentFinalStates[name] = (null, 0);
+                        if (!intentFinalStates.TryGetValue(name, out var currentState))
+                        {
+                            intentFinalStates[name] = (null, 0, trackingId, slaTimestamp);
+                        }
+                        else
+                        {
+                            intentFinalStates[name] = (null, 0, UpdateTrackingId(currentState.TrackingId, currentState.SlaTimestamp, trackingId, slaTimestamp), UpdateSlaTimestamp(currentState.SlaTimestamp, slaTimestamp));
+                        }
                     }
                     else
                     {
-                        intentFinalStates[name] = (entityBytes, DatasetHelper.ComputeCrc32(entityBytes));
+                        var crc = DatasetHelper.ComputeCrc32(entityBytes);
+                        if (!intentFinalStates.TryGetValue(name, out var currentState))
+                        {
+                            intentFinalStates[name] = (entityBytes, crc, trackingId, slaTimestamp);
+                        }
+                        else
+                        {
+                            intentFinalStates[name] = (entityBytes, crc, UpdateTrackingId(currentState.TrackingId, currentState.SlaTimestamp, trackingId, slaTimestamp), UpdateSlaTimestamp(currentState.SlaTimestamp, slaTimestamp));
+                        }
                     }
                 }
 
                 // Now compare each entity's final state against the virtual index
-                foreach (var (name, (finalBytes, finalCrc)) in intentFinalStates)
+                foreach (var (name, (finalBytes, finalCrc, finalTrackingId, finalSlaTimestamp)) in intentFinalStates)
                 {
                     bool currentlyExists;
                     uint currentCrc32;
@@ -909,26 +942,31 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         if (currentlyExists)
                         {
                             deleted++;
-                            virtualState[name] = (null, 0, false);
+                            var newTrackingId = vs.Exists ? UpdateTrackingId(vs.TrackingId, vs.SlaTimestamp, finalTrackingId, finalSlaTimestamp) : finalTrackingId;
+                            var newSla = vs.Exists ? UpdateSlaTimestamp(vs.SlaTimestamp, finalSlaTimestamp) : finalSlaTimestamp;
+                            virtualState[name] = (null, 0, false, newTrackingId, newSla);
                         }
                     }
                     else
                     {
                         // Final state is put
+                        var newTrackingId = vs.Exists ? UpdateTrackingId(vs.TrackingId, vs.SlaTimestamp, finalTrackingId, finalSlaTimestamp) : finalTrackingId;
+                        var newSla = vs.Exists ? UpdateSlaTimestamp(vs.SlaTimestamp, finalSlaTimestamp) : finalSlaTimestamp;
+                        
                         if (!currentlyExists)
                         {
                             added++;
-                            virtualState[name] = (finalBytes, finalCrc, true);
+                            virtualState[name] = (finalBytes, finalCrc, true, newTrackingId, newSla);
                         }
                         else if (currentCrc32 == 0 || currentCrc32 != finalCrc)
                         {
                             changed++;
-                            virtualState[name] = (finalBytes, finalCrc, true);
+                            virtualState[name] = (finalBytes, finalCrc, true, newTrackingId, newSla);
                         }
                         else
                         {
                             // CRC match — no change, but still track in virtual state for consistency
-                            virtualState[name] = (finalBytes, finalCrc, true);
+                            virtualState[name] = (finalBytes, finalCrc, true, newTrackingId, newSla);
                         }
                     }
                 }
@@ -943,26 +981,26 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         // Diff virtual state against real index to produce merged changes for storage
-        var mergedChanges = new List<(string Name, byte[]? Entity, ChangeType Change)>();
+        var mergedChanges = new List<(string Name, byte[]? Entity, ChangeType Change, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
 
-        foreach (var (name, (bytes, crc, exists)) in virtualState)
+        foreach (var (name, (bytes, crc, exists, trackingId, slaTimestamp)) in virtualState)
         {
             bool realExists = index.Entities.TryGetValue(name, out var realEntity)
                               && realEntity.GetLatestChangeType() != ChangeType.Deleted;
 
             if (exists && !realExists)
             {
-                mergedChanges.Add((name, bytes, ChangeType.New));
+                mergedChanges.Add((name, bytes, ChangeType.New, trackingId, slaTimestamp));
             }
             else if (exists && realExists)
             {
                 var realCrc = realEntity!.Crc32;
                 if (realCrc == 0 || realCrc != crc)
-                    mergedChanges.Add((name, bytes, ChangeType.Changed));
+                    mergedChanges.Add((name, bytes, ChangeType.Changed, trackingId, slaTimestamp));
             }
             else if (!exists && realExists)
             {
-                mergedChanges.Add((name, null, ChangeType.Deleted));
+                mergedChanges.Add((name, null, ChangeType.Deleted, trackingId, slaTimestamp));
             }
             // !exists && !realExists: no-op (entity was added then deleted within the batch, net zero)
         }
@@ -970,10 +1008,26 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return (mergedChanges.ToArray(), responses);
     }
 
+    private static string? UpdateTrackingId(string? currentTrackingId, DateTimeOffset? currentSla, string? newTrackingId, DateTimeOffset? newSla)
+    {
+        if (!newSla.HasValue) return currentSla.HasValue ? currentTrackingId : (currentTrackingId ?? newTrackingId);
+        if (!currentSla.HasValue || newSla.Value < currentSla.Value) return newTrackingId;
+        return currentTrackingId;
+    }
+
+    private static DateTimeOffset? UpdateSlaTimestamp(DateTimeOffset? currentSla, DateTimeOffset? newSla)
+    {
+        if (!newSla.HasValue) return currentSla;
+        if (!currentSla.HasValue || newSla.Value < currentSla.Value) return newSla;
+        return currentSla;
+    }
+
     internal sealed class WriteIntent
     {
-        public (string Name, byte[]? EntityBytes)[]? Operations { get; init; }
+        public (string Name, byte[]? EntityBytes, string? TrackingId, DateTimeOffset? SlaTimestamp)[]? Operations { get; init; }
         public string? DeleteChildrenAncestor { get; init; }
+        public string? TrackingId { get; init; }
+        public DateTimeOffset? SlaTimestamp { get; init; }
         public required TaskCompletionSource<IDatasetWriter<T>.WriteResponse> Completion { get; init; }
         public CancellationToken CancellationToken { get; init; }
     }
@@ -1000,17 +1054,17 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private record Delta
     {
-        public Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion)
+        public Delta((string Name, byte[]? Entity, ChangeType Change, string? TrackingId, DateTimeOffset? SlaTimestamp)[] Changes, ulong DatasetVersion)
         {
             this.Changes = Changes.Select(change => (change.Name, change.Entity, change.Change,
-                DatasetHelper.ComputeCrc32(change.Entity ?? []))).ToArray();
+                DatasetHelper.ComputeCrc32(change.Entity ?? []), change.TrackingId, change.SlaTimestamp)).ToArray();
             this.DatasetVersion = DatasetVersion;
         }
 
-        public (string Name, byte[]? Entity, ChangeType Change, uint HashCode)[] Changes { get; init; }
+        public (string Name, byte[]? Entity, ChangeType Change, uint HashCode, string? TrackingId, DateTimeOffset? SlaTimestamp)[] Changes { get; init; }
         public ulong DatasetVersion { get; init; }
 
-        public void Deconstruct(out (string Name, byte[]? Entity, ChangeType Change, uint HashCode)[] Changes, out ulong DatasetVersion)
+        public void Deconstruct(out (string Name, byte[]? Entity, ChangeType Change, uint HashCode, string? TrackingId, DateTimeOffset? SlaTimestamp)[] Changes, out ulong DatasetVersion)
         {
             Changes = this.Changes;
             DatasetVersion = this.DatasetVersion;

@@ -310,7 +310,7 @@ public class DataReaderTests
         var packages = new[] { SomePackage, OtherPackage }.ToAsyncEnumerable();
 
         // When
-        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
+        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
 
         // Then
         putAllResult.NumAddedEntities.Should().Be(2);
@@ -324,8 +324,8 @@ public class DataReaderTests
         var packages = new[] { SomePackage, OtherPackage }.ToAsyncEnumerable();
 
         // When
-        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
-        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
+        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
+        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
 
         // Then
         putAllResult.NumAddedEntities.Should().Be(0);
@@ -342,8 +342,8 @@ public class DataReaderTests
         var fewerPackages = new[] { SomePackage, OtherPackage }.ToAsyncEnumerable();
 
         // When
-        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
-        var putAllResult = await _dataset.PutAll(fewerPackages.Select(x => (x.Name, x.ToByteArray())));
+        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
+        var putAllResult = await _dataset.PutAll(fewerPackages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
 
         // Then
         putAllResult.NumAddedEntities.Should().Be(0);
@@ -360,8 +360,8 @@ public class DataReaderTests
         var packagesWithOneChange = new[] { ChangedPackage, OtherPackage, LastPackage }.ToAsyncEnumerable();
 
         // When
-        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
-        var putAllResult = await _dataset.PutAll(packagesWithOneChange.Select(x => (x.Name, x.ToByteArray())));
+        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
+        var putAllResult = await _dataset.PutAll(packagesWithOneChange.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
 
         // Then
         putAllResult.NumAddedEntities.Should().Be(0);
@@ -377,7 +377,7 @@ public class DataReaderTests
         var packages = new[] { SomePackage, ChangedPackage }.ToAsyncEnumerable();
 
         // When
-        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
+        var putAllResult = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
 
         // Then
         putAllResult.NumAddedEntities.Should().Be(1);
@@ -393,7 +393,7 @@ public class DataReaderTests
         var packages = new[] { SomePackage, ChangedPackage }.ToAsyncEnumerable();
 
         // When
-        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray())));
+        _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
         var putResult = await _dataset.Put(ChangedPackage.Name, ChangedPackage.ToByteArray());
 
         // Then

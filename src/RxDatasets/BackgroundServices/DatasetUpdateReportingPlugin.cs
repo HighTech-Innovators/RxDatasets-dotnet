@@ -71,6 +71,8 @@ namespace RxDatasets.BackgroundServices
                     cancellationToken.ThrowIfCancellationRequested();
                     var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, newEntity.Position)], newEntity.Length);
                     await _reportingImplementation.OnNewDto(newEntity.Name, data.ToArray(),
+                        string.IsNullOrEmpty(newEntity.TrackingId) ? null : newEntity.TrackingId,
+                        newEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
                 }
 
@@ -80,6 +82,8 @@ namespace RxDatasets.BackgroundServices
                     var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, updatedEntity.Position)], updatedEntity.Length);
 
                     await _reportingImplementation.OnChangedDto(updatedEntity.Name, data.ToArray(),
+                        string.IsNullOrEmpty(updatedEntity.TrackingId) ? null : updatedEntity.TrackingId,
+                        updatedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
                 }
 
@@ -88,6 +92,7 @@ namespace RxDatasets.BackgroundServices
 
                     cancellationToken.ThrowIfCancellationRequested();
                     await _reportingImplementation.OnDeletedDto(deletedEntity,
+                        null, null,
                         optionalState);
                 }
 
@@ -95,6 +100,8 @@ namespace RxDatasets.BackgroundServices
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await _reportingImplementation.OnDeletedDto(deletedEntity.Name,
+                        string.IsNullOrEmpty(deletedEntity.TrackingId) ? null : deletedEntity.TrackingId,
+                        deletedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
                 }
 
