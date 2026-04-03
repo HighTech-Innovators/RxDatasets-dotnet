@@ -185,7 +185,9 @@ public static class NestedIndexHelper
                 Position = entity.Position,
                 Length = entity.Length,
                 Crc32 = entity.Crc32,
-                PreviousVersion = entity.PreviousVersion
+                PreviousVersion = entity.PreviousVersion,
+                TrackingId = entity.TrackingId,
+                SlaTimestamp = entity.SlaTimestamp
             });
         }
 
@@ -198,7 +200,9 @@ public static class NestedIndexHelper
                 Position = entity.Position,
                 Length = entity.Length,
                 Crc32 = entity.Crc32,
-                PreviousVersion = entity.PreviousVersion
+                PreviousVersion = entity.PreviousVersion,
+                TrackingId = entity.TrackingId,
+                SlaTimestamp = entity.SlaTimestamp
             });
         }
 
@@ -208,7 +212,9 @@ public static class NestedIndexHelper
             target.DeletedEntities.Add(new DeletedEntity
             {
                 Name = fullName,
-                PreviousVersion = entity.PreviousVersion
+                PreviousVersion = entity.PreviousVersion,
+                TrackingId = entity.TrackingId,
+                SlaTimestamp = entity.SlaTimestamp
             });
         }
 
@@ -248,7 +254,9 @@ public static class NestedIndexHelper
             Position = entity.Position,
             Length = entity.Length,
             Crc32 = entity.Crc32,
-            PreviousVersion = entity.PreviousVersion
+            PreviousVersion = entity.PreviousVersion,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp
         };
 
         if (kind == DeltaEntityKind.New)
@@ -275,7 +283,9 @@ public static class NestedIndexHelper
         current.DeletedEntities.Add(new DeletedEntity
         {
             Name = segments[^1],
-            PreviousVersion = entity.PreviousVersion
+            PreviousVersion = entity.PreviousVersion,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp
         });
     }
 
