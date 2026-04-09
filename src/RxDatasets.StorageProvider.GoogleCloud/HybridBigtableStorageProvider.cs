@@ -447,8 +447,20 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         }
     }
 
+    /// <summary>
+    /// Threshold above which streams are written using the streaming path
+    /// to avoid materializing the entire payload in a single byte[].
+    /// </summary>
+    private const long LargeStreamThreshold = 1L * 1024 * 1024 * 1024; // 1 GB
+
     private async Task WriteArtifact(ObjectNameTypeEnum type, ulong version, byte[] index, Stream data)
     {
+        if (data.Length > LargeStreamThreshold)
+        {
+            await WriteArtifactStreaming(type, version, index, data);
+            return;
+        }
+
         var sw = Log ? Stopwatch.StartNew() : null;
         if (data.CanSeek)
         {
@@ -502,6 +514,147 @@ public class HybridBigtableStorageProvider<T> : ReadOnlyHybridBigtableStoragePro
         {
             _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CIndexLen}, data: {DataLen}->{CDataLen} bytes) to Bigtable in {ElapsedMs}ms",
                 type, version, index.Length, compressedIndex.Length, rawData.Length, compressedData.Length, sw!.ElapsedMilliseconds);
+        }
+    }
+
+    /// <summary>
+    /// Streaming write path for large payloads that cannot be materialized as a single byte[].
+    /// Compresses the source stream to a temp file, then uploads via UploadFileStream.
+    /// Data is always written to GCS (never inline) — payloads this large exceed any
+    /// reasonable Bigtable cell limit.
+    /// </summary>
+    private async Task WriteArtifactStreaming(ObjectNameTypeEnum type, ulong version, byte[] index, Stream data)
+    {
+        var sw = Log ? Stopwatch.StartNew() : null;
+        if (data.CanSeek)
+        {
+            data.Position = 0;
+        }
+
+        var rawDataLength = data.Length;
+
+        // Compress index (always fits in memory)
+        var (compressedIndex, indexEncoding) = CompressIndex(type, version, index);
+
+        // Determine compression settings for data
+        var dataSetting = type == ObjectNameTypeEnum.Snapshot
+            ? _storageConfig.Value.SnapshotDataCompression
+            : _storageConfig.Value.DeltaDataCompression;
+
+        string? dataEncoding = null;
+        long compressedDataLength;
+        var compressedTempPath = DatasetHelper.GetTempFilePath();
+
+        try
+        {
+            if (dataSetting.Algorithm != CompressionAlgorithm.None)
+            {
+                // LZ4 Pickler format doesn't support streaming; use lz4frame instead
+                dataEncoding = dataSetting.Algorithm switch
+                {
+                    CompressionAlgorithm.Brotli => GoogleCloudVersionedArtifactRowStore.EncodingBrotli,
+                    CompressionAlgorithm.Lz4 => GoogleCloudVersionedArtifactRowStore.EncodingLz4Frame,
+                    _ => throw new ArgumentOutOfRangeException(nameof(dataSetting), dataSetting.Algorithm, "Unknown algorithm")
+                };
+
+                await using (var compressedFile = File.Create(compressedTempPath))
+                {
+                    await GoogleCloudVersionedArtifactRowStore.CompressStreamAsync(
+                        data, compressedFile, dataEncoding, dataSetting.Level);
+                }
+
+                compressedDataLength = new FileInfo(compressedTempPath).Length;
+
+                // Check if compression was worth it
+                double reduction = 1.0 - (double)compressedDataLength / rawDataLength;
+                if (reduction < MinCompressionReduction)
+                {
+                    if (Log)
+                    {
+                        _logger.LogInformation(
+                            "Skipped streaming {Algo} compression for {Type} v{Version} Data: {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0} < {MinRatio:P0} threshold) in {ElapsedMs}ms",
+                            dataSetting.Algorithm, type, version, rawDataLength, compressedDataLength, reduction, MinCompressionReduction, sw!.ElapsedMilliseconds);
+                    }
+
+                    dataEncoding = null;
+                    File.Delete(compressedTempPath);
+                    // Fall back to uploading raw data directly
+                    compressedDataLength = rawDataLength;
+                }
+                else if (Log)
+                {
+                    _logger.LogInformation(
+                        "Stream-compressed {Type} v{Version} Data ({Algo}): {OriginalLen} -> {CompressedLen} bytes ({Ratio:P0}) in {ElapsedMs}ms",
+                        type, version, dataSetting.Algorithm, rawDataLength, compressedDataLength, reduction, sw!.ElapsedMilliseconds);
+                }
+            }
+            else
+            {
+                compressedDataLength = rawDataLength;
+            }
+
+            // Index: write via existing path (index is always small)
+            var plan = _rowStore.CreateWritePlan(compressedIndex.Length, compressedDataLength);
+            string? indexFallbackObjectKey = null;
+
+            if (!plan.StoreIndexInline)
+            {
+                indexFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Index, type) + (indexEncoding != null ? $".{indexEncoding}" : "");
+                await _blobStorage.UploadBytes(indexFallbackObjectKey, compressedIndex);
+                if (Log)
+                {
+                    _logger.LogInformation("Wrote {Type} v{Version} Index ({Length} bytes) to GCS in {ElapsedMs}ms", type, version, compressedIndex.Length, sw!.ElapsedMilliseconds);
+                }
+            }
+
+            // Data: upload via streaming — always to GCS for large payloads
+            var dataFallbackObjectKey = GetObjectName(version, ObjectNameIndexOrDataEnum.Data, type) + (dataEncoding != null ? $".{dataEncoding}" : "");
+            if (dataEncoding != null && File.Exists(compressedTempPath))
+            {
+                // Upload the compressed temp file
+                await using var compressedStream = File.OpenRead(compressedTempPath);
+                await _blobStorage.UploadFileStream(dataFallbackObjectKey, compressedStream);
+            }
+            else
+            {
+                // Upload raw data stream directly (no compression or compression not worth it)
+                if (data.CanSeek)
+                {
+                    data.Position = 0;
+                }
+                await _blobStorage.UploadFileStream(dataFallbackObjectKey, data);
+            }
+
+            if (Log)
+            {
+                _logger.LogInformation("Wrote {Type} v{Version} Data ({Length} bytes) to GCS via streaming in {ElapsedMs}ms", type, version, compressedDataLength, sw!.ElapsedMilliseconds);
+            }
+
+            await _rowStore.UpsertArtifact(GetDatasetPrefix(), new HybridArtifactRecord(
+                type,
+                version,
+                DateTimeOffset.UtcNow,
+                plan.StoreIndexInline ? compressedIndex : null,
+                null, // data is never inline for large payloads
+                indexFallbackObjectKey,
+                dataFallbackObjectKey,
+                index.LongLength,
+                rawDataLength,
+                indexEncoding,
+                dataEncoding));
+
+            if (Log)
+            {
+                _logger.LogInformation("Wrote {Type} v{Version} (index: {IndexLen}->{CIndexLen}, data: {DataLen}->{CDataLen} bytes, streaming) to Bigtable in {ElapsedMs}ms",
+                    type, version, index.Length, compressedIndex.Length, rawDataLength, compressedDataLength, sw!.ElapsedMilliseconds);
+            }
+        }
+        finally
+        {
+            if (File.Exists(compressedTempPath))
+            {
+                File.Delete(compressedTempPath);
+            }
         }
     }
 

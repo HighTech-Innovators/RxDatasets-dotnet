@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using K4os.Compression.LZ4;
+using K4os.Compression.LZ4.Streams;
 using Google.Api.Gax;
 using Google.Cloud.Bigtable.Admin.V2;
 using Google.Cloud.Bigtable.Common.V2;
@@ -83,6 +84,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private const string QualifierDataEncoding = "data-encoding";
     public const string EncodingBrotli = "br";
     public const string EncodingLz4 = "lz4";
+    public const string EncodingLz4Frame = "lz4frame";
 
     private readonly BigtableClient _bigtableClient;
     private readonly BigtableTableAdminClient _tableAdminClient;
@@ -935,6 +937,7 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
         {
             EncodingBrotli => DecompressBrotli(data),
             EncodingLz4 => DecompressLz4(data),
+            EncodingLz4Frame => DecompressLz4Frame(data),
             _ => throw new ArgumentOutOfRangeException(nameof(encoding), encoding, "Unknown encoding")
         };
     }
@@ -977,6 +980,49 @@ public sealed class GoogleCloudVersionedArtifactRowStore : IVersionedArtifactRow
     private static byte[] DecompressLz4(byte[] data)
     {
         return LZ4Pickler.Unpickle(data);
+    }
+
+    private static byte[] DecompressLz4Frame(byte[] data)
+    {
+        using var input = new MemoryStream(data);
+        using var lz4 = LZ4Stream.Decode(input);
+        using var output = new MemoryStream();
+        lz4.CopyTo(output);
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Compresses a source stream into a destination stream using the specified encoding.
+    /// Used for large payloads that cannot fit in a single byte[] (&gt;2 GB).
+    /// </summary>
+    public static async Task CompressStreamAsync(
+        Stream source, Stream destination, string encoding, int qualityLevel = 1,
+        CancellationToken cancellationToken = default)
+    {
+        switch (encoding)
+        {
+            case EncodingBrotli:
+            {
+                var level = qualityLevel >= 11 ? CompressionLevel.SmallestSize
+                    : qualityLevel <= 1 ? CompressionLevel.Fastest
+                    : (CompressionLevel)qualityLevel;
+                await using var brotli = new BrotliStream(destination, level, leaveOpen: true);
+                await source.CopyToAsync(brotli, cancellationToken);
+                break;
+            }
+            case EncodingLz4Frame:
+            {
+                var lz4Level = qualityLevel <= 0 ? LZ4Level.L00_FAST
+                    : qualityLevel >= 12 ? LZ4Level.L12_MAX
+                    : (LZ4Level)qualityLevel;
+                await using var lz4 = LZ4Stream.Encode(destination, lz4Level, leaveOpen: true);
+                await source.CopyToAsync(lz4, cancellationToken);
+                break;
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(encoding), encoding,
+                    "Streaming compression only supports 'br' and 'lz4frame'");
+        }
     }
 
     private static RowFilter? BuildScopeFilter(ArtifactReadScope scope)

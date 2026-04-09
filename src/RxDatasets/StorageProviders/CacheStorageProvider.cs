@@ -90,7 +90,7 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
         try
         {
             SetCache(indexCacheKey, index);
-            if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
+            if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES && data.Length <= int.MaxValue)
             {
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
@@ -119,7 +119,7 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
         try
         {
             SetCache(indexCacheKey, index);
-            if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
+            if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES && data.Length <= int.MaxValue)
             {
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);

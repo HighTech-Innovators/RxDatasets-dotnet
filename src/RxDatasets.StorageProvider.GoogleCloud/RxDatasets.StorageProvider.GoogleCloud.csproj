@@ -15,6 +15,7 @@
     <PackageReference Include="Google.Cloud.Bigtable.Admin.V2" />
     <PackageReference Include="Google.Api.Gax" />
     <PackageReference Include="K4os.Compression.LZ4" />
+    <PackageReference Include="K4os.Compression.LZ4.Streams" />
   </ItemGroup>
 
   <ItemGroup>
