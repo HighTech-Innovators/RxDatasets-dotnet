@@ -24,11 +24,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     public SnapshotCreationPlugin(
         ILogger<SnapshotCreationPlugin<T>> logger,
         IStorageProvider<T> storageProvider,
-        IOptions<SnapshotCreationConfig> config, IScheduler scheduler)
+        IOptions<SnapshotCreationConfig> config, IScheduler scheduler,
+        NameCompressor? nameCompressor = null)
     {
         _logger = logger;
         _storageProvider = storageProvider;
-        _datasetHelper = new DatasetHelper(logger, _storageProvider);
+        _datasetHelper = new DatasetHelper(logger, _storageProvider, nameCompressor);
         _config = config;
         _scheduler = scheduler;
         _currentValuePeriodIntervalAsTimespan = _config.Value.PeriodIntervalAsTimespan;

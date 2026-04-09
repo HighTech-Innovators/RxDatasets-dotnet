@@ -27,11 +27,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     public DatasetReader(ILogger<DatasetReader<T>> logger,
         IReadOnlyStorageProvider<T> storageProvider, INotificationsHub<T>? notificationsHub,
-        bool retryInitialization = false)
+        bool retryInitialization = false, NameCompressor? nameCompressor = null)
     {
         _storageProvider = storageProvider;
         _retryInitialization = retryInitialization;
-        _datasetHelper = new DatasetHelper(logger, _storageProvider);
+        _datasetHelper = new DatasetHelper(logger, _storageProvider, nameCompressor);
         _logger = logger;
         if (notificationsHub == null)
             return;

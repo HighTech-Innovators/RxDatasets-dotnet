@@ -41,12 +41,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly ConcurrentQueue<WriteIntent> _pendingWrites = new();
     private int _batchInProgress;
 
-    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
+    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true, NameCompressor? nameCompressor = null)
     {
         _storageProvider = storageProvider;
         _writerConfig = writerConfig;
         _logger = logger;
-        _datasetHelper = new DatasetHelper(logger, _storageProvider);
+        _datasetHelper = new DatasetHelper(logger, _storageProvider, nameCompressor);
         _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
         _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
         {

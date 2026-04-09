@@ -9,7 +9,7 @@ using RxDatasets.StorageProviders;
 
 namespace RxDatasets;
 
-public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvider)
+public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvider, NameCompressor? nameCompressor = null)
 {
     private const string TypeAndId = "[^/]+/[^/]+";
 
@@ -210,7 +210,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             mutableSnapshotIndex.SnapshotVersion = snapshotVersion;
         }
 
-        var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex);
+        var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex, nameCompressor);
         return snapshotIndex;
     }
 

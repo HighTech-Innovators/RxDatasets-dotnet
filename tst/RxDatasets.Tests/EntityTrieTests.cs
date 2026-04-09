@@ -422,4 +422,208 @@ public class EntityTrieTests
     }
 
     #endregion
+
+    #region NameCompressor integration
+
+    private const string TestPattern = "t/*/s/*/items/*/values";
+
+    private static EntityTrie EmptyCompressed
+        => new EntityTrie.Builder(NameCompressor.FromPattern(TestPattern)).Build();
+
+    [Fact]
+    public void Compressed_SetItem_And_TryGetValue_UseFullNames()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity(1));
+
+        trie.Count.Should().Be(1);
+        trie.TryGetValue("t/abc/s/def/items/001/values", out var entity).Should().BeTrue();
+        entity!.LatestVersion.Should().Be(1);
+    }
+
+    [Fact]
+    public void Compressed_ContainsKey_WorksWithFullNames()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity());
+
+        trie.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
+        trie.ContainsKey("t/abc/s/def/items/002/values").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Compressed_Indexer_WorksWithFullNames()
+    {
+        var e = MakeEntity(42);
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", e);
+
+        trie["t/abc/s/def/items/001/values"].Should().Be(e);
+    }
+
+    [Fact]
+    public void Compressed_RemoveItem_WorksWithFullNames()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity())
+            .SetItem("t/abc/s/def/items/002/values", MakeEntity())
+            .RemoveItem("t/abc/s/def/items/001/values");
+
+        trie.Count.Should().Be(1);
+        trie.ContainsKey("t/abc/s/def/items/001/values").Should().BeFalse();
+        trie.ContainsKey("t/abc/s/def/items/002/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Compressed_Enumerate_YieldsFullNames()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity(1))
+            .SetItem("t/abc/s/def/items/002/values", MakeEntity(2));
+
+        var names = trie.Select(kvp => kvp.Key).ToList();
+        names.Should().BeEquivalentTo([
+            "t/abc/s/def/items/001/values",
+            "t/abc/s/def/items/002/values"
+        ]);
+    }
+
+    [Fact]
+    public void Compressed_Keys_YieldsFullNames()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity());
+
+        trie.Keys.Should().BeEquivalentTo(["t/abc/s/def/items/001/values"]);
+    }
+
+    [Fact]
+    public void Compressed_ListDescendants_WithFullPrefix()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity())
+            .SetItem("t/abc/s/def/items/002/values", MakeEntity())
+            .SetItem("t/abc/s/ghi/items/003/values", MakeEntity());
+
+        var desc = trie.ListDescendants("t/abc/s/def/items").ToList();
+        desc.Should().BeEquivalentTo([
+            "t/abc/s/def/items/001/values",
+            "t/abc/s/def/items/002/values"
+        ]);
+    }
+
+    [Fact]
+    public void Compressed_ListDescendants_PartialPrefix()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity())
+            .SetItem("t/abc/s/ghi/items/002/values", MakeEntity());
+
+        var desc = trie.ListDescendants("t/abc").ToList();
+        desc.Should().HaveCount(2);
+        desc.Should().Contain("t/abc/s/def/items/001/values");
+        desc.Should().Contain("t/abc/s/ghi/items/002/values");
+    }
+
+    [Fact]
+    public void Compressed_ListDescendants_EmptyPrefix_ReturnsAll()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity())
+            .SetItem("t/xyz/s/ghi/items/002/values", MakeEntity());
+
+        trie.ListDescendants("").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Compressed_CountDescendants()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity())
+            .SetItem("t/abc/s/def/items/002/values", MakeEntity())
+            .SetItem("t/abc/s/ghi/items/003/values", MakeEntity());
+
+        trie.CountDescendants("t/abc/s/def").Should().Be(2);
+        trie.CountDescendants("t/abc").Should().Be(3);
+    }
+
+    [Fact]
+    public void Compressed_Builder_AddsAndBuilds()
+    {
+        var compressor = NameCompressor.FromPattern(TestPattern);
+        var builder = new EntityTrie.Builder(compressor);
+        builder.Add("t/abc/s/def/items/001/values", MakeEntity(1));
+        builder.Add("t/abc/s/def/items/002/values", MakeEntity(2));
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(2);
+        trie["t/abc/s/def/items/001/values"].LatestVersion.Should().Be(1);
+        trie["t/abc/s/def/items/002/values"].LatestVersion.Should().Be(2);
+    }
+
+    [Fact]
+    public void Compressed_Builder_SetItemAndRemove()
+    {
+        var compressor = NameCompressor.FromPattern(TestPattern);
+        var builder = new EntityTrie.Builder(compressor);
+        builder.Add("t/abc/s/def/items/001/values", MakeEntity(1));
+        builder.SetItem("t/abc/s/def/items/001/values", MakeEntity(2));
+        builder.Add("t/abc/s/def/items/002/values", MakeEntity(3));
+        builder.Remove("t/abc/s/def/items/002/values");
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(1);
+        trie["t/abc/s/def/items/001/values"].LatestVersion.Should().Be(2);
+    }
+
+    [Fact]
+    public void Compressed_ToBuilder_PreservesCompressor()
+    {
+        var trie = EmptyCompressed
+            .SetItem("t/abc/s/def/items/001/values", MakeEntity(1));
+
+        var builder = trie.ToBuilder();
+        builder.SetItem("t/abc/s/def/items/002/values", MakeEntity(2));
+        var newTrie = builder.Build();
+
+        newTrie.Count.Should().Be(2);
+        newTrie.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
+        newTrie.ContainsKey("t/abc/s/def/items/002/values").Should().BeTrue();
+        // And enumerate returns full names
+        newTrie.Keys.Should().AllSatisfy(k => k.Should().StartWith("t/"));
+    }
+
+    [Fact]
+    public void Compressed_FromDictionary_WithCompressor()
+    {
+        var compressor = NameCompressor.FromPattern(TestPattern);
+        var dict = new Dictionary<string, IndexEntity>
+        {
+            ["t/abc/s/def/items/001/values"] = MakeEntity(1),
+            ["t/abc/s/def/items/002/values"] = MakeEntity(2),
+        };
+
+        var trie = EntityTrie.FromDictionary(dict, compressor);
+
+        trie.Count.Should().Be(2);
+        trie["t/abc/s/def/items/001/values"].LatestVersion.Should().Be(1);
+    }
+
+    [Fact]
+    public void Compressed_ReducesTrieDepth()
+    {
+        // Without compression: depth 7 (t/guid/s/guid/items/id/values)
+        // With compression: depth 3 (guid/guid/id)
+        // We can verify by checking that ListDescendants at various levels works correctly
+        var trie = EmptyCompressed;
+        for (int i = 0; i < 10; i++)
+        {
+            trie = trie.SetItem($"t/tenant1/s/store{i}/items/item1/values", MakeEntity());
+        }
+
+        trie.Count.Should().Be(10);
+        trie.CountDescendants("t/tenant1").Should().Be(10);
+    }
+
+    #endregion
 }

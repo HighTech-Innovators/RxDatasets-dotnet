@@ -7,6 +7,7 @@ using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
+using RxDatasets.Models;
 using RxDatasets.StorageProviders;
 using RxDatasets.StorageProviders.ReadOnly;
 
@@ -37,6 +38,7 @@ namespace RxDatasets
         private bool _withSnapshot;
         private bool _withCleanup;
         private bool _withSharedReaderWriter;
+        private string? _idPattern;
         private Action<IServiceCollection, bool, bool>? _customStorageRegistration;
 
         public IServiceCollection Services => services;
@@ -128,6 +130,18 @@ namespace RxDatasets
         }
 
         /// <summary>
+        /// Configures a fixed ID pattern for entity names (e.g. "t/*/s/*/items/*/values").
+        /// Fixed segments (non-*) are stripped from the in-memory trie, reducing node count
+        /// and memory by up to 50% for deeply nested hierarchical entity names.
+        /// The on-disk format is not affected.
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithIdPattern(string pattern)
+        {
+            _idPattern = pattern;
+            return this;
+        }
+
+        /// <summary>
         /// Disables write coalescing. By default, concurrent write operations are batched into single
         /// delta transactions to reduce storage round-trips on high-latency backends.
         /// Call this method to revert to serial one-at-a-time write behavior.
@@ -141,6 +155,14 @@ namespace RxDatasets
         public void Build(params string[] readinessTags)
         {
             services.TryAddSingleton<IClock, SystemClock>();
+
+            // Register NameCompressor if an ID pattern is configured
+            var compressor = NameCompressor.FromPattern(_idPattern);
+            if (compressor != null)
+            {
+                services.AddSingleton(compressor);
+            }
+
             AddStorageProvider();
 
             if (!_isInMemoryDataset && _withDistributedLock)

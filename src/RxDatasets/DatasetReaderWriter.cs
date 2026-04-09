@@ -23,8 +23,9 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         INotificationsHub<T> notificationsHub,
         ILogger<DatasetWriter<T>> logger,
         IStorageProvider<T> storageProvider,
-        IOptions<WriterConfig> writerConfig)
-        : base(notificationsHub, logger, storageProvider, writerConfig)
+        IOptions<WriterConfig> writerConfig,
+        NameCompressor? nameCompressor = null)
+        : base(notificationsHub, logger, storageProvider, writerConfig, nameCompressor: nameCompressor)
     {
         // The base writer already updates _index after each write.
         // We subscribe to the notification only to wake up reactive waiters

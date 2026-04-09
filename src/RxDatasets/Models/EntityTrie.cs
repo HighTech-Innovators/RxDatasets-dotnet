@@ -12,16 +12,18 @@ namespace RxDatasets.Models;
 /// </summary>
 public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 {
-    internal static readonly EntityTrie Empty = new(TrieNode.EmptyNode, 0);
+    internal static readonly EntityTrie Empty = new(TrieNode.EmptyNode, 0, null);
 
     private readonly TrieNode _root;
+    internal NameCompressor? Compressor { get; }
 
     public int Count { get; }
 
-    private EntityTrie(TrieNode root, int count)
+    private EntityTrie(TrieNode root, int count, NameCompressor? compressor)
     {
         _root = root;
         Count = count;
+        Compressor = compressor;
     }
 
     public IndexEntity this[string key]
@@ -36,15 +38,16 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 
     public bool TryGetValue(string name, [MaybeNullWhen(false)] out IndexEntity value)
     {
+        var key = Compressor?.Compress(name) ?? name;
         var node = _root;
         int start = 0;
 
-        while (start <= name.Length)
+        while (start <= key.Length)
         {
-            int end = name.IndexOf('/', start);
-            if (end == -1) end = name.Length;
+            int end = key.IndexOf('/', start);
+            if (end == -1) end = key.Length;
 
-            var segment = name.Substring(start, end - start);
+            var segment = key.Substring(start, end - start);
             if (!node.Children.TryGetValue(segment, out var child))
             {
                 value = default;
@@ -71,10 +74,11 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     /// </summary>
     public EntityTrie SetItem(string name, IndexEntity value)
     {
-        var segments = name.Split('/');
+        var key = Compressor?.Compress(name) ?? name;
+        var segments = key.Split('/');
         bool wasNew = !ContainsKey(name);
         var newRoot = SetItemRecursive(_root, segments, 0, value);
-        return new EntityTrie(newRoot, wasNew ? Count + 1 : Count);
+        return new EntityTrie(newRoot, wasNew ? Count + 1 : Count, Compressor);
     }
 
     private static TrieNode SetItemRecursive(TrieNode node, string[] segments, int depth, IndexEntity value)
@@ -101,9 +105,10 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         if (!ContainsKey(name))
             return this;
 
-        var segments = name.Split('/');
+        var key = Compressor?.Compress(name) ?? name;
+        var segments = key.Split('/');
         var newRoot = RemoveItemRecursive(_root, segments, 0);
-        return new EntityTrie(newRoot ?? TrieNode.EmptyNode, Count - 1);
+        return new EntityTrie(newRoot ?? TrieNode.EmptyNode, Count - 1, Compressor);
     }
 
     private static TrieNode? RemoveItemRecursive(TrieNode node, string[] segments, int depth)
@@ -144,14 +149,15 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     /// </summary>
     public IEnumerable<string> ListDescendants(string parent)
     {
-        var node = NavigateTo(parent);
+        var compressedParent = Compressor?.CompressPrefix(parent) ?? parent;
+        var node = NavigateTo(compressedParent);
         if (node is null)
             yield break;
 
-        var prefix = parent.Length > 0 ? parent + "/" : "";
+        var prefix = compressedParent.Length > 0 ? compressedParent + "/" : "";
         foreach (var (name, _) in EnumerateSubtree(node, prefix))
         {
-            yield return name;
+            yield return Compressor?.Expand(name) ?? name;
         }
     }
 
@@ -161,7 +167,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     /// </summary>
     public int CountDescendants(string parent)
     {
-        var node = NavigateTo(parent);
+        var compressedParent = Compressor?.CompressPrefix(parent) ?? parent;
+        var node = NavigateTo(compressedParent);
         if (node is null)
             return 0;
 
@@ -237,20 +244,24 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 
     public IEnumerator<KeyValuePair<string, IndexEntity>> GetEnumerator()
     {
-        return EnumerateAll(_root, "").GetEnumerator();
+        return EnumerateAll(_root, "", Compressor).GetEnumerator();
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private static IEnumerable<KeyValuePair<string, IndexEntity>> EnumerateAll(TrieNode node, string prefix)
+    private static IEnumerable<KeyValuePair<string, IndexEntity>> EnumerateAll(
+        TrieNode node, string prefix, NameCompressor? compressor)
     {
         if (node.Value is not null)
-            yield return new KeyValuePair<string, IndexEntity>(prefix, node.Value);
+        {
+            var key = compressor?.Expand(prefix) ?? prefix;
+            yield return new KeyValuePair<string, IndexEntity>(key, node.Value);
+        }
 
         foreach (var (segment, child) in node.Children)
         {
             var childPath = prefix.Length == 0 ? segment : prefix + "/" + segment;
-            foreach (var kvp in EnumerateAll(child, childPath))
+            foreach (var kvp in EnumerateAll(child, childPath, compressor))
                 yield return kvp;
         }
     }
@@ -265,7 +276,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     public Builder ToBuilder()
     {
         var mutableRoot = ThawRecursive(_root);
-        return new Builder(mutableRoot, Count);
+        return new Builder(mutableRoot, Count, Compressor);
     }
 
     private static Builder.MutableTrieNode ThawRecursive(TrieNode node)
@@ -283,9 +294,10 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     /// <summary>
     /// Creates an EntityTrie from a dictionary of entity names to index entities.
     /// </summary>
-    public static EntityTrie FromDictionary(IEnumerable<KeyValuePair<string, IndexEntity>> entries)
+    public static EntityTrie FromDictionary(
+        IEnumerable<KeyValuePair<string, IndexEntity>> entries, NameCompressor? compressor = null)
     {
-        var builder = new Builder();
+        var builder = new Builder(compressor);
         foreach (var kvp in entries)
             builder.Add(kvp.Key, kvp.Value);
         return builder.Build();
@@ -296,18 +308,21 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     public sealed class Builder
     {
         private readonly MutableTrieNode _root;
+        private readonly NameCompressor? _compressor;
         private int _count;
 
-        internal Builder()
+        public Builder(NameCompressor? compressor = null)
         {
             _root = new MutableTrieNode();
+            _compressor = compressor;
             _count = 0;
         }
 
-        internal Builder(MutableTrieNode root, int count)
+        internal Builder(MutableTrieNode root, int count, NameCompressor? compressor)
         {
             _root = root;
             _count = count;
+            _compressor = compressor;
         }
 
         /// <summary>
@@ -316,7 +331,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         /// </summary>
         public void Add(string name, IndexEntity value)
         {
-            var node = NavigateOrCreate(name);
+            var key = _compressor?.Compress(name) ?? name;
+            var node = NavigateOrCreate(key);
             node.Value = value;
             _count++;
         }
@@ -326,7 +342,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         /// </summary>
         public void SetItem(string name, IndexEntity value)
         {
-            var node = NavigateOrCreate(name);
+            var key = _compressor?.Compress(name) ?? name;
+            var node = NavigateOrCreate(key);
             if (node.Value is null)
                 _count++;
             node.Value = value;
@@ -338,7 +355,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         /// </summary>
         public bool Remove(string name)
         {
-            var segments = name.Split('/');
+            var key = _compressor?.Compress(name) ?? name;
+            var segments = key.Split('/');
             var node = _root;
 
             for (int i = 0; i < segments.Length; i++)
@@ -358,12 +376,12 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 
         public EntityTrie Build()
         {
-            return new EntityTrie(Freeze(_root), _count);
+            return new EntityTrie(Freeze(_root), _count, _compressor);
         }
 
-        private MutableTrieNode NavigateOrCreate(string name)
+        private MutableTrieNode NavigateOrCreate(string key)
         {
-            var segments = name.Split('/');
+            var segments = key.Split('/');
             var node = _root;
 
             for (int i = 0; i < segments.Length; i++)
