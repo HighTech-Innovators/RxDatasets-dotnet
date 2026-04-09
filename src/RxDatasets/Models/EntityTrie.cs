@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 
@@ -86,7 +87,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         var segment = segments[depth];
         var child = node.Children.GetValueOrDefault(segment, TrieNode.EmptyNode);
         var newChild = SetItemRecursive(child, segments, depth + 1, value);
-        return new TrieNode(node.Children.SetItem(segment, newChild), node.Value);
+        var dict = new Dictionary<string, TrieNode>(node.Children) { [segment] = newChild };
+        return new TrieNode(dict.ToFrozenDictionary(), node.Value);
     }
 
     /// <summary>
@@ -119,15 +121,20 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
             return node;
 
         var newChild = RemoveItemRecursive(child, segments, depth + 1);
-        ImmutableDictionary<string, TrieNode> newChildren;
+        Dictionary<string, TrieNode> newChildren;
         if (newChild == null)
-            newChildren = node.Children.Remove(segment);
+        {
+            newChildren = new Dictionary<string, TrieNode>(node.Children);
+            newChildren.Remove(segment);
+        }
         else
-            newChildren = node.Children.SetItem(segment, newChild);
+        {
+            newChildren = new Dictionary<string, TrieNode>(node.Children) { [segment] = newChild };
+        }
 
         if (newChildren.Count == 0 && node.Value is null)
             return null; // Prune
-        return new TrieNode(newChildren, node.Value);
+        return new TrieNode(newChildren.ToFrozenDictionary(), node.Value);
     }
 
     /// <summary>
@@ -379,20 +386,20 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
                 return TrieNode.EmptyNode;
 
             if (mutable.Children.Count == 0)
-                return new TrieNode(ImmutableDictionary<string, TrieNode>.Empty, mutable.Value);
+                return new TrieNode(FrozenDictionary<string, TrieNode>.Empty, mutable.Value);
 
-            var builder = ImmutableDictionary.CreateBuilder<string, TrieNode>();
+            var dict = new Dictionary<string, TrieNode>(mutable.Children.Count);
             foreach (var (key, child) in mutable.Children)
             {
                 var frozen = Freeze(child);
                 if (frozen != TrieNode.EmptyNode || frozen.Value is not null)
-                    builder.Add(key, frozen);
+                    dict.Add(key, frozen);
             }
 
-            if (builder.Count == 0 && mutable.Value is null)
+            if (dict.Count == 0 && mutable.Value is null)
                 return TrieNode.EmptyNode;
 
-            return new TrieNode(builder.ToImmutable(), mutable.Value);
+            return new TrieNode(dict.ToFrozenDictionary(), mutable.Value);
         }
 
         internal sealed class MutableTrieNode
@@ -407,12 +414,12 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 
 internal sealed class TrieNode
 {
-    public static readonly TrieNode EmptyNode = new(ImmutableDictionary<string, TrieNode>.Empty, null);
+    public static readonly TrieNode EmptyNode = new(FrozenDictionary<string, TrieNode>.Empty, null);
 
-    public ImmutableDictionary<string, TrieNode> Children { get; }
+    public FrozenDictionary<string, TrieNode> Children { get; }
     public IndexEntity? Value { get; }
 
-    public TrieNode(ImmutableDictionary<string, TrieNode> children, IndexEntity? value)
+    public TrieNode(FrozenDictionary<string, TrieNode> children, IndexEntity? value)
     {
         Children = children;
         Value = value;
