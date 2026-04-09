@@ -165,8 +165,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
             try
             {
                 var bytes = await storageProvider.ReadSnapshotIndex(version);
-                var proto = SnapshotIndex.Parser.ParseFrom(bytes.Span);
-                return SnapshotPositionLookup.FromProto(proto);
+                return StreamingIndexCodec.ReadSnapshotPositionLookup(bytes);
             }
             catch (Exception e)
             {
@@ -181,37 +180,34 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion)
     {
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
-        var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
-        mutableSnapshotIndex.ValidateAgainstVersion(snapshotVersion);
+        var result = StreamingIndexCodec.ReadSnapshot(mutableSnapshotIndexBytes, nameCompressor);
 
-        // Collect all non-deleted entities from either nested or flat format for validation
-        var allEntities = GetAllSnapshotEntities(mutableSnapshotIndex);
-        var lastEntityInDataFile = allEntities
-            .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
+        // Validate version
+        var version = result.Version > 0 ? result.Version : result.VersionLegacy;
+        if (version != snapshotVersion && result.Version != snapshotVersion)
+            throw new InvalidOperationException(
+                $"There is data corruption in index, the requested version {snapshotVersion} and the received versions ({result.Version}, legacy version {result.VersionLegacy}) neither are matching.");
 
-        if (lastEntityInDataFile is not null)
+        // Validate data file size against max entity position
+        if (result.MaxEndPosition > 0)
         {
             var actualSnapshotDataLength = await storageProvider.GetSnapshotDataContentLength(snapshotVersion);
-            var expectedLengthFromIndex = lastEntityInDataFile.Position + lastEntityInDataFile.Length;
-
-            if (actualSnapshotDataLength < expectedLengthFromIndex)
+            if (actualSnapshotDataLength < result.MaxEndPosition)
             {
                 throw new InvalidOperationException(
-                    $"Looks like there is a data corruption for snapshot {snapshotVersion}; it's {actualSnapshotDataLength} bytes instead of the expected {expectedLengthFromIndex}");
+                    $"Looks like there is a data corruption for snapshot {snapshotVersion}; it's {actualSnapshotDataLength} bytes instead of the expected {result.MaxEndPosition}");
             }
         }
 
-
-        var version = mutableSnapshotIndex.SnapshotVersion > 0 ? mutableSnapshotIndex.SnapshotVersion : mutableSnapshotIndex.SnapshotVersionLegacy;
         if (version != snapshotVersion)
         {
             logger.LogWarning(
                 $"Snapshot version {version} does not match the requested version {snapshotVersion}, overwriting it");
-            mutableSnapshotIndex.SnapshotVersion = snapshotVersion;
+            // Re-create state with corrected version
+            return new ImmutableDatasetState(result.State.Entities, snapshotVersion, snapshotVersion);
         }
 
-        var snapshotIndex = ImmutableDatasetState.FromProto(mutableSnapshotIndex, nameCompressor);
-        return snapshotIndex;
+        return result.State;
     }
 
     /// <summary>

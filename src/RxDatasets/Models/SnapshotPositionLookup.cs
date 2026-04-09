@@ -19,6 +19,9 @@ public sealed class SnapshotPositionLookup
     public bool TryGetPosition(string name, out long position)
         => _positions.TryGetValue(name, out position);
 
+    internal static SnapshotPositionLookup FromPositions(ulong version, Dictionary<string, long> positions)
+        => new(version, positions);
+
     public static SnapshotPositionLookup FromProto(SnapshotIndex proto)
     {
         var compressor = proto.IdPattern.Length > 0

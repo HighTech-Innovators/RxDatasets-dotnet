@@ -314,6 +314,15 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         return new EntityTrie(root, count, compressor);
     }
 
+    /// <summary>
+    /// Wraps a pre-built <see cref="TrieNode"/> tree into an EntityTrie.
+    /// Used by <see cref="StreamingIndexCodec"/> which builds nodes directly from wire format.
+    /// </summary>
+    internal static EntityTrie FromRootNode(TrieNode root, int count, NameCompressor? compressor)
+    {
+        return new EntityTrie(root, count, compressor);
+    }
+
     private static TrieNode FreezeFromBucket(SnapshotBucket bucket, out int count)
     {
         count = 0;

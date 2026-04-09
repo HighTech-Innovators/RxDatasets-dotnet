@@ -120,6 +120,8 @@ public static class NestedIndexHelper
     /// original remains unchanged (callers may still read its flat fields).
     /// When a <see cref="NameCompressor"/> is provided, entity names are compressed
     /// before serialization and the pattern is stored in <c>id_pattern</c>.
+    /// The <c>id_pattern</c> is written as the first field in the byte stream so
+    /// streaming readers know the compression pattern before reading entity names.
     /// </summary>
     public static byte[] SerializeDeltaIndex(DeltaIndex delta, NameCompressor? compressor = null)
     {
@@ -132,7 +134,7 @@ public static class NestedIndexHelper
         }
 
         NestDeltaIndex(clone);
-        return clone.ToByteArray();
+        return StreamingIndexCodec.WriteDelta(clone);
     }
 
     #region DeltaIndex

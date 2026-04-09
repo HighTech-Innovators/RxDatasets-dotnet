@@ -167,7 +167,9 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
-            await _storageProvider.StoreSnapshot(newSnapshotVersion, snapshotIndexProto.ToByteArray(),
+            await _storageProvider.StoreSnapshot(newSnapshotVersion,
+                StreamingIndexCodec.WriteSnapshot(
+                    newSnapshotVersion, _nameCompressor?.Pattern ?? "", snapshotIndexProto.Nested),
                 localSnapshotReader);
 
             localSnapshotReader.Close();
