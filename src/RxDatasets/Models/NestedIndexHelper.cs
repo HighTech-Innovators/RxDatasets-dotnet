@@ -46,25 +46,35 @@ public static class NestedIndexHelper
     /// Reads a SnapshotBucket trie into an EntityTrie.Builder.
     /// Skips deleted entities — only alive entities are added to the trie.
     /// </summary>
-    public static void ReadNestedSnapshot(SnapshotBucket bucket, EntityTrie.Builder builder)
+    /// <summary>
+    /// Reads a SnapshotBucket trie into an EntityTrie.Builder.
+    /// When <paramref name="protoCompressor"/> is provided, names reconstructed from the
+    /// nested structure are expanded to full form before being added to the builder
+    /// (which may re-compress with its own, different pattern).
+    /// </summary>
+    public static void ReadNestedSnapshot(
+        SnapshotBucket bucket, EntityTrie.Builder builder, NameCompressor? protoCompressor = null)
     {
-        ReadNestedSnapshotRecursive(bucket, "", builder);
+        ReadNestedSnapshotRecursive(bucket, "", builder, protoCompressor);
     }
 
-    private static void ReadNestedSnapshotRecursive(SnapshotBucket bucket, string prefix, EntityTrie.Builder builder)
+    private static void ReadNestedSnapshotRecursive(
+        SnapshotBucket bucket, string prefix, EntityTrie.Builder builder, NameCompressor? protoCompressor)
     {
         foreach (var (segment, entity) in bucket.Leaves)
         {
             if (IndexEntity.IsDeletedInProto(entity))
                 continue;
-            var fullName = prefix.Length == 0 ? segment : prefix + "/" + segment;
-            builder.Add(fullName, IndexEntity.FromProto(entity));
+            var name = prefix.Length == 0 ? segment : prefix + "/" + segment;
+            if (protoCompressor != null)
+                name = protoCompressor.Expand(name);
+            builder.Add(name, IndexEntity.FromProto(entity));
         }
 
         foreach (var (segment, child) in bucket.Children)
         {
             var childPrefix = prefix.Length == 0 ? segment : prefix + "/" + segment;
-            ReadNestedSnapshotRecursive(child, childPrefix, builder);
+            ReadNestedSnapshotRecursive(child, childPrefix, builder, protoCompressor);
         }
     }
 

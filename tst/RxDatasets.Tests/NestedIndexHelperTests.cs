@@ -553,6 +553,144 @@ public class NestedIndexHelperTests
         state.Entities.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
     }
 
+    [Fact]
+    public void SnapshotIndex_PatternTransition_CompressedToNewPattern()
+    {
+        // Snapshot written with pattern A, now reading with pattern B.
+        // Proto has compressed names under pattern A — must expand with A, re-compress with B.
+        var patternA = NameCompressor.FromPattern("t/*/items/*/values")!;
+        var patternB = NameCompressor.FromPattern("region/*/store/*/data")!;
+
+        // Simulate a snapshot written with pattern A: compressed names are "abc/001"
+        var proto = BuildSnapshotProto(5,
+            ("abc/001", MakeProtoEntity(1, 0, 10)),
+            ("abc/002", MakeProtoEntity(2, 10, 20)));
+        proto.IdPattern = patternA.Pattern;
+
+        var state = ImmutableDatasetState.FromProto(proto, patternB);
+
+        // The trie should contain full names expanded from pattern A
+        state.Entities.Count.Should().Be(2);
+        state.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+        state.Entities.ContainsKey("t/abc/items/002/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnapshotIndex_PatternTransition_CompressedToNoCompressor()
+    {
+        // Snapshot written with compression, but runtime compressor is explicitly null.
+        // Auto-detect at line 9-10 creates compressor from proto → same pattern → direct path.
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+
+        var proto = BuildSnapshotProto(5,
+            ("abc/001", MakeProtoEntity(1, 0, 10)));
+        proto.IdPattern = compressor.Pattern;
+
+        // Pass null compressor — auto-detect should kick in
+        var state = ImmutableDatasetState.FromProto(proto, null);
+
+        state.Entities.Count.Should().Be(1);
+        state.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnapshotIndex_PatternTransition_UncompressedToNewCompressor()
+    {
+        // Snapshot written without compression (full names in nested), now reading with a compressor.
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+
+        var proto = BuildSnapshotProto(5,
+            ("t/abc/items/001/values", MakeProtoEntity(1, 0, 10)),
+            ("t/abc/items/002/values", MakeProtoEntity(2, 10, 20)));
+        // No IdPattern set — uncompressed nested
+
+        var state = ImmutableDatasetState.FromProto(proto, compressor);
+
+        state.Entities.Count.Should().Be(2);
+        state.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+        state.Entities.ContainsKey("t/abc/items/002/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void DeltaIndex_PatternTransition_CompressedDelta_UncompressedTrie()
+    {
+        // Delta written with compression, applied to trie without compression.
+        // ParseDeltaIndex expands flat names → flat fallback should work.
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+
+        var delta = new DeltaIndex { DeltaVersion = 2 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/items/001/values", Position = 0, Length = 10 });
+
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta, compressor);
+        var parsed = NestedIndexHelper.ParseDeltaIndex(bytes);
+
+        // Flat fields should have expanded names
+        parsed.NewEntities[0].Name.Should().Be("t/abc/items/001/values");
+
+        // Apply to an uncompressed trie
+        var state = new ImmutableDatasetState(
+            EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>
+            {
+                ["t/abc/items/000/values"] = new(1, 0, 5)
+            }), 1, 1);
+
+        var newState = state.ApplyDelta(parsed);
+        newState.Entities.Count.Should().Be(2);
+        newState.Entities.ContainsKey("t/abc/items/000/values").Should().BeTrue();
+        newState.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void DeltaIndex_PatternTransition_UncompressedDelta_CompressedTrie()
+    {
+        // Legacy delta without compression, applied to a compressed trie.
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+
+        // Serialize WITHOUT compression (legacy format)
+        var delta = new DeltaIndex { DeltaVersion = 2 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/items/001/values", Position = 0, Length = 10 });
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta); // no compressor
+        var parsed = NestedIndexHelper.ParseDeltaIndex(bytes);
+
+        // Apply to a compressed trie
+        var state = new ImmutableDatasetState(
+            EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>
+            {
+                ["t/abc/items/000/values"] = new(1, 0, 5)
+            }, compressor), 1, 1);
+
+        var newState = state.ApplyDelta(parsed);
+        newState.Entities.Count.Should().Be(2);
+        newState.Entities.ContainsKey("t/abc/items/000/values").Should().BeTrue();
+        newState.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void DeltaIndex_PatternTransition_DifferentPatterns()
+    {
+        // Delta compressed with pattern A, trie compressed with pattern B.
+        // Patterns don't match → flat fallback with expanded names.
+        var patternA = NameCompressor.FromPattern("t/*/items/*/values")!;
+        var patternB = NameCompressor.FromPattern("region/*/store/*/data")!;
+
+        var delta = new DeltaIndex { DeltaVersion = 2 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/items/001/values", Position = 0, Length = 10 });
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta, patternA);
+        var parsed = NestedIndexHelper.ParseDeltaIndex(bytes);
+
+        // Flat names should be expanded with pattern A
+        parsed.NewEntities[0].Name.Should().Be("t/abc/items/001/values");
+
+        // Apply to a trie with pattern B (which doesn't match)
+        var state = new ImmutableDatasetState(
+            EntityTrie.FromDictionary([], patternB), 1, 1);
+
+        var newState = state.ApplyDelta(parsed);
+        newState.Entities.Count.Should().Be(1);
+        // The trie stores with full names since pattern B can't compress pattern A names
+        newState.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+    }
+
     #endregion
 
     #region On-disk ID pattern compression: SnapshotPositionLookup
