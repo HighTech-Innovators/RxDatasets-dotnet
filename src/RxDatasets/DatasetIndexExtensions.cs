@@ -9,11 +9,39 @@ namespace RxDatasets;
 /// </summary>
 public static class DatasetIndexExtensions
 {
+    /// <summary>
+    /// Applies a single delta using immutable path-copy operations.
+    /// For small deltas (typical writes), this is O(changes × depth) — much faster than
+    /// thawing/freezing the entire trie via Builder.
+    /// </summary>
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
-        var builder = index.Entities.ToBuilder();
-        var deltaVersion = ApplyDeltaToBuilder(builder, delta);
-        return new ImmutableDatasetState(builder.Build(), index.SnapshotVersion, deltaVersion);
+        var trie = index.Entities;
+        var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
+
+        foreach (var newEntity in delta.NewEntities)
+        {
+            trie = trie.SetItem(newEntity.Name,
+                new IndexEntity(deltaVersion, newEntity.Position, newEntity.Length, newEntity.Crc32));
+        }
+
+        foreach (var changedEntity in delta.ChangedEntities)
+        {
+            trie = trie.SetItem(changedEntity.Name,
+                new IndexEntity(deltaVersion, changedEntity.Position, changedEntity.Length, changedEntity.Crc32));
+        }
+
+        foreach (var deletedName in delta.DeletedNames)
+        {
+            trie = trie.RemoveItem(deletedName);
+        }
+
+        foreach (var deletedEntity in delta.DeletedEntities)
+        {
+            trie = trie.RemoveItem(deletedEntity.Name);
+        }
+
+        return new ImmutableDatasetState(trie, index.SnapshotVersion, deltaVersion);
     }
 
     /// <summary>
