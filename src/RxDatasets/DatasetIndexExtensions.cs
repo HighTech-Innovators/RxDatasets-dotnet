@@ -10,11 +10,33 @@ namespace RxDatasets;
 public static class DatasetIndexExtensions
 {
     /// <summary>
-    /// Applies a single delta using immutable path-copy operations.
-    /// For small deltas (typical writes), this is O(changes × depth) — much faster than
-    /// thawing/freezing the entire trie via Builder.
+    /// Percentage of the trie entity count above which we switch from immutable path-copy
+    /// to a full builder thaw/freeze. Path-copy is O(changes × depth × branchFactor) per
+    /// entity; builder is O(totalNodes) fixed cost for thaw + freeze. When the delta touches
+    /// a significant fraction of the trie, the builder amortises better.
+    /// </summary>
+    private const double BuilderThresholdFraction = 0.05;
+
+    /// <summary>
+    /// Applies a single delta index. Adaptively chooses between immutable path-copy
+    /// (efficient for small deltas) and builder thaw/freeze (efficient when the delta
+    /// touches a significant fraction of the trie).
     /// </summary>
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
+    {
+        int changeCount = delta.NewEntities.Count + delta.ChangedEntities.Count
+                        + delta.DeletedNames.Count + delta.DeletedEntities.Count;
+        int threshold = Math.Max(1, (int)(index.Entities.Count * BuilderThresholdFraction));
+
+        if (changeCount >= threshold)
+        {
+            return ApplyDeltaViaBuilder(index, delta);
+        }
+
+        return ApplyDeltaImmutable(index, delta);
+    }
+
+    private static ImmutableDatasetState ApplyDeltaImmutable(ImmutableDatasetState index, DeltaIndex delta)
     {
         var trie = index.Entities;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
@@ -42,6 +64,13 @@ public static class DatasetIndexExtensions
         }
 
         return new ImmutableDatasetState(trie, index.SnapshotVersion, deltaVersion);
+    }
+
+    private static ImmutableDatasetState ApplyDeltaViaBuilder(ImmutableDatasetState index, DeltaIndex delta)
+    {
+        var builder = index.Entities.ToBuilder();
+        var deltaVersion = ApplyDeltaToBuilder(builder, delta);
+        return new ImmutableDatasetState(builder.Build(), index.SnapshotVersion, deltaVersion);
     }
 
     /// <summary>
