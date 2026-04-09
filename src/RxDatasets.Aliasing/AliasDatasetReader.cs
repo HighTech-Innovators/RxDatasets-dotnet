@@ -16,7 +16,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     where T : class, IMessage<T>, new()
 {
     private readonly IDatasetReader<T> _sourceReader;
-    private readonly Func<ReadOnlyMemory<byte>, IEnumerable<string>> _aliasFactory;
+    private readonly Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> _aliasFactory;
     private readonly string _aliasName;
     private readonly ILogger _logger;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -41,7 +41,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     public AliasDatasetReader(
         IDatasetReader<T> sourceReader,
-        Func<ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory,
+        Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory,
         string aliasName,
         ILogger logger,
         IHostApplicationLifetime appLifetime,
@@ -176,7 +176,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
                         var entity = await _sourceReader.Get(change.Name);
                         if (entity.HasValue)
                         {
-                            var newAliases = _aliasFactory(entity.Value.entityBytes)?.ToList() ?? new List<string>();
+                            var newAliases = _aliasFactory(change.Name, entity.Value.entityBytes)?.ToList() ?? new List<string>();
                             var oldAliases = new List<string>();
 
                             // Get old aliases if this entity was already tracked
@@ -314,7 +314,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     {
         lock (_aliasToIdMap)
         {
-            var aliases = _aliasFactory(entityBytes)?.ToList() ?? new List<string>();
+            var aliases = _aliasFactory(entityId, entityBytes)?.ToList() ?? new List<string>();
 
             // Store the aliases for this entity
             _idToAliasesMap[entityId] = aliases;

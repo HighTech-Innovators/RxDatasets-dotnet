@@ -27,7 +27,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("t/100/s/200/relations/abc");
     }
@@ -53,7 +53,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("product-123");
     }
@@ -86,7 +86,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("first");
     }
@@ -117,7 +117,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("third");
     }
@@ -151,7 +151,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().HaveCount(2);
         aliases.Should().Contain("product/second");
         aliases.Should().Contain("product/third");
@@ -186,7 +186,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().HaveCount(2);
         aliases.Should().Contain("product/first");
         aliases.Should().Contain("product/second");
@@ -221,7 +221,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().HaveCount(2);
         aliases.Should().Contain("product/third");
         aliases.Should().Contain("product/fourth");
@@ -255,7 +255,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().HaveCount(3);
         aliases.Should().Contain("product/product-a");
         aliases.Should().Contain("product/product-b");
@@ -288,7 +288,7 @@ public class EvaluateJsonPathTests
             new List<string> { pattern1, pattern2 },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         // Should be deduplicated at factory level, so only 1 alias
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("product/product-1");
@@ -310,7 +310,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("t/100");
     }
@@ -329,7 +329,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("100/s");
     }
@@ -348,7 +348,7 @@ public class EvaluateJsonPathTests
             new List<string> { aliasPattern },
             Relation.Parser);
 
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
         aliases.Should().ContainSingle();
         aliases[0].Should().Be("s/200/relations/abc");
     }

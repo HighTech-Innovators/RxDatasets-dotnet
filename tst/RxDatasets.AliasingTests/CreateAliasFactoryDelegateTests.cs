@@ -31,7 +31,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -52,7 +52,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -73,7 +73,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -96,7 +96,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -125,7 +125,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -148,7 +148,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - alias should be skipped because the field doesn't exist
         aliases.Should().BeEmpty();
@@ -182,7 +182,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [0] syntax accesses the element at index 0 explicitly
         aliases.Should().ContainSingle();
@@ -208,7 +208,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().BeEmpty();
@@ -241,7 +241,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [] operator returns all non-empty products
         aliases.Should().HaveCount(2);
@@ -275,7 +275,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - should skip if all products have empty values
         aliases.Should().BeEmpty();
@@ -297,7 +297,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - should take first 4 parts: t/100/s/200
         aliases.Should().ContainSingle();
@@ -318,7 +318,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - should return all parts when there are fewer than requested
         aliases.Should().ContainSingle();
@@ -344,7 +344,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(3);
@@ -382,7 +382,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(2);
@@ -416,7 +416,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - only the valid one should be included
         aliases.Should().ContainSingle();
@@ -447,7 +447,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -482,7 +482,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - first pattern is deduped with second (both generate same alias), third is unique
         aliases.Should().HaveCount(2);
@@ -518,7 +518,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [] operator returns first and second products (generates 2 aliases)
         aliases.Should().HaveCount(2);
@@ -557,7 +557,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - first pattern generates 1, second pattern generates 2 (for the two devices in range operator)
         aliases.Should().HaveCount(3);
@@ -582,7 +582,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().BeEmpty();
@@ -601,7 +601,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act - pass invalid proto bytes
-        var aliases = factory(new byte[] { 0xFF, 0xFF, 0xFF }).ToList();
+        var aliases = factory("", new byte[] { 0xFF, 0xFF, 0xFF }).ToList();
 
         // Assert
         aliases.Should().BeEmpty();
@@ -620,7 +620,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().BeEmpty();
@@ -640,7 +640,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -661,7 +661,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -682,7 +682,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().BeEmpty();
@@ -710,7 +710,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -731,7 +731,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().ContainSingle();
@@ -752,7 +752,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - taking first 0 parts gives empty string which cancels the alias
         aliases.Should().BeEmpty();
@@ -774,7 +774,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [1..3] means start at index 1, end before index 3: "100/s"
         aliases.Should().ContainSingle();
@@ -795,7 +795,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [0..2] means start at index 0, end before index 2: "t/100"
         aliases.Should().ContainSingle();
@@ -816,7 +816,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [3..] means start at index 3 and go to end: "200/relations/xyz"
         aliases.Should().ContainSingle();
@@ -837,7 +837,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [2..3] means start at index 2, end before index 3 (single element): "s"
         aliases.Should().ContainSingle();
@@ -858,7 +858,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [20] is out of bounds, so the alias pattern should be skipped entirely
         aliases.Should().BeEmpty();
@@ -878,7 +878,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [2..3] means start at index 2, end before index 3 (single element): "s"
         aliases.Should().ContainSingle();
@@ -899,7 +899,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - empty range produces empty string which cancels the alias
         aliases.Should().BeEmpty();
@@ -919,7 +919,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - should take from index 3 to end: "200/relations/xyz"
         aliases.Should().ContainSingle();
@@ -945,7 +945,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(3);
@@ -972,7 +972,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(2);
@@ -994,7 +994,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - should skip the pattern (or return empty string depending on implementation)
         // This test documents expected behavior for out-of-bounds ranges
@@ -1022,7 +1022,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(2);
@@ -1049,7 +1049,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert
         aliases.Should().HaveCount(3);
@@ -1086,7 +1086,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [] operator generates aliases for all distinct products
         // hagelslag400g appears twice but should only generate one alias (deduplication)
@@ -1125,7 +1125,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [1..3] should yield elements at indices 1 and 2 (second and third products)
         aliases.Should().HaveCount(2);
@@ -1161,7 +1161,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [..2] should yield first 2 products (indices 0 and 1)
         aliases.Should().HaveCount(2);
@@ -1197,7 +1197,7 @@ public class CreateAliasFactoryDelegateTests
             Relation.Parser);
 
         // Act
-        var aliases = factory(RelationToBytes(relation)).ToList();
+        var aliases = factory(relation.Id, RelationToBytes(relation)).ToList();
 
         // Assert - [2..] should yield from index 2 to end (third and fourth products)
         aliases.Should().HaveCount(2);

@@ -9,15 +9,15 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets;
 
-public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntity>> logger, IHostApplicationLifetime appLifetime, IConfiguration config, IDatasetReader<TEntity> dataset, IServiceProvider serviceProvider)
+public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntity>> logger, IHostApplicationLifetime appLifetime, IConfiguration config, IDatasetReader<TEntity> dataset, IServiceProvider serviceProvider, GrpcReaderConfig<TEntity>? readerConfig = null)
     where TEntity : class, IMessage<TEntity>
 {
     public record struct ListChangesRequest(ulong FromDatasetVersion, int PageSize, string PageToken, bool WaitForChanges);
     public record struct ListChangesResponse(ulong ToDatasetVersion, IEnumerable<string> NewEntities, IEnumerable<string> ChangedEntities, IEnumerable<string> DeletedEntities, string NextPageToken);
-    public async Task<ICollection<TEntity>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
+    public async Task<ICollection<TEntity?>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
         CancellationToken cancellationToken) => await BatchGet(listOfNames, requestParent, "", cancellationToken);
 
-    public async Task<ICollection<TEntity>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
+    public async Task<ICollection<TEntity?>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
         string aliasName, CancellationToken cancellationToken)
     {
         using var cts = CombiTokenSource(cancellationToken);
@@ -25,8 +25,9 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         {
             var entities = await GetDataset(aliasName)
                 .BatchGet(listOfNames, requestParent);
-            return entities.Where(entity => entity.entityBytes is not null)
-                .Select(item => _protoParser.ParseFrom(item.entityBytes!.Value.Span)).ToList();
+            return entities.Select(item => item.entityBytes is not null
+                ? InjectId(_protoParser.ParseFrom(item.entityBytes.Value.Span), item.name)
+                : null).ToList();
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -48,7 +49,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         var entity = await GetDataset(aliasName).Get(name) ?? throw new RpcException(new Status(StatusCode.NotFound,
                 $"The requested {typeof(TEntity).Name} does not exist: {name}"));
 
-        return _protoParser.ParseFrom(entity.entityBytes.Span);
+        return InjectId(_protoParser.ParseFrom(entity.entityBytes.Span), entity.name);
     }
 
     public async Task<TEntity> GetHistoric(string name, ulong version, CancellationToken cancellationToken)
@@ -60,7 +61,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             {
                 throw new RpcException(new Status(StatusCode.NotFound, $"The requested {typeof(TEntity).Name} does not exist in version {version}: {name}"));
             }
-            return _protoParser.ParseFrom(entity.Value.entityBytes.Span);
+            return InjectId(_protoParser.ParseFrom(entity.Value.entityBytes.Span), entity.Value.name);
         }
         catch (ArgumentOutOfRangeException ex)
         {
@@ -146,7 +147,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         using var cts = CombiTokenSource(cancellationToken);
         var (childrenIds, nextPageToken) = await ListChildren(parent, pageSize, pageToken, aliasName, cts.Token);
         var batch = await BatchGet(childrenIds, parent, aliasName, cts.Token);
-        return (batch, nextPageToken);
+        return (batch.Where(e => e is not null).ToList()!, nextPageToken);
     }
 
 
@@ -228,6 +229,12 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             // because the client already knows it cancelled the operation.
             return new ListChangesResponse();
         }
+    }
+
+    private TEntity InjectId(TEntity entity, string name)
+    {
+        readerConfig?.EntityIdSetter?.Invoke(entity, name);
+        return entity;
     }
 
     private readonly int _paginationTimeOut = config.GetValue("PaginationCacheDuration", 60);

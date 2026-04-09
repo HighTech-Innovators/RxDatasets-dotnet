@@ -57,7 +57,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
     /// <summary>
     /// Extract aliases from a TestEntity protobuf message
     /// </summary>
-    private static IEnumerable<string> ExtractAliases(ReadOnlyMemory<byte> bytes)
+    private static IEnumerable<string> ExtractAliases(string entityName, ReadOnlyMemory<byte> bytes)
     {
         var entity = TestEntity.Parser.ParseFrom(bytes.Span);
         return entity.Aliases;

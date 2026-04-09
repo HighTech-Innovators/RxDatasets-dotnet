@@ -20,13 +20,15 @@ public static class DI
     /// <typeparam name="T">The DTO type (must be a protobuf message)</typeparam>
     /// <param name="services">The service collection</param>
     /// <param name="aliasName">A unique name for this alias reader (used to retrieve it later)</param>
-    /// <param name="aliasFactory">A function that converts entity bytes to a list of aliases for that entity.
+    /// <param name="aliasFactory">A function that converts entity name + bytes to a list of aliases for that entity.
+    /// The first parameter is the entity name/ID (the storage key). This enables alias resolution
+    /// even when the ID field has been stripped from the stored protobuf bytes.
     /// More than one alias name can exist per entity type, and multiple alias readers can be registered.</param>
     /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddDatasetAlias<T>(
         this IServiceCollection services,
         string aliasName,
-        Func<ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory)
+        Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory)
         where T : class, IMessage<T>, new()
     {
         if (string.IsNullOrWhiteSpace(aliasName))
@@ -58,6 +60,18 @@ public static class DI
             });
 
         return services;
+    }
+
+    /// <summary>
+    /// Backward-compatible overload that accepts a factory without the entity name parameter.
+    /// </summary>
+    public static IServiceCollection AddDatasetAlias<T>(
+        this IServiceCollection services,
+        string aliasName,
+        Func<ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory)
+        where T : class, IMessage<T>, new()
+    {
+        return AddDatasetAlias<T>(services, aliasName, (_, bytes) => aliasFactory(bytes));
     }
 
     /// <summary>
@@ -121,7 +135,7 @@ public static class PatternsAndExpressions
 {
     private static readonly Regex PlaceholderRegex = new(@"\{([^}]+)\}", RegexOptions.Compiled);
 
-    public static Func<ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
+    public static Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
         string idPattern,
         List<string> aliasPatterns,
         MessageParser<TEntity> protoParser)
@@ -131,7 +145,10 @@ public static class PatternsAndExpressions
         // This produces: [("tenantid", 0), ("storeid", 1), ("linkid", 2)] with their positions in the split result
         var idVariables = ExtractPatternVariables(idPattern);
 
-        return (ReadOnlyMemory<byte> entityBytes) =>
+        // Cache the Id property info for injection
+        var idProperty = typeof(TEntity).GetProperty("Id");
+
+        return (string entityName, ReadOnlyMemory<byte> entityBytes) =>
         {
             try
             {
@@ -139,6 +156,13 @@ public static class PatternsAndExpressions
                 var entity = protoParser.ParseFrom(entityBytes.Span);
                 if (entity == null)
                     return Enumerable.Empty<string>();
+
+                // Inject the entity name as Id if the property exists and the parsed value is empty
+                // (handles bytes where the id field was stripped for storage efficiency)
+                if (idProperty != null && string.IsNullOrEmpty(idProperty.GetValue(entity) as string))
+                {
+                    idProperty.SetValue(entity, entityName);
+                }
 
                 // Generate aliases from each alias pattern and flatten, then deduplicate
                 var allAliases = aliasPatterns

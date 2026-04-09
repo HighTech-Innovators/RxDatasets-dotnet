@@ -6,7 +6,8 @@ namespace RxDatasets.Reporting;
 
 public class ProtobufJsonToObjectStorageReporter<T>(
     IDiskStorage<T> storage,
-    IOptions<JsonOutputConfig> reportingConfig)
+    IOptions<JsonOutputConfig> reportingConfig,
+    Action<T, string>? entityIdSetter = null)
     : IDatasetUpdateReporting<T>
     where T : IMessage<T>
 {
@@ -20,14 +21,14 @@ public class ProtobufJsonToObjectStorageReporter<T>(
     public async Task OnNewDto(string name, byte[] newProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "created/");
-        var jsonBytes = ProtoBytesToJsonBytes(newProtoBytes);
+        var jsonBytes = ProtoBytesToJsonBytes(name, newProtoBytes);
         await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
     public async Task OnChangedDto(string name, byte[] changedProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "changed/");
-        var jsonBytes = ProtoBytesToJsonBytes(changedProtoBytes);
+        var jsonBytes = ProtoBytesToJsonBytes(name, changedProtoBytes);
         await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
@@ -47,9 +48,10 @@ public class ProtobufJsonToObjectStorageReporter<T>(
         return $"{prefix}{versionDir}{changeDir}{name}{versionSuffix}.json";
     }
 
-    private byte[] ProtoBytesToJsonBytes(byte[] protoBytes)
+    private byte[] ProtoBytesToJsonBytes(string name, byte[] protoBytes)
     {
         var entity = _protoParser.ParseFrom(protoBytes);
+        entityIdSetter?.Invoke(entity, name);
         var jsonString = _jsonFormatter.Format(entity);
         var jsonBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
         return jsonBytes;
