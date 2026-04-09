@@ -43,38 +43,8 @@ public static class NestedIndexHelper
     #region SnapshotIndex
 
     /// <summary>
-    /// Builds a SnapshotBucket trie from an EntityTrie for serialization.
-    /// </summary>
-    public static SnapshotBucket ToNestedSnapshot(EntityTrie trie)
-    {
-        var root = new SnapshotBucket();
-        foreach (var (name, entity) in trie)
-        {
-            PlaceSnapshotEntity(root, name, entity.ToProto());
-        }
-        return root;
-    }
-
-    private static void PlaceSnapshotEntity(SnapshotBucket bucket, string fullName, SnapshotEntity entity)
-    {
-        var segments = fullName.Split('/');
-        var current = bucket;
-
-        for (int i = 0; i < segments.Length - 1; i++)
-        {
-            if (!current.Children.TryGetValue(segments[i], out var child))
-            {
-                child = new SnapshotBucket();
-                current.Children[segments[i]] = child;
-            }
-            current = child;
-        }
-
-        current.Leaves[segments[^1]] = entity;
-    }
-
-    /// <summary>
     /// Reads a SnapshotBucket trie into an EntityTrie.Builder.
+    /// Skips deleted entities — only alive entities are added to the trie.
     /// </summary>
     public static void ReadNestedSnapshot(SnapshotBucket bucket, EntityTrie.Builder builder)
     {
@@ -85,8 +55,10 @@ public static class NestedIndexHelper
     {
         foreach (var (segment, entity) in bucket.Leaves)
         {
+            if (IndexEntity.IsDeletedInProto(entity))
+                continue;
             var fullName = prefix.Length == 0 ? segment : prefix + "/" + segment;
-            builder.Add(fullName, ImmutableSnapshotEntity.FromProto(entity));
+            builder.Add(fullName, IndexEntity.FromProto(entity));
         }
 
         foreach (var (segment, child) in bucket.Children)

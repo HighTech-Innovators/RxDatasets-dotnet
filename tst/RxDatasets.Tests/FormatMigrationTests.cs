@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using FluentAssertions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -14,8 +13,8 @@ namespace RxDatasets.Tests;
 /// </summary>
 public class FormatMigrationTests
 {
-    private static ImmutableSnapshotEntity MakeEntity(ulong insertedVersion = 1, long position = 0, int length = 10, uint crc32 = 42)
-        => new([], [insertedVersion], 0, position, length, crc32);
+    private static IndexEntity MakeEntity(ulong version = 1, long position = 0, int length = 10, uint crc32 = 42)
+        => new(version, position, length, crc32);
 
     #region Old flat snapshot bytes → new reader
 
@@ -54,10 +53,11 @@ public class FormatMigrationTests
         var state = ImmutableDatasetState.FromProto(parsed);
 
         state.SnapshotVersion.Should().Be(5);
-        state.Entities.Count.Should().Be(3);
+        // Deleted entity is excluded from the trie
+        state.Entities.Count.Should().Be(2);
         state.Entities["channels/64090/days/20240923/events/1"].Length.Should().Be(100);
         state.Entities["channels/64090/days/20240923/events/2"].Length.Should().Be(200);
-        state.Entities["channels/99999/days/20240101/events/1"].GetLatestChangeType().Should().Be(ChangeType.Deleted);
+        state.Entities.ContainsKey("channels/99999/days/20240101/events/1").Should().BeFalse();
     }
 
     #endregion
@@ -100,15 +100,53 @@ public class FormatMigrationTests
     [Fact]
     public void NewNestedSnapshotBytes_Roundtrip()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("prov/bbc/pack/123/video/1", MakeEntity(1, 0, 100, 11));
-        builder.Add("prov/bbc/pack/123/video/2", MakeEntity(2, 100, 200, 22));
-        builder.Add("prov/bbc/pack/456/video/1", MakeEntity(3, 300, 50, 33));
-        builder.Add("prov/nbc/pack/789/video/1", MakeEntity(4, 350, 75, 44));
-        var trie = builder.Build();
+        // Build a nested SnapshotIndex proto directly
+        var proto = new SnapshotIndex { SnapshotVersion = 10 };
+        var root = new SnapshotBucket();
 
-        var state = new ImmutableDatasetState(trie, 10, 10);
-        var bytes = state.ToProto().ToByteArray();
+        // prov/bbc/pack/123/video/{1,2}
+        var video123 = new SnapshotBucket();
+        video123.Leaves.Add("1", new SnapshotEntity { LastInsertedVersion = { 1 }, Position = 0, Length = 100, Crc32 = 11 });
+        video123.Leaves.Add("2", new SnapshotEntity { LastInsertedVersion = { 2 }, Position = 100, Length = 200, Crc32 = 22 });
+
+        var pack123 = new SnapshotBucket();
+        pack123.Children.Add("video", video123);
+
+        // prov/bbc/pack/456/video/1
+        var video456 = new SnapshotBucket();
+        video456.Leaves.Add("1", new SnapshotEntity { LastInsertedVersion = { 3 }, Position = 300, Length = 50, Crc32 = 33 });
+
+        var pack456 = new SnapshotBucket();
+        pack456.Children.Add("video", video456);
+
+        var packBucket = new SnapshotBucket();
+        packBucket.Children.Add("123", pack123);
+        packBucket.Children.Add("456", pack456);
+
+        var bbcBucket = new SnapshotBucket();
+        bbcBucket.Children.Add("pack", packBucket);
+
+        // prov/nbc/pack/789/video/1
+        var video789 = new SnapshotBucket();
+        video789.Leaves.Add("1", new SnapshotEntity { LastInsertedVersion = { 4 }, Position = 350, Length = 75, Crc32 = 44 });
+
+        var pack789 = new SnapshotBucket();
+        pack789.Children.Add("video", video789);
+
+        var nbcPack = new SnapshotBucket();
+        nbcPack.Children.Add("789", pack789);
+
+        var nbcBucket = new SnapshotBucket();
+        nbcBucket.Children.Add("pack", nbcPack);
+
+        var provBucket = new SnapshotBucket();
+        provBucket.Children.Add("bbc", bbcBucket);
+        provBucket.Children.Add("nbc", nbcBucket);
+
+        root.Children.Add("prov", provBucket);
+        proto.Nested = root;
+
+        var bytes = proto.ToByteArray();
 
         // Parse from raw bytes
         var parsed = SnapshotIndex.Parser.ParseFrom(bytes);
@@ -190,38 +228,37 @@ public class FormatMigrationTests
         var newState = state.ApplyDelta(parsedDelta);
 
         newState.LatestVersion.Should().Be(6);
-        newState.Entities.Count.Should().Be(4); // a, b (deleted), c, d
+        newState.Entities.Count.Should().Be(3); // a (changed), c (unchanged), d (new) — b was deleted/removed
 
         // items/a was changed
-        newState.Entities["items/a"].GetLatestChangeType().Should().Be(ChangeType.Changed);
         newState.Entities["items/a"].Length.Should().Be(110);
         newState.Entities["items/a"].Crc32.Should().Be(55u);
+        newState.Entities["items/a"].LatestVersion.Should().Be(6);
 
-        // items/b was deleted
-        newState.Entities["items/b"].GetLatestChangeType().Should().Be(ChangeType.Deleted);
+        // items/b was deleted — no longer in trie
+        newState.Entities.ContainsKey("items/b").Should().BeFalse();
 
         // items/c unchanged
-        newState.Entities["items/c"].GetLatestChangeType().Should().Be(ChangeType.New);
         newState.Entities["items/c"].Crc32.Should().Be(33u);
 
         // items/d is new
-        newState.Entities["items/d"].GetLatestChangeType().Should().Be(ChangeType.New);
         newState.Entities["items/d"].Length.Should().Be(75);
     }
 
     [Fact]
     public void NewSnapshot_PlusOldDeltas_ProducesCorrectState()
     {
-        // Step 1: New nested snapshot
-        var builder = new EntityTrie.Builder();
-        builder.Add("items/a", MakeEntity(5, 0, 100, 11));
-        builder.Add("items/b", MakeEntity(5, 100, 200, 22));
-        var trie = builder.Build();
-        var state = new ImmutableDatasetState(trie, 5, 5);
+        // Step 1: New nested snapshot (build proto directly)
+        var proto = new SnapshotIndex { SnapshotVersion = 5 };
+        var root = new SnapshotBucket();
+        var itemsBucket = new SnapshotBucket();
+        itemsBucket.Leaves.Add("a", new SnapshotEntity { LastInsertedVersion = { 5 }, Position = 0, Length = 100, Crc32 = 11 });
+        itemsBucket.Leaves.Add("b", new SnapshotEntity { LastInsertedVersion = { 5 }, Position = 100, Length = 200, Crc32 = 22 });
+        root.Children.Add("items", itemsBucket);
+        proto.Nested = root;
 
-        // Roundtrip through bytes to ensure nested format
-        var snapshotBytes = state.ToProto().ToByteArray();
-        state = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(snapshotBytes));
+        var snapshotBytes = proto.ToByteArray();
+        var state = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(snapshotBytes));
 
         // Step 2: Old flat delta (not nested)
         var legacyDelta = new DeltaIndex { DeltaVersion = 6 };
@@ -235,9 +272,9 @@ public class FormatMigrationTests
         var newState = state.ApplyDelta(parsedDelta);
 
         newState.LatestVersion.Should().Be(6);
-        newState.Entities["items/a"].GetLatestChangeType().Should().Be(ChangeType.New); // unchanged
-        newState.Entities["items/b"].GetLatestChangeType().Should().Be(ChangeType.Deleted);
-        newState.Entities["items/c"].GetLatestChangeType().Should().Be(ChangeType.New);
+        newState.Entities["items/a"].LatestVersion.Should().Be(5); // unchanged
+        newState.Entities.ContainsKey("items/b").Should().BeFalse(); // deleted → removed from trie
+        newState.Entities["items/c"].LatestVersion.Should().Be(6); // new
     }
 
     #endregion
@@ -284,9 +321,9 @@ public class FormatMigrationTests
         state = state.ApplyDeltas(parsedDeltas);
 
         state.LatestVersion.Should().Be(4);
-        state.Entities["data/1"].GetLatestChangeType().Should().Be(ChangeType.Changed);
+        state.Entities["data/1"].LatestVersion.Should().Be(3);
         state.Entities["data/1"].Crc32.Should().Be(3u);
-        state.Entities["data/2"].GetLatestChangeType().Should().Be(ChangeType.New);
+        state.Entities["data/2"].LatestVersion.Should().Be(4);
         state.Entities["data/2"].Crc32.Should().Be(4u);
     }
 
@@ -295,7 +332,7 @@ public class FormatMigrationTests
     #region GetChangedNames across format migration
 
     [Fact]
-    public void GetChangedNames_WorksAcrossFormatBoundary()
+    public void GetChangedNames_CanBeDeterminedFromDeltaIndices()
     {
         // Old snapshot at v1
         var snapshot = new SnapshotIndex { SnapshotVersion = 1 };
@@ -314,17 +351,18 @@ public class FormatMigrationTests
         delta.ChangedEntities.Add(new DeltaEntity { Name = "a/1", Position = 20, Length = 15, Crc32 = 3, PreviousVersion = 1 });
 
         var deltaBytes = NestedIndexHelper.SerializeDeltaIndex(delta);
-        state = state.ApplyDelta(NestedIndexHelper.ParseDeltaIndex(deltaBytes));
+        var parsedDelta = NestedIndexHelper.ParseDeltaIndex(deltaBytes);
 
-        // Query changes from v1
-        var changed = state.Entities
-            .Where(x => x.Value.GetLatestEntityVersion() > 1 && x.Value.GetLatestEntityVersion() <= 2)
-            .Select(x => (x.Key, x.Value.GetLatestChangeType()))
-            .ToList();
+        state = state.ApplyDelta(parsedDelta);
 
-        changed.Should().HaveCount(2);
-        changed.Should().Contain(("a/1", ChangeType.Changed));
-        changed.Should().Contain(("a/2", ChangeType.New));
+        // After applying delta, both entities should be in trie with version 2
+        state.Entities["a/1"].LatestVersion.Should().Be(2);
+        state.Entities["a/2"].LatestVersion.Should().Be(2);
+        state.Entities.Count.Should().Be(2);
+
+        // The delta index itself contains the change info for GetChangedNames
+        parsedDelta.NewEntities.Should().ContainSingle(e => e.Name == "a/2");
+        parsedDelta.ChangedEntities.Should().ContainSingle(e => e.Name == "a/1");
     }
 
     #endregion
@@ -332,7 +370,7 @@ public class FormatMigrationTests
     #region Snapshot re-serialization (old → new format via read + write)
 
     [Fact]
-    public void OldFlatSnapshot_ReadAndRewrite_ProducesNestedFormat()
+    public void OldFlatSnapshot_ReadAndRewrite_PreservesData()
     {
         // Old flat snapshot
         var legacy = new SnapshotIndex { SnapshotVersion = 5 };
@@ -344,21 +382,10 @@ public class FormatMigrationTests
         // Read with new code
         var state = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(legacyBytes));
 
-        // Re-serialize with new code (produces nested format)
-        var newProto = state.ToProto();
-        newProto.Entities.Should().BeEmpty("new format writes nested only");
-        newProto.Nested.Should().NotBeNull();
-
-        var newBytes = newProto.ToByteArray();
-
-        // Verify the new bytes are readable
-        var reparsed = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(newBytes));
-        reparsed.Entities.Count.Should().Be(2);
-        reparsed.Entities["a/b"].Crc32.Should().Be(42u);
-        reparsed.Entities["c/d"].Crc32.Should().Be(99u);
-
-        // New nested bytes should be smaller than flat bytes for shared prefixes
-        // (In this small case, might not be smaller due to overhead, but should at least roundtrip)
+        // Verify the data was correctly loaded
+        state.Entities.Count.Should().Be(2);
+        state.Entities["a/b"].Crc32.Should().Be(42u);
+        state.Entities["c/d"].Crc32.Should().Be(99u);
     }
 
     #endregion
@@ -384,14 +411,28 @@ public class FormatMigrationTests
     [Fact]
     public void ListDescendants_WorksAfterReadingNewNestedSnapshot()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("t/a/items/1", MakeEntity(1, 0, 10));
-        builder.Add("t/a/items/2", MakeEntity(2, 10, 20));
-        builder.Add("t/b/items/3", MakeEntity(3, 30, 30));
-        var state = new ImmutableDatasetState(builder.Build(), 5, 5);
+        // Build a nested proto directly
+        var proto = new SnapshotIndex { SnapshotVersion = 5 };
+        var root = new SnapshotBucket();
 
-        // Roundtrip through bytes
-        var bytes = state.ToProto().ToByteArray();
+        var taBucket = new SnapshotBucket();
+        var taItemsBucket = new SnapshotBucket();
+        taItemsBucket.Leaves.Add("1", new SnapshotEntity { LastInsertedVersion = { 1 }, Position = 0, Length = 10 });
+        taItemsBucket.Leaves.Add("2", new SnapshotEntity { LastInsertedVersion = { 2 }, Position = 10, Length = 20 });
+        taBucket.Children.Add("items", taItemsBucket);
+
+        var tbBucket = new SnapshotBucket();
+        var tbItemsBucket = new SnapshotBucket();
+        tbItemsBucket.Leaves.Add("3", new SnapshotEntity { LastInsertedVersion = { 3 }, Position = 30, Length = 30 });
+        tbBucket.Children.Add("items", tbItemsBucket);
+
+        var tBucket = new SnapshotBucket();
+        tBucket.Children.Add("a", taBucket);
+        tBucket.Children.Add("b", tbBucket);
+        root.Children.Add("t", tBucket);
+        proto.Nested = root;
+
+        var bytes = proto.ToByteArray();
         var restored = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(bytes));
 
         restored.Entities.ListDescendants("t/a").Should().BeEquivalentTo(["t/a/items/1", "t/a/items/2"]);

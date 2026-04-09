@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using FluentAssertions;
 using RxDatasets.Models;
 
@@ -6,11 +5,8 @@ namespace RxDatasets.Tests;
 
 public class EntityTrieTests
 {
-    private static ImmutableSnapshotEntity MakeEntity(ulong insertedVersion = 1, long position = 0, int length = 10)
-        => new([], [insertedVersion], 0, position, length, 42);
-
-    private static ImmutableSnapshotEntity MakeDeletedEntity(ulong deletedVersion = 2)
-        => new([deletedVersion], [1], 0, 0, 0, 0);
+    private static IndexEntity MakeEntity(ulong version = 1, long position = 0, int length = 10)
+        => new(version, position, length, 42);
 
     #region Empty trie
 
@@ -222,12 +218,13 @@ public class EntityTrieTests
     }
 
     [Fact]
-    public void ListDescendants_ExcludesDeletedEntities()
+    public void ListDescendants_AfterRemoveItem_ExcludesRemoved()
     {
         var trie = EntityTrie.Empty
             .SetItem("t/a/items/1", MakeEntity())
-            .SetItem("t/a/items/2", MakeDeletedEntity())
-            .SetItem("t/a/items/3", MakeEntity());
+            .SetItem("t/a/items/2", MakeEntity())
+            .SetItem("t/a/items/3", MakeEntity())
+            .RemoveItem("t/a/items/2");
 
         var descendants = trie.ListDescendants("t/a").ToList();
         descendants.Should().BeEquivalentTo(["t/a/items/1", "t/a/items/3"]);
@@ -251,13 +248,14 @@ public class EntityTrieTests
     }
 
     [Fact]
-    public void CountDescendants_CountsNonDeletedOnly()
+    public void CountDescendants_AfterRemoveItem_CountsCorrectly()
     {
         var trie = EntityTrie.Empty
             .SetItem("p/a/items/1", MakeEntity())
-            .SetItem("p/a/items/2", MakeDeletedEntity())
+            .SetItem("p/a/items/2", MakeEntity())
             .SetItem("p/a/items/3", MakeEntity())
-            .SetItem("p/b/items/4", MakeEntity());
+            .SetItem("p/b/items/4", MakeEntity())
+            .RemoveItem("p/a/items/2");
 
         trie.CountDescendants("p/a").Should().Be(2);
         trie.CountDescendants("p/b").Should().Be(1);
@@ -318,7 +316,7 @@ public class EntityTrieTests
     [Fact]
     public void FromDictionary_CreatesTrieFromKVPs()
     {
-        var dict = new Dictionary<string, ImmutableSnapshotEntity>
+        var dict = new Dictionary<string, IndexEntity>
         {
             ["p/a/1"] = MakeEntity(1),
             ["p/a/2"] = MakeEntity(2),
@@ -336,7 +334,7 @@ public class EntityTrieTests
     [Fact]
     public void FromDictionary_EmptyDictionary_ProducesEmptyTrie()
     {
-        var trie = EntityTrie.FromDictionary(new Dictionary<string, ImmutableSnapshotEntity>());
+        var trie = EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>());
         trie.Count.Should().Be(0);
     }
 
@@ -349,15 +347,15 @@ public class EntityTrieTests
     {
         var trie = EntityTrie.Empty
             .SetItem("a/1", MakeEntity(1))
-            .SetItem("a/2", MakeDeletedEntity())
+            .SetItem("a/2", MakeEntity(2))
             .SetItem("a/3", MakeEntity(3));
 
-        var nonDeleted = trie
-            .Where(x => x.Value.GetLatestChangeType() != Abstractions.ChangeType.Deleted)
+        var filtered = trie
+            .Where(x => x.Value.LatestVersion > 1)
             .Select(x => x.Key)
             .ToList();
 
-        nonDeleted.Should().BeEquivalentTo(["a/1", "a/3"]);
+        filtered.Should().BeEquivalentTo(["a/2", "a/3"]);
     }
 
     [Fact]
@@ -365,10 +363,62 @@ public class EntityTrieTests
     {
         var trie = EntityTrie.Empty
             .SetItem("a/1", MakeEntity())
-            .SetItem("a/2", MakeDeletedEntity())
+            .SetItem("a/2", MakeEntity())
             .SetItem("a/3", MakeEntity());
 
-        trie.Count(x => x.Value.GetLatestChangeType() != Abstractions.ChangeType.Deleted).Should().Be(2);
+        trie.Count.Should().Be(3);
+    }
+
+    #endregion
+
+    #region RemoveItem
+
+    [Fact]
+    public void RemoveItem_ExistingEntity_DecreasesCount()
+    {
+        var trie = EntityTrie.Empty
+            .SetItem("a/b", MakeEntity())
+            .SetItem("c/d", MakeEntity());
+
+        var result = trie.RemoveItem("a/b");
+        result.Count.Should().Be(1);
+        result.ContainsKey("a/b").Should().BeFalse();
+        result.ContainsKey("c/d").Should().BeTrue();
+    }
+
+    [Fact]
+    public void RemoveItem_NonExistentEntity_ReturnsSameTrie()
+    {
+        var trie = EntityTrie.Empty.SetItem("a/b", MakeEntity());
+        var result = trie.RemoveItem("x/y");
+        result.Count.Should().Be(1);
+        result.Should().BeSameAs(trie);
+    }
+
+    [Fact]
+    public void RemoveItem_IsImmutable_OriginalUnchanged()
+    {
+        var original = EntityTrie.Empty
+            .SetItem("a/b", MakeEntity())
+            .SetItem("c/d", MakeEntity());
+
+        var modified = original.RemoveItem("a/b");
+
+        original.Count.Should().Be(2);
+        original.ContainsKey("a/b").Should().BeTrue();
+        modified.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void RemoveItem_PrunesEmptyIntermediateNodes()
+    {
+        var trie = EntityTrie.Empty
+            .SetItem("a/b/c/d", MakeEntity());
+
+        var result = trie.RemoveItem("a/b/c/d");
+        result.Count.Should().Be(0);
+        // The entire "a/b/c/d" branch should be pruned
+        result.ListDescendants("a").Should().BeEmpty();
     }
 
     #endregion

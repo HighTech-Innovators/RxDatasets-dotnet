@@ -6,10 +6,10 @@ namespace RxDatasets.Models;
 
 /// <summary>
 /// An immutable trie (prefix tree) that stores entities keyed by '/'-separated hierarchical names.
-/// Replaces ImmutableDictionary&lt;string, ImmutableSnapshotEntity&gt; for memory savings
-/// (common prefixes stored once) and O(depth) List/CountChildren operations.
+/// Uses <see cref="IndexEntity"/> — a slim record without version-history arrays.
+/// Deleted entities are NOT stored in the trie; presence means alive.
 /// </summary>
-public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEntity>
+public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
 {
     internal static readonly EntityTrie Empty = new(TrieNode.EmptyNode, 0);
 
@@ -23,7 +23,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         Count = count;
     }
 
-    public ImmutableSnapshotEntity this[string key]
+    public IndexEntity this[string key]
     {
         get
         {
@@ -33,7 +33,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         }
     }
 
-    public bool TryGetValue(string name, [MaybeNullWhen(false)] out ImmutableSnapshotEntity value)
+    public bool TryGetValue(string name, [MaybeNullWhen(false)] out IndexEntity value)
     {
         var node = _root;
         int start = 0;
@@ -68,7 +68,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
     /// <summary>
     /// Returns a new trie with the given entity set (added or replaced).
     /// </summary>
-    public EntityTrie SetItem(string name, ImmutableSnapshotEntity value)
+    public EntityTrie SetItem(string name, IndexEntity value)
     {
         var segments = name.Split('/');
         bool wasNew = !ContainsKey(name);
@@ -76,7 +76,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         return new EntityTrie(newRoot, wasNew ? Count + 1 : Count);
     }
 
-    private static TrieNode SetItemRecursive(TrieNode node, string[] segments, int depth, ImmutableSnapshotEntity value)
+    private static TrieNode SetItemRecursive(TrieNode node, string[] segments, int depth, IndexEntity value)
     {
         if (depth == segments.Length)
         {
@@ -90,9 +90,50 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
     }
 
     /// <summary>
+    /// Returns a new trie with the given entity removed.
+    /// If the entity is not found, the same trie is returned.
+    /// Prunes empty intermediate nodes that have no value and no children.
+    /// </summary>
+    public EntityTrie RemoveItem(string name)
+    {
+        if (!ContainsKey(name))
+            return this;
+
+        var segments = name.Split('/');
+        var newRoot = RemoveItemRecursive(_root, segments, 0);
+        return new EntityTrie(newRoot ?? TrieNode.EmptyNode, Count - 1);
+    }
+
+    private static TrieNode? RemoveItemRecursive(TrieNode node, string[] segments, int depth)
+    {
+        if (depth == segments.Length)
+        {
+            // This is the target node — remove value
+            if (node.Children.Count == 0)
+                return null; // Prune: no children, no value
+            return new TrieNode(node.Children, null);
+        }
+
+        var segment = segments[depth];
+        if (!node.Children.TryGetValue(segment, out var child))
+            return node;
+
+        var newChild = RemoveItemRecursive(child, segments, depth + 1);
+        ImmutableDictionary<string, TrieNode> newChildren;
+        if (newChild == null)
+            newChildren = node.Children.Remove(segment);
+        else
+            newChildren = node.Children.SetItem(segment, newChild);
+
+        if (newChildren.Count == 0 && node.Value is null)
+            return null; // Prune
+        return new TrieNode(newChildren, node.Value);
+    }
+
+    /// <summary>
     /// Enumerates all entity names that are descendants of the given parent prefix.
     /// Parent should NOT end with '/'.
-    /// Filters out deleted entities.
+    /// All entities in the trie are alive (no deleted-entity filter needed).
     /// </summary>
     public IEnumerable<string> ListDescendants(string parent)
     {
@@ -101,15 +142,15 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
             yield break;
 
         var prefix = parent.Length > 0 ? parent + "/" : "";
-        foreach (var (name, entity) in EnumerateSubtree(node, prefix))
+        foreach (var (name, _) in EnumerateSubtree(node, prefix))
         {
-            if (entity.GetLatestChangeType() != Abstractions.ChangeType.Deleted)
-                yield return name;
+            yield return name;
         }
     }
 
     /// <summary>
-    /// Counts descendants under the given parent, excluding deleted entities.
+    /// Counts descendants under the given parent.
+    /// All entities in the trie are alive (no deleted-entity filter needed).
     /// </summary>
     public int CountDescendants(string parent)
     {
@@ -117,17 +158,15 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         if (node is null)
             return 0;
 
-        return CountNonDeletedLeaves(node);
+        return CountLeaves(node);
     }
 
-    private static int CountNonDeletedLeaves(TrieNode node)
+    private static int CountLeaves(TrieNode node)
     {
-        int count = 0;
-        if (node.Value is not null && node.Value.GetLatestChangeType() != Abstractions.ChangeType.Deleted)
-            count = 1;
+        int count = node.Value is not null ? 1 : 0;
 
         foreach (var child in node.Children.Values)
-            count += CountNonDeletedLeaves(child);
+            count += CountLeaves(child);
 
         return count;
     }
@@ -155,10 +194,8 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         return node;
     }
 
-    private static IEnumerable<(string Name, ImmutableSnapshotEntity Entity)> EnumerateSubtree(TrieNode node, string prefix)
+    private static IEnumerable<(string Name, IndexEntity Entity)> EnumerateSubtree(TrieNode node, string prefix)
     {
-        // Yield value at this node (if any) — but only if this is not the root traversal starting point
-        // The starting node itself is the parent; we only want its descendants.
         foreach (var (segment, child) in node.Children)
         {
             var childPath = prefix + segment;
@@ -182,7 +219,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         }
     }
 
-    public IEnumerable<ImmutableSnapshotEntity> Values
+    public IEnumerable<IndexEntity> Values
     {
         get
         {
@@ -191,17 +228,17 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         }
     }
 
-    public IEnumerator<KeyValuePair<string, ImmutableSnapshotEntity>> GetEnumerator()
+    public IEnumerator<KeyValuePair<string, IndexEntity>> GetEnumerator()
     {
         return EnumerateAll(_root, "").GetEnumerator();
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private static IEnumerable<KeyValuePair<string, ImmutableSnapshotEntity>> EnumerateAll(TrieNode node, string prefix)
+    private static IEnumerable<KeyValuePair<string, IndexEntity>> EnumerateAll(TrieNode node, string prefix)
     {
         if (node.Value is not null)
-            yield return new KeyValuePair<string, ImmutableSnapshotEntity>(prefix, node.Value);
+            yield return new KeyValuePair<string, IndexEntity>(prefix, node.Value);
 
         foreach (var (segment, child) in node.Children)
         {
@@ -214,9 +251,9 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
     #endregion
 
     /// <summary>
-    /// Creates an EntityTrie from a dictionary of entity names to snapshot entities.
+    /// Creates an EntityTrie from a dictionary of entity names to index entities.
     /// </summary>
-    public static EntityTrie FromDictionary(IEnumerable<KeyValuePair<string, ImmutableSnapshotEntity>> entries)
+    public static EntityTrie FromDictionary(IEnumerable<KeyValuePair<string, IndexEntity>> entries)
     {
         var builder = new Builder();
         foreach (var kvp in entries)
@@ -231,7 +268,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         private readonly MutableTrieNode _root = new();
         private int _count;
 
-        public void Add(string name, ImmutableSnapshotEntity value)
+        public void Add(string name, IndexEntity value)
         {
             var segments = name.Split('/');
             var node = _root;
@@ -270,7 +307,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, ImmutableSnapshotEn
         private sealed class MutableTrieNode
         {
             public Dictionary<string, MutableTrieNode> Children { get; } = new();
-            public ImmutableSnapshotEntity? Value { get; set; }
+            public IndexEntity? Value { get; set; }
         }
     }
 
@@ -282,9 +319,9 @@ internal sealed class TrieNode
     public static readonly TrieNode EmptyNode = new(ImmutableDictionary<string, TrieNode>.Empty, null);
 
     public ImmutableDictionary<string, TrieNode> Children { get; }
-    public ImmutableSnapshotEntity? Value { get; }
+    public IndexEntity? Value { get; }
 
-    public TrieNode(ImmutableDictionary<string, TrieNode> children, ImmutableSnapshotEntity? value)
+    public TrieNode(ImmutableDictionary<string, TrieNode> children, IndexEntity? value)
     {
         Children = children;
         Value = value;

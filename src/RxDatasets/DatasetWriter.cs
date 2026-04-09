@@ -27,6 +27,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     protected IReadOnlyStorageProvider<T> ReadOnlyStorageProvider => _storageProvider;
     protected ImmutableDatasetState? CurrentIndex => _index;
     protected ImmutableDatasetState? MostRecentSnapshotIndex => _indexBasedOnMostRecentSnapshot;
+    protected DatasetHelper DatasetHelper => _datasetHelper;
 
     /// <summary>
     /// Called after a delta has been computed and persisted, but before <c>_index</c> is
@@ -151,7 +152,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
         using var slot = await Lock(ct);
-        if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!_index!.Entities.TryGetValue(name, out _))
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
@@ -183,8 +184,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         await foreach (var (name, trackingId, slaTimestamp) in names.WithCancellation(ct))
         {
-            if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
-                existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+            if (!_index.Entities.TryGetValue(name, out _))
             {
                 continue;
             }
@@ -227,9 +227,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         foreach (var (name, entity) in _index!.Entities)
         {
             if (!name.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
-
-            if (entity.GetLatestChangeType() == ChangeType.Deleted)
                 continue;
 
             deletedNames.Add(name);
@@ -277,7 +274,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await Lock(ct);
         Delta delta;
 
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!_index!.Entities.TryGetValue(name, out _))
             delta = new Delta([(name, entityBytes, ChangeType.New, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else if (await IsByteArrayUpdated(name, entityBytes))
@@ -364,7 +361,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             {
                 if (_index!.Entities.TryGetValue(name, out var existingEntity))
                 {
-                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = existingEntity.GetLatestEntityVersion() });
+                    deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = existingEntity.LatestVersion });
                 }
             }
         }
@@ -486,8 +483,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             // Get original state from index
             var hasExistingEntity = index.Entities.TryGetValue(name, out var existingEntity);
-            var existingIsDeleted = hasExistingEntity && existingEntity!.GetLatestChangeType() == ChangeType.Deleted;
-            ulong previousVersion = hasExistingEntity ? existingEntity!.GetLatestEntityVersion() : 0;
+            var existingIsDeleted = !hasExistingEntity;
+            ulong previousVersion = hasExistingEntity ? existingEntity!.LatestVersion : 0;
 
             if (finalState == null)
             {
@@ -544,8 +541,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
     {
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) ||
-            existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!_index!.Entities.TryGetValue(name, out _))
         {
             return ChangeType.New;
         }
@@ -572,9 +568,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
-        // Precondition: calling method MUST have checked it exists AND is not deleted.
+        // Precondition: calling method MUST have checked it exists (presence in trie = alive).
         var entityInMainIndex = _index!.Entities[name];
-        var entityVersion = entityInMainIndex.GetLatestEntityVersion();
+        var entityVersion = entityInMainIndex.LatestVersion;
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
@@ -620,7 +616,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             ulong previousVersion = 0;
             if (_index!.Entities.TryGetValue(name, out var existingEntity))
             {
-                previousVersion = existingEntity.GetLatestEntityVersion();
+                previousVersion = existingEntity.LatestVersion;
             }
 
             switch (change)
@@ -862,8 +858,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                             virtualState[name] = (null, 0, false, UpdateTrackingId(vs.TrackingId, vs.SlaTimestamp, intent.TrackingId, intent.SlaTimestamp), UpdateSlaTimestamp(vs.SlaTimestamp, intent.SlaTimestamp));
                         }
                     }
-                    else if (entity.GetLatestChangeType() != ChangeType.Deleted)
+                    else
                     {
+                        // Entity is in the trie, so it's alive (no need to check for deleted)
                         deleted++;
                         virtualState[name] = (null, 0, false, intent.TrackingId, intent.SlaTimestamp);
                     }
@@ -924,8 +921,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         currentlyExists = vs.Exists;
                         currentCrc32 = vs.Crc32;
                     }
-                    else if (index.Entities.TryGetValue(name, out var existing)
-                             && existing.GetLatestChangeType() != ChangeType.Deleted)
+                    else if (index.Entities.TryGetValue(name, out var existing))
                     {
                         currentlyExists = true;
                         currentCrc32 = existing.Crc32;
@@ -985,8 +981,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         foreach (var (name, (bytes, crc, exists, trackingId, slaTimestamp)) in virtualState)
         {
-            bool realExists = index.Entities.TryGetValue(name, out var realEntity)
-                              && realEntity.GetLatestChangeType() != ChangeType.Deleted;
+            bool realExists = index.Entities.TryGetValue(name, out var realEntity);
 
             if (exists && !realExists)
             {

@@ -17,25 +17,12 @@ public record ImmutableDatasetState(EntityTrie Entities, ulong SnapshotVersion, 
             // Legacy flat format
             foreach (var kvp in snapshotIndex.Entities)
             {
-                builder.Add(kvp.Key, ImmutableSnapshotEntity.FromProto(kvp.Value));
+                if (!IndexEntity.IsDeletedInProto(kvp.Value))
+                    builder.Add(kvp.Key, IndexEntity.FromProto(kvp.Value));
             }
         }
 
         var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         return new ImmutableDatasetState(builder.Build(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion);
-    }
-
-    public SnapshotIndex ToProto()
-    {
-        var snapshotIndex = new SnapshotIndex()
-        {
-            SnapshotVersionLegacy = 0,
-            SnapshotVersion = this.SnapshotVersion,
-            Nested = NestedIndexHelper.ToNestedSnapshot(Entities)
-        };
-
-        // Flat entities field left empty — new readers use nested
-
-        return snapshotIndex;
     }
 }

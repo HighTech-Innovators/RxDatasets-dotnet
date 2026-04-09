@@ -370,10 +370,8 @@ public class WriteCoalescingTests
         // Build an index with "foo" = A
         var entities = EntityTrie.Empty.SetItem(
             "foo",
-            new ImmutableSnapshotEntity(
-                LastDeletedVersion: [],
-                LastInsertedVersion: [1],
-                LastUpdatedVersion: 0,
+            new IndexEntity(
+                LatestVersion: 1,
                 Position: 0,
                 Length: dataA.Length,
                 Crc32: crcA));

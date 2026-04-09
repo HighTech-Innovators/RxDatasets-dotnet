@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Collections.Immutable;
 using System.Reactive.Concurrency;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -115,7 +114,9 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities = [];
+        // Build the mutable proto index for on-disk serialization (full version arrays).
+        // Uses a Dictionary<string, SnapshotEntity> built from old snapshot proto + delta protos.
+        var protoEntities = new Dictionary<string, SnapshotEntity>();
 
         var tempPath = DatasetHelper.GetTempFilePath();
 
@@ -124,12 +125,18 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         {
             long targetSnapshotStreamPosition = 0;
 
+            // Load old snapshot proto for version-array preservation
+            Dictionary<string, SnapshotEntity>? oldSnapshotProtoEntities = null;
             if (currentIndex.SnapshotVersion > 0)
-                targetSnapshotStreamPosition =
-                    await CopyRelevantItemsFromOldSnapshot(currentIndex, newSnapshotEntities, targetSnapshotStream,
-                        targetSnapshotStreamPosition, stoppingToken);
+            {
+                oldSnapshotProtoEntities = await LoadOldSnapshotProtoEntities(currentIndex.SnapshotVersion);
 
-            targetSnapshotStreamPosition = await CopyRelevantItemsFromDeltas(currentIndex, newSnapshotEntities,
+                targetSnapshotStreamPosition =
+                    await CopyRelevantItemsFromOldSnapshot(currentIndex, protoEntities, oldSnapshotProtoEntities,
+                        targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
+            }
+
+            targetSnapshotStreamPosition = await CopyRelevantItemsFromDeltas(currentIndex, protoEntities,
                 targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
 
             if (targetSnapshotStreamPosition == 0)
@@ -139,13 +146,19 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             targetSnapshotStream.Close();
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
-            var newSnapshotIndex =
-                new ImmutableDatasetState(EntityTrie.FromDictionary(newSnapshotEntities), newSnapshotVersion,
-                    currentIndex.LatestVersion);
+
+            // Build SnapshotIndex proto directly from protoEntities
+            var snapshotIndexProto = new SnapshotIndex
+            {
+                SnapshotVersionLegacy = 0,
+                SnapshotVersion = newSnapshotVersion,
+                Nested = BuildNestedSnapshotBucket(protoEntities)
+            };
+
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
-            await _storageProvider.StoreSnapshot(newSnapshotVersion, newSnapshotIndex.ToProto().ToByteArray(),
+            await _storageProvider.StoreSnapshot(newSnapshotVersion, snapshotIndexProto.ToByteArray(),
                 localSnapshotReader);
 
             localSnapshotReader.Close();
@@ -159,22 +172,88 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         }
     }
 
+    /// <summary>
+    /// Loads the old snapshot index proto from disk and flattens it into a name→SnapshotEntity dictionary.
+    /// </summary>
+    private async Task<Dictionary<string, SnapshotEntity>> LoadOldSnapshotProtoEntities(ulong snapshotVersion)
+    {
+        var indexBytes = await _storageProvider.ReadSnapshotIndex(snapshotVersion);
+        var snapshotIndex = SnapshotIndex.Parser.ParseFrom(indexBytes.Span);
+        NestedIndexHelper.EnsureFlat(snapshotIndex);
+        return new Dictionary<string, SnapshotEntity>(snapshotIndex.Entities);
+    }
+
+    /// <summary>
+    /// Builds a nested SnapshotBucket from a flat dictionary of proto entities.
+    /// </summary>
+    private static SnapshotBucket BuildNestedSnapshotBucket(Dictionary<string, SnapshotEntity> entities)
+    {
+        var root = new SnapshotBucket();
+        foreach (var (name, entity) in entities)
+        {
+            var segments = name.Split('/');
+            var current = root;
+
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                if (!current.Children.TryGetValue(segments[i], out var child))
+                {
+                    child = new SnapshotBucket();
+                    current.Children[segments[i]] = child;
+                }
+                current = child;
+            }
+
+            current.Leaves[segments[^1]] = entity;
+        }
+        return root;
+    }
+
     private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        Dictionary<string, SnapshotEntity> protoEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        // Separate deleted entities (no data to read) from live entities
-        var liveEntities = new List<KeyValuePair<string, ImmutableSnapshotEntity>>();
-        foreach (var entity in currentIndex.Entities.Where(x =>
-                     x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        // All entities in the slim index with LatestVersion > SnapshotVersion came from deltas.
+        // They are all alive (no deleted entities in the trie).
+        var liveEntities = currentIndex.Entities
+            .Where(x => x.Value.LatestVersion > currentIndex.SnapshotVersion)
+            .ToList();
+
+        // Also gather deleted entities from delta indices (not in trie but need proto entries)
+        var deltas = await _datasetHelper.GetChangedDeltas(currentIndex.SnapshotVersion, currentIndex.LatestVersion);
+        foreach (var delta in deltas)
         {
-            if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+            var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
+            foreach (var deletedEntity in delta.DeletedEntities)
             {
-                newSnapshotEntities.Add(entity.Key, entity.Value with { Position = 0, Length = 0 });
+                // Only record if not already alive in the trie (meaning it wasn't re-created later)
+                if (!currentIndex.Entities.ContainsKey(deletedEntity.Name))
+                {
+                    var protoEntity = new SnapshotEntity
+                    {
+                        LastDeletedVersion = { deltaVersion },
+                        Position = 0,
+                        Length = 0
+                    };
+                    if (deletedEntity.PreviousVersion > 0)
+                    {
+                        protoEntity.LastInsertedVersion.Add(deletedEntity.PreviousVersion);
+                    }
+                    protoEntities[deletedEntity.Name] = protoEntity;
+                }
             }
-            else
+
+            foreach (var deletedName in delta.DeletedNames)
             {
-                liveEntities.Add(entity);
+                if (!currentIndex.Entities.ContainsKey(deletedName))
+                {
+                    protoEntities[deletedName] = new SnapshotEntity
+                    {
+                        LastDeletedVersion = { deltaVersion },
+                        Position = 0,
+                        Length = 0
+                    };
+                }
             }
         }
 
@@ -183,7 +262,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         // Group entities by their source delta version to avoid fetching the same delta multiple times
         var entitiesByDelta = liveEntities
-            .GroupBy(e => e.Value.GetLatestEntityVersion())
+            .GroupBy(e => e.Value.LatestVersion)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Pre-fetch all unique delta data blobs in parallel (limited concurrency)
@@ -194,8 +273,6 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             await throttle.WaitAsync(stoppingToken);
             try
             {
-                // Use ReadSnapshotData-style full blob read via ReadDataFromSources with position=0
-                // and the full delta data length. We need to find the max extent for this delta.
                 var maxExtent = entitiesByDelta[deltaVersion]
                     .Max(e => e.Value.Position + e.Value.Length);
                 var blob = await _storageProvider.ReadDataFromSources(
@@ -213,6 +290,17 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         await Task.WhenAll(fetchTasks);
 
+        // Build a lookup of delta info per entity for proto construction
+        var deltaEntityInfo = new Dictionary<string, (ulong deltaVersion, ChangeType changeType, ulong previousVersion)>();
+        foreach (var delta in deltas)
+        {
+            var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
+            foreach (var e in delta.NewEntities)
+                deltaEntityInfo[e.Name] = (deltaVersion, ChangeType.New, e.PreviousVersion);
+            foreach (var e in delta.ChangedEntities)
+                deltaEntityInfo[e.Name] = (deltaVersion, ChangeType.Changed, e.PreviousVersion);
+        }
+
         // Write entities to the snapshot stream from pre-fetched blobs
         foreach (var entity in liveEntities)
         {
@@ -222,21 +310,43 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
             var targetEntityPosition = targetSnapshotStreamPosition;
 
-            var deltaVersion = entity.Value.GetLatestEntityVersion();
+            var deltaVersion = entity.Value.LatestVersion;
             var deltaBlob = deltaDataBlobs[deltaVersion];
             var entityBytes = deltaBlob.Slice((int)entity.Value.Position, entityLength);
 
             await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
             targetSnapshotStreamPosition += entityLength;
 
-            newSnapshotEntities.Add(entity.Key, entity.Value with { Position = targetEntityPosition, Length = entityLength });
+            // Build the proto entity with version arrays
+            var protoEntity = new SnapshotEntity
+            {
+                Position = targetEntityPosition,
+                Length = entityLength,
+                Crc32 = entity.Value.Crc32
+            };
+
+            if (deltaEntityInfo.TryGetValue(entity.Key, out var info))
+            {
+                if (info.changeType == ChangeType.New)
+                    protoEntity.LastInsertedVersion.Add(info.deltaVersion);
+                else
+                    protoEntity.LastUpdatedVersion = info.deltaVersion;
+            }
+            else
+            {
+                // Fallback: we know it's alive with this version
+                protoEntity.LastInsertedVersion.Add(deltaVersion);
+            }
+
+            protoEntities[entity.Key] = protoEntity;
         }
 
         return targetSnapshotStreamPosition;
     }
 
     private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        Dictionary<string, SnapshotEntity> protoEntities,
+        Dictionary<string, SnapshotEntity> oldSnapshotProtoEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
@@ -244,38 +354,44 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             long sourceStreamPosition = 0;
 
             foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
+                         .Where(x => x.Value.LatestVersion <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)
                     return;
 
-                if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+                // Entity is in the trie → alive. Copy its data.
+                var entityLength = entity.Value.Length;
+
+                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+                var targetEntityPosition = targetSnapshotStreamPosition;
+
+                var gap = entity.Value.Position - sourceStreamPosition;
+                sourceStreamPosition += SeekForwardBy(sourceStream, gap);
+
+                EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
+
+                sourceStreamPosition += entityLength;
+                targetSnapshotStreamPosition += entityLength;
+
+                // Preserve the old snapshot proto entity (with full version arrays), update Position
+                if (oldSnapshotProtoEntities.TryGetValue(entity.Key, out var oldProtoEntity))
                 {
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    var updatedProtoEntity = oldProtoEntity.Clone();
+                    updatedProtoEntity.Position = targetEntityPosition;
+                    updatedProtoEntity.Length = entityLength;
+                    protoEntities[entity.Key] = updatedProtoEntity;
                 }
                 else
                 {
-                    var entityLength = entity.Value.Length;
-
-                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                    var targetEntityPosition = targetSnapshotStreamPosition;
-
-                    var gap = entity.Value.Position - sourceStreamPosition;
-                    sourceStreamPosition += SeekForwardBy(sourceStream, gap);
-
-                    EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
-
-                    sourceStreamPosition += entityLength;
-                    targetSnapshotStreamPosition += entityLength;
-
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
+                    // Fallback: create a minimal proto entity
+                    protoEntities[entity.Key] = new SnapshotEntity
                     {
+                        LastInsertedVersion = { entity.Value.LatestVersion },
                         Position = targetEntityPosition,
-                        Length = entityLength
+                        Length = entityLength,
+                        Crc32 = entity.Value.Crc32
                     };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
                 }
             }
         });

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using FluentAssertions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -8,34 +7,68 @@ namespace RxDatasets.Tests;
 
 public class NestedIndexHelperTests
 {
-    private static ImmutableSnapshotEntity MakeEntity(ulong insertedVersion = 1, long position = 100, int length = 50)
-        => new([], [insertedVersion], 0, position, length, 42);
+    private static IndexEntity MakeEntity(ulong version = 1, long position = 100, int length = 50)
+        => new(version, position, length, 42);
 
-    private static ImmutableSnapshotEntity MakeDeletedEntity()
-        => new([2], [1], 0, 0, 0, 0);
+    /// <summary>
+    /// Builds a SnapshotIndex proto from entities by placing them directly in the nested SnapshotBucket.
+    /// </summary>
+    private static SnapshotIndex BuildSnapshotProto(ulong snapshotVersion, params (string name, SnapshotEntity entity)[] entries)
+    {
+        var proto = new SnapshotIndex { SnapshotVersion = snapshotVersion };
+        var root = new SnapshotBucket();
+
+        foreach (var (name, entity) in entries)
+        {
+            var segments = name.Split('/');
+            var current = root;
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                if (!current.Children.TryGetValue(segments[i], out var child))
+                {
+                    child = new SnapshotBucket();
+                    current.Children[segments[i]] = child;
+                }
+                current = child;
+            }
+            current.Leaves[segments[^1]] = entity;
+        }
+
+        proto.Nested = root;
+        return proto;
+    }
+
+    private static SnapshotEntity MakeProtoEntity(ulong insertedVersion = 1, long position = 100, int length = 50, uint crc32 = 42)
+    {
+        var e = new SnapshotEntity { Position = position, Length = length, Crc32 = crc32 };
+        e.LastInsertedVersion.Add(insertedVersion);
+        return e;
+    }
+
+    private static SnapshotEntity MakeDeletedProtoEntity()
+    {
+        var e = new SnapshotEntity { Position = 0, Length = 0, Crc32 = 0 };
+        e.LastInsertedVersion.Add(1);
+        e.LastDeletedVersion.Add(2);
+        return e;
+    }
 
     #region SnapshotIndex: nested roundtrip
 
     [Fact]
     public void SnapshotIndex_Roundtrip_PreservesAllEntities()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("tenants/abc/stores/def/items/1", MakeEntity(1, 0, 10));
-        builder.Add("tenants/abc/stores/def/items/2", MakeEntity(2, 10, 20));
-        builder.Add("tenants/abc/stores/ghi/items/3", MakeEntity(3, 30, 30));
-        builder.Add("other/xyz/data/4", MakeEntity(4, 60, 40));
-        var trie = builder.Build();
-
-        var state = new ImmutableDatasetState(trie, SnapshotVersion: 5, LatestVersion: 10);
-
-        // Serialize to proto (uses nested format)
-        var proto = state.ToProto();
+        var proto = BuildSnapshotProto(5,
+            ("tenants/abc/stores/def/items/1", MakeProtoEntity(1, 0, 10)),
+            ("tenants/abc/stores/def/items/2", MakeProtoEntity(2, 10, 20)),
+            ("tenants/abc/stores/ghi/items/3", MakeProtoEntity(3, 30, 30)),
+            ("other/xyz/data/4", MakeProtoEntity(4, 60, 40)));
 
         // Flat entities should be empty (nested-only format)
         proto.Entities.Should().BeEmpty();
         proto.Nested.Should().NotBeNull();
 
-        // Deserialize back
+        // Deserialize into slim index
         var restored = ImmutableDatasetState.FromProto(proto);
 
         restored.SnapshotVersion.Should().Be(5);
@@ -49,13 +82,10 @@ public class NestedIndexHelperTests
     [Fact]
     public void SnapshotIndex_Roundtrip_ThroughBytes()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("a/b/c", MakeEntity(1, 0, 10));
-        builder.Add("a/b/d", MakeEntity(2, 10, 20));
-        var trie = builder.Build();
+        var proto = BuildSnapshotProto(3,
+            ("a/b/c", MakeProtoEntity(1, 0, 10)),
+            ("a/b/d", MakeProtoEntity(2, 10, 20)));
 
-        var state = new ImmutableDatasetState(trie, 3, 3);
-        var proto = state.ToProto();
         var bytes = proto.ToByteArray();
 
         // Parse from raw bytes (simulates reading from storage)
@@ -70,39 +100,32 @@ public class NestedIndexHelperTests
     [Fact]
     public void SnapshotIndex_EmptyTrie_Roundtrips()
     {
-        var state = new ImmutableDatasetState(EntityTrie.Empty, 0, 0);
-        var proto = state.ToProto();
+        var proto = new SnapshotIndex { SnapshotVersion = 0 };
         var restored = ImmutableDatasetState.FromProto(proto);
 
         restored.Entities.Count.Should().Be(0);
     }
 
     [Fact]
-    public void SnapshotIndex_WithDeletedEntities_Roundtrips()
+    public void SnapshotIndex_WithDeletedEntities_SkipsDeletedInTrie()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("a/live", MakeEntity(1, 0, 10));
-        builder.Add("a/dead", MakeDeletedEntity());
-        var trie = builder.Build();
+        var proto = BuildSnapshotProto(2,
+            ("a/live", MakeProtoEntity(1, 0, 10)),
+            ("a/dead", MakeDeletedProtoEntity()));
 
-        var state = new ImmutableDatasetState(trie, 2, 2);
-        var proto = state.ToProto();
         var restored = ImmutableDatasetState.FromProto(proto);
 
-        restored.Entities.Count.Should().Be(2);
-        restored.Entities["a/live"].GetLatestChangeType().Should().Be(Abstractions.ChangeType.New);
-        restored.Entities["a/dead"].GetLatestChangeType().Should().Be(Abstractions.ChangeType.Deleted);
+        // Deleted entities should NOT be in the trie
+        restored.Entities.Count.Should().Be(1);
+        restored.Entities.ContainsKey("a/live").Should().BeTrue();
+        restored.Entities.ContainsKey("a/dead").Should().BeFalse();
     }
 
     [Fact]
     public void SnapshotIndex_SingleSegmentName_Roundtrips()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("root", MakeEntity(1, 0, 10));
-        var trie = builder.Build();
+        var proto = BuildSnapshotProto(1, ("root", MakeProtoEntity(1, 0, 10)));
 
-        var state = new ImmutableDatasetState(trie, 1, 1);
-        var proto = state.ToProto();
         var restored = ImmutableDatasetState.FromProto(proto);
 
         restored.Entities.Count.Should().Be(1);
@@ -184,12 +207,9 @@ public class NestedIndexHelperTests
     [Fact]
     public void EnsureFlat_PopulatesFlatFromNested()
     {
-        var builder = new EntityTrie.Builder();
-        builder.Add("a/b/c", MakeEntity(1, 0, 10));
-        builder.Add("x/y", MakeEntity(2, 10, 20));
-        var trie = builder.Build();
-
-        var proto = new ImmutableDatasetState(trie, 1, 1).ToProto();
+        var proto = BuildSnapshotProto(1,
+            ("a/b/c", MakeProtoEntity(1, 0, 10)),
+            ("x/y", MakeProtoEntity(2, 10, 20)));
 
         // flat is empty
         proto.Entities.Should().BeEmpty();
