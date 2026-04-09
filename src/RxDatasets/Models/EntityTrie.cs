@@ -251,6 +251,29 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     #endregion
 
     /// <summary>
+    /// Creates a mutable Builder from this immutable trie.
+    /// The Builder shares no state with the original trie, so mutations are safe.
+    /// Use this for bulk delta application: thaw once, apply all changes, freeze once.
+    /// </summary>
+    public Builder ToBuilder()
+    {
+        var mutableRoot = ThawRecursive(_root);
+        return new Builder(mutableRoot, Count);
+    }
+
+    private static Builder.MutableTrieNode ThawRecursive(TrieNode node)
+    {
+        var mutable = new Builder.MutableTrieNode { Value = node.Value };
+
+        foreach (var (segment, child) in node.Children)
+        {
+            mutable.Children[segment] = ThawRecursive(child);
+        }
+
+        return mutable;
+    }
+
+    /// <summary>
     /// Creates an EntityTrie from a dictionary of entity names to index entities.
     /// </summary>
     public static EntityTrie FromDictionary(IEnumerable<KeyValuePair<string, IndexEntity>> entries)
@@ -261,14 +284,77 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         return builder.Build();
     }
 
-    #region Builder (for bulk construction from proto)
+    #region Builder (for bulk construction and mutation)
 
     public sealed class Builder
     {
-        private readonly MutableTrieNode _root = new();
+        private readonly MutableTrieNode _root;
         private int _count;
 
+        internal Builder()
+        {
+            _root = new MutableTrieNode();
+            _count = 0;
+        }
+
+        internal Builder(MutableTrieNode root, int count)
+        {
+            _root = root;
+            _count = count;
+        }
+
+        /// <summary>
+        /// Adds a new entity. Assumes the entity does not already exist.
+        /// Use <see cref="SetItem"/> when overwriting is possible.
+        /// </summary>
         public void Add(string name, IndexEntity value)
+        {
+            var node = NavigateOrCreate(name);
+            node.Value = value;
+            _count++;
+        }
+
+        /// <summary>
+        /// Sets an entity, overwriting any existing value. Correctly tracks count.
+        /// </summary>
+        public void SetItem(string name, IndexEntity value)
+        {
+            var node = NavigateOrCreate(name);
+            if (node.Value is null)
+                _count++;
+            node.Value = value;
+        }
+
+        /// <summary>
+        /// Removes an entity. Returns true if the entity was found and removed.
+        /// Does not prune empty intermediate nodes (they are pruned during <see cref="Build"/>).
+        /// </summary>
+        public bool Remove(string name)
+        {
+            var segments = name.Split('/');
+            var node = _root;
+
+            for (int i = 0; i < segments.Length; i++)
+            {
+                if (!node.Children.TryGetValue(segments[i], out var child))
+                    return false;
+                node = child;
+            }
+
+            if (node.Value is null)
+                return false;
+
+            node.Value = null;
+            _count--;
+            return true;
+        }
+
+        public EntityTrie Build()
+        {
+            return new EntityTrie(Freeze(_root), _count);
+        }
+
+        private MutableTrieNode NavigateOrCreate(string name)
         {
             var segments = name.Split('/');
             var node = _root;
@@ -283,28 +369,33 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
                 node = child;
             }
 
-            node.Value = value;
-            _count++;
-        }
-
-        public EntityTrie Build()
-        {
-            return new EntityTrie(Freeze(_root), _count);
+            return node;
         }
 
         private static TrieNode Freeze(MutableTrieNode mutable)
         {
+            // Prune: if no children and no value, this node is empty
+            if (mutable.Children.Count == 0 && mutable.Value is null)
+                return TrieNode.EmptyNode;
+
             if (mutable.Children.Count == 0)
                 return new TrieNode(ImmutableDictionary<string, TrieNode>.Empty, mutable.Value);
 
             var builder = ImmutableDictionary.CreateBuilder<string, TrieNode>();
             foreach (var (key, child) in mutable.Children)
-                builder.Add(key, Freeze(child));
+            {
+                var frozen = Freeze(child);
+                if (frozen != TrieNode.EmptyNode || frozen.Value is not null)
+                    builder.Add(key, frozen);
+            }
+
+            if (builder.Count == 0 && mutable.Value is null)
+                return TrieNode.EmptyNode;
 
             return new TrieNode(builder.ToImmutable(), mutable.Value);
         }
 
-        private sealed class MutableTrieNode
+        internal sealed class MutableTrieNode
         {
             public Dictionary<string, MutableTrieNode> Children { get; } = new();
             public IndexEntity? Value { get; set; }
