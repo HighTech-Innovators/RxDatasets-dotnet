@@ -425,7 +425,7 @@ public class EntityTrieTests
 
     #region NameCompressor integration
 
-    private const string TestPattern = "t/*/s/*/items/*/values";
+    private const string TestPattern = "t/{tenantid}/s/{storeid}/items/{itemid}/values";
 
     private static EntityTrie EmptyCompressed
         => new EntityTrie.Builder(NameCompressor.FromPattern(TestPattern)).Build();

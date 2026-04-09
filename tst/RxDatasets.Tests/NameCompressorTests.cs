@@ -5,7 +5,7 @@ namespace RxDatasets.Tests;
 
 public class NameCompressorTests
 {
-    private const string Pattern = "t/*/s/*/items/*/values";
+    private const string Pattern = "t/{tenantid}/s/{storeid}/items/{itemid}/values";
 
     [Fact]
     public void FromPattern_ReturnsNull_WhenNullOrEmpty()
@@ -25,6 +25,30 @@ public class NameCompressorTests
     public void FromPattern_ReturnsNull_WhenNoVariableSegments()
     {
         NameCompressor.FromPattern("t/s/items/values").Should().BeNull();
+    }
+
+    [Fact]
+    public void FromPattern_AcceptsStar_And_NamedPlaceholders()
+    {
+        var star = NameCompressor.FromPattern("t/*/s/*/items/*/values");
+        var named = NameCompressor.FromPattern("t/{tenantid}/s/{storeid}/items/{itemid}/values");
+
+        star.Should().NotBeNull();
+        named.Should().NotBeNull();
+        star!.VariableSegmentCount.Should().Be(3);
+        named!.VariableSegmentCount.Should().Be(3);
+
+        // Both produce the same compression
+        star.Compress("t/abc/s/def/items/001/values")
+            .Should().Be(named.Compress("t/abc/s/def/items/001/values"));
+    }
+
+    [Fact]
+    public void FromPattern_AcceptsMixedPlaceholders()
+    {
+        var c = NameCompressor.FromPattern("t/{tenantid}/s/*/items/{itemid}/values")!;
+        c.VariableSegmentCount.Should().Be(3);
+        c.Compress("t/abc/s/def/items/001/values").Should().Be("abc/def/001");
     }
 
     [Fact]

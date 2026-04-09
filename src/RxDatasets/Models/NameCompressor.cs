@@ -47,7 +47,7 @@ public sealed class NameCompressor
 
         for (int i = 0; i < segments.Length; i++)
         {
-            if (segments[i] == "*")
+            if (segments[i] == "*" || (segments[i].StartsWith('{') && segments[i].EndsWith('}')))
             {
                 isVariable[i] = true;
                 variablePositions.Add(i);
