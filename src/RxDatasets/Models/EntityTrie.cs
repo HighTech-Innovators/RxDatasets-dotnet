@@ -303,6 +303,60 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         return builder.Build();
     }
 
+    /// <summary>
+    /// Builds an EntityTrie directly from a proto <see cref="SnapshotBucket"/> tree
+    /// without reconstructing any entity name strings. Maps proto nodes 1:1 to trie nodes,
+    /// pre-allocating dictionaries from proto sizes.
+    /// </summary>
+    internal static EntityTrie FromSnapshotBucket(SnapshotBucket bucket, NameCompressor? compressor)
+    {
+        var root = FreezeFromBucket(bucket, out int count);
+        return new EntityTrie(root, count, compressor);
+    }
+
+    private static TrieNode FreezeFromBucket(SnapshotBucket bucket, out int count)
+    {
+        count = 0;
+
+        if (bucket.Children.Count == 0 && bucket.Leaves.Count == 0)
+            return TrieNode.EmptyNode;
+
+        var dict = new Dictionary<string, TrieNode>(bucket.Children.Count + bucket.Leaves.Count);
+
+        foreach (var (segment, childBucket) in bucket.Children)
+        {
+            var childNode = FreezeFromBucket(childBucket, out int childCount);
+            count += childCount;
+            if (childNode != TrieNode.EmptyNode)
+                dict[segment] = childNode;
+        }
+
+        foreach (var (segment, entity) in bucket.Leaves)
+        {
+            if (IndexEntity.IsDeletedInProto(entity))
+                continue;
+
+            var value = IndexEntity.FromProto(entity);
+
+            if (dict.TryGetValue(segment, out var existingNode))
+            {
+                // Segment is both an intermediate node and a leaf — merge value
+                dict[segment] = new TrieNode(existingNode.Children, value);
+            }
+            else
+            {
+                dict[segment] = new TrieNode(FrozenDictionary<string, TrieNode>.Empty, value);
+            }
+
+            count++;
+        }
+
+        if (dict.Count == 0)
+            return TrieNode.EmptyNode;
+
+        return new TrieNode(dict.ToFrozenDictionary(), null);
+    }
+
     #region Builder (for bulk construction and mutation)
 
     public sealed class Builder

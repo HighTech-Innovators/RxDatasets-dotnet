@@ -24,6 +24,7 @@ message SnapshotIndex {
 	map<string, SnapshotEntity> entities = 2;       // flat format (legacy)
 	SnapshotBucket nested = 33;                      // nested trie format
 	uint64 snapshot_version = 32;
+	string id_pattern = 34;                          // when set, entity names in nested/entities are compressed (fixed segments stripped)
 }
 
 message DeltaEntity {
@@ -63,6 +64,7 @@ message DeltaIndex {
   repeated DeletedEntity deleted_entities = 6;
 	DeltaBucket nested = 33;                         // nested trie format
 	uint64 delta_version = 32;
+	string id_pattern = 34;                          // when set, entity names are compressed (fixed segments stripped)
 }
 
 message ProcessedVersionsInfo {

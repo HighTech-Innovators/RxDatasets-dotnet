@@ -20,6 +20,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
     private readonly IOptions<WriterConfig> _writerConfig;
+    private readonly NameCompressor? _nameCompressor;
     private ImmutableDatasetState? _index;
     private SnapshotPositionLookup? _snapshotPositionLookup;
 
@@ -46,6 +47,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _storageProvider = storageProvider;
         _writerConfig = writerConfig;
         _logger = logger;
+        _nameCompressor = nameCompressor;
         _datasetHelper = new DatasetHelper(logger, _storageProvider, nameCompressor);
         _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
         _subscriptions.Add(notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(async (notification) =>
@@ -386,7 +388,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var newIndex = _index!.ApplyDelta(deltaIndex);
         using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
         {
-            await _storageProvider.StoreDelta(newIndex.LatestVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex), deltaDataStream);
+            await _storageProvider.StoreDelta(newIndex.LatestVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), deltaDataStream);
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
@@ -665,7 +667,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         concatenatedByteStream.Position = 0;
-        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex), concatenatedByteStream);
+        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), concatenatedByteStream);
 
         var newIndex = _index!.ApplyDelta(deltaIndex);
         await OnDeltaApplied(deltaIndex);

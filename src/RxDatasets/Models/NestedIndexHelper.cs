@@ -79,6 +79,8 @@ public static class NestedIndexHelper
         var delta = DeltaIndex.Parser.ParseFrom(data);
         if (delta.Nested != null)
             FlattenDeltaIndex(delta);
+        if (delta.IdPattern.Length > 0)
+            ExpandDeltaNames(delta);
         return delta;
     }
 
@@ -90,16 +92,27 @@ public static class NestedIndexHelper
         var delta = DeltaIndex.Parser.ParseFrom(data);
         if (delta.Nested != null)
             FlattenDeltaIndex(delta);
+        if (delta.IdPattern.Length > 0)
+            ExpandDeltaNames(delta);
         return delta;
     }
 
     /// <summary>
     /// Serializes a DeltaIndex using nested format. Clones the delta first so the
     /// original remains unchanged (callers may still read its flat fields).
+    /// When a <see cref="NameCompressor"/> is provided, entity names are compressed
+    /// before serialization and the pattern is stored in <c>id_pattern</c>.
     /// </summary>
-    public static byte[] SerializeDeltaIndex(DeltaIndex delta)
+    public static byte[] SerializeDeltaIndex(DeltaIndex delta, NameCompressor? compressor = null)
     {
         var clone = delta.Clone();
+
+        if (compressor != null)
+        {
+            CompressDeltaNames(clone, compressor);
+            clone.IdPattern = compressor.Pattern;
+        }
+
         NestDeltaIndex(clone);
         return clone.ToByteArray();
     }
@@ -277,6 +290,66 @@ public static class NestedIndexHelper
         }
 
         current.DeletedNames.Add(segments[^1]);
+    }
+
+    #endregion
+
+    #region ID Pattern compression
+
+    /// <summary>
+    /// Compresses all entity names in a DeltaIndex using the given <see cref="NameCompressor"/>.
+    /// Called before nesting for on-disk storage.
+    /// </summary>
+    private static void CompressDeltaNames(DeltaIndex delta, NameCompressor compressor)
+    {
+        foreach (var entity in delta.NewEntities)
+            entity.Name = compressor.Compress(entity.Name);
+        foreach (var entity in delta.ChangedEntities)
+            entity.Name = compressor.Compress(entity.Name);
+        foreach (var entity in delta.DeletedEntities)
+            entity.Name = compressor.Compress(entity.Name);
+
+        for (int i = 0; i < delta.DeletedNames.Count; i++)
+            delta.DeletedNames[i] = compressor.Compress(delta.DeletedNames[i]);
+    }
+
+    /// <summary>
+    /// Expands all entity names in a DeltaIndex using the pattern stored in <c>id_pattern</c>.
+    /// Called after parsing/flattening so all downstream consumers see full names.
+    /// </summary>
+    private static void ExpandDeltaNames(DeltaIndex delta)
+    {
+        var compressor = NameCompressor.FromPattern(delta.IdPattern);
+        if (compressor == null) return;
+
+        foreach (var entity in delta.NewEntities)
+            entity.Name = compressor.Expand(entity.Name);
+        foreach (var entity in delta.ChangedEntities)
+            entity.Name = compressor.Expand(entity.Name);
+        foreach (var entity in delta.DeletedEntities)
+            entity.Name = compressor.Expand(entity.Name);
+
+        for (int i = 0; i < delta.DeletedNames.Count; i++)
+            delta.DeletedNames[i] = compressor.Expand(delta.DeletedNames[i]);
+    }
+
+    /// <summary>
+    /// Expands entity name keys in a SnapshotIndex after flattening, when the proto
+    /// was written with a compressed <c>id_pattern</c>.
+    /// Rebuilds the <see cref="SnapshotIndex.Entities"/> map with expanded keys.
+    /// </summary>
+    internal static void ExpandSnapshotNames(SnapshotIndex snapshotIndex)
+    {
+        var compressor = NameCompressor.FromPattern(snapshotIndex.IdPattern);
+        if (compressor == null) return;
+
+        var expandedEntries = snapshotIndex.Entities
+            .Select(kvp => (Key: compressor.Expand(kvp.Key), Value: kvp.Value))
+            .ToList();
+
+        snapshotIndex.Entities.Clear();
+        foreach (var (key, value) in expandedEntries)
+            snapshotIndex.Entities[key] = value;
     }
 
     #endregion

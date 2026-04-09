@@ -20,6 +20,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     private readonly IScheduler _scheduler;
     private readonly TimeSpan _currentValuePeriodIntervalAsTimespan;
     private readonly SemaphoreSlim _semaphore = new(1);
+    private readonly NameCompressor? _nameCompressor;
 
     public SnapshotCreationPlugin(
         ILogger<SnapshotCreationPlugin<T>> logger,
@@ -32,6 +33,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         _datasetHelper = new DatasetHelper(logger, _storageProvider, nameCompressor);
         _config = config;
         _scheduler = scheduler;
+        _nameCompressor = nameCompressor;
         _currentValuePeriodIntervalAsTimespan = _config.Value.PeriodIntervalAsTimespan;
     }
     public string ConsumerIdentifier { get; } = $"SnapshotCreationPlugin-of-{typeof(T)}";
@@ -148,12 +150,18 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
 
-            // Build SnapshotIndex proto directly from protoEntities
+            // Build SnapshotIndex proto directly from protoEntities.
+            // When a name compressor is active, compress entity keys for on-disk storage.
+            var protoToSerialize = _nameCompressor != null
+                ? protoEntities.ToDictionary(kvp => _nameCompressor.Compress(kvp.Key), kvp => kvp.Value)
+                : protoEntities;
+
             var snapshotIndexProto = new SnapshotIndex
             {
                 SnapshotVersionLegacy = 0,
                 SnapshotVersion = newSnapshotVersion,
-                Nested = BuildNestedSnapshotBucket(protoEntities)
+                Nested = BuildNestedSnapshotBucket(protoToSerialize),
+                IdPattern = _nameCompressor?.Pattern ?? ""
             };
 
             localSnapshotReader.Position = 0;
@@ -175,12 +183,17 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
     /// <summary>
     /// Loads the old snapshot index proto from disk and flattens it into a name→SnapshotEntity dictionary.
+    /// If the snapshot was written with a compressed id_pattern, keys are expanded to full names.
     /// </summary>
     private async Task<Dictionary<string, SnapshotEntity>> LoadOldSnapshotProtoEntities(ulong snapshotVersion)
     {
         var indexBytes = await _storageProvider.ReadSnapshotIndex(snapshotVersion);
         var snapshotIndex = SnapshotIndex.Parser.ParseFrom(indexBytes.Span);
         NestedIndexHelper.EnsureFlat(snapshotIndex);
+
+        if (snapshotIndex.IdPattern.Length > 0)
+            NestedIndexHelper.ExpandSnapshotNames(snapshotIndex);
+
         return new Dictionary<string, SnapshotEntity>(snapshotIndex.Entities);
     }
 

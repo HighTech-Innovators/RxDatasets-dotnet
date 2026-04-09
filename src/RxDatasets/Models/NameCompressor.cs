@@ -19,13 +19,20 @@ public sealed class NameCompressor
     private readonly bool[] _isVariable;
     private readonly int _totalSegments;
 
-    private NameCompressor(string[] patternSegments, int[] variablePositions, bool[] isVariable)
+    private NameCompressor(string pattern, string[] patternSegments, int[] variablePositions, bool[] isVariable)
     {
+        Pattern = pattern;
         _patternSegments = patternSegments;
         _variablePositions = variablePositions;
         _isVariable = isVariable;
         _totalSegments = patternSegments.Length;
     }
+
+    /// <summary>
+    /// The original pattern string (e.g. "t/{tenantid}/s/{storeid}/items/{itemid}/values").
+    /// Stored in proto <c>id_pattern</c> fields for self-describing on-disk format.
+    /// </summary>
+    public string Pattern { get; }
 
     /// <summary>
     /// Creates a NameCompressor from an ID pattern string.
@@ -61,7 +68,7 @@ public sealed class NameCompressor
         if (!hasFixed || variablePositions.Count == 0)
             return null;
 
-        return new NameCompressor(segments, variablePositions.ToArray(), isVariable);
+        return new NameCompressor(pattern, segments, variablePositions.ToArray(), isVariable);
     }
 
     /// <summary>
@@ -75,11 +82,18 @@ public sealed class NameCompressor
     /// </summary>
     public string Compress(string fullName)
     {
-        // Fast path: extract variable segments from the full name
-        var segments = SplitSegments(fullName);
+        // Fast path: count slashes to check segment count without allocating a string[]
+        int slashCount = 0;
+        foreach (char c in fullName)
+        {
+            if (c == '/')
+                slashCount++;
+        }
 
-        if (segments.Length != _totalSegments)
-            return fullName; // Name doesn't match pattern; return as-is
+        if (slashCount + 1 != _totalSegments)
+            return fullName; // Already compressed or doesn't match pattern; return as-is
+
+        var segments = SplitSegments(fullName);
 
         if (_variablePositions.Length == 1)
             return segments[_variablePositions[0]];

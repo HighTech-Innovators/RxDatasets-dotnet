@@ -21,31 +21,42 @@ public sealed class SnapshotPositionLookup
 
     public static SnapshotPositionLookup FromProto(SnapshotIndex proto)
     {
+        var compressor = proto.IdPattern.Length > 0
+            ? NameCompressor.FromPattern(proto.IdPattern)
+            : null;
+
         var positions = new Dictionary<string, long>();
 
         if (proto.Nested is not null && proto.Nested.Children.Count > 0)
         {
-            ReadPositionsFromNested(proto.Nested, "", positions);
+            ReadPositionsFromNested(proto.Nested, "", positions, compressor);
         }
         else
         {
             foreach (var (name, entity) in proto.Entities)
             {
                 if (!IndexEntity.IsDeletedInProto(entity))
-                    positions[name] = entity.Position;
+                {
+                    var fullName = compressor?.Expand(name) ?? name;
+                    positions[fullName] = entity.Position;
+                }
             }
         }
 
         return new SnapshotPositionLookup(proto.SnapshotVersion, positions);
     }
 
-    private static void ReadPositionsFromNested(SnapshotBucket bucket, string prefix, Dictionary<string, long> positions)
+    private static void ReadPositionsFromNested(
+        SnapshotBucket bucket, string prefix, Dictionary<string, long> positions, NameCompressor? compressor)
     {
         foreach (var (leafName, entity) in bucket.Leaves)
         {
             if (!IndexEntity.IsDeletedInProto(entity))
             {
                 var fullName = prefix.Length > 0 ? prefix + "/" + leafName : leafName;
+                // Names reconstructed from nested buckets are compressed when IdPattern was set
+                if (compressor != null)
+                    fullName = compressor.Expand(fullName);
                 positions[fullName] = entity.Position;
             }
         }
@@ -53,7 +64,7 @@ public sealed class SnapshotPositionLookup
         foreach (var (childName, childBucket) in bucket.Children)
         {
             var childPrefix = prefix.Length > 0 ? prefix + "/" + childName : childName;
-            ReadPositionsFromNested(childBucket, childPrefix, positions);
+            ReadPositionsFromNested(childBucket, childPrefix, positions, compressor);
         }
     }
 }

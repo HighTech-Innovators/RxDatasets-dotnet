@@ -402,4 +402,235 @@ public class NestedIndexHelperTests
     }
 
     #endregion
+
+    #region On-disk ID pattern compression: DeltaIndex
+
+    [Fact]
+    public void DeltaIndex_WithCompressor_CompressesNamesOnDisk()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
+        var delta = new DeltaIndex { DeltaVersion = 10 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/s/def/items/001/values", Position = 0, Length = 10 });
+        delta.ChangedEntities.Add(new DeltaEntity { Name = "t/abc/s/def/items/002/values", Position = 10, Length = 20, PreviousVersion = 5 });
+        delta.DeletedEntities.Add(new DeletedEntity { Name = "t/abc/s/ghi/items/003/values", PreviousVersion = 7 });
+        delta.DeletedNames.Add("t/abc/s/ghi/items/004/values");
+
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta, compressor);
+
+        // Verify the on-disk proto has compressed names and id_pattern
+        var rawParsed = DeltaIndex.Parser.ParseFrom(bytes);
+        rawParsed.IdPattern.Should().Be("t/*/s/*/items/*/values");
+        // Nested format — flatten to check names
+        NestedIndexHelper.FlattenDeltaIndex(rawParsed);
+        rawParsed.NewEntities[0].Name.Should().Be("abc/def/001");
+        rawParsed.ChangedEntities[0].Name.Should().Be("abc/def/002");
+        rawParsed.DeletedEntities[0].Name.Should().Be("abc/ghi/003");
+        rawParsed.DeletedNames[0].Should().Be("abc/ghi/004");
+    }
+
+    [Fact]
+    public void DeltaIndex_WithCompressor_RoundtripsToFullNames()
+    {
+        var compressor = NameCompressor.FromPattern("t/{tenantid}/s/{storeid}/items/{itemid}/values")!;
+        var delta = new DeltaIndex { DeltaVersion = 10 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/s/def/items/001/values", Position = 0, Length = 10, Crc32 = 1 });
+        delta.ChangedEntities.Add(new DeltaEntity { Name = "t/abc/s/def/items/002/values", Position = 10, Length = 20, Crc32 = 2, PreviousVersion = 5 });
+        delta.DeletedEntities.Add(new DeletedEntity { Name = "t/abc/s/ghi/items/003/values", PreviousVersion = 7 });
+        delta.DeletedNames.Add("t/abc/s/ghi/items/004/values");
+
+        // Serialize with compression, then parse back (ParseDeltaIndex expands)
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta, compressor);
+        var restored = NestedIndexHelper.ParseDeltaIndex(bytes);
+
+        restored.DeltaVersion.Should().Be(10);
+        restored.NewEntities.Should().HaveCount(1);
+        restored.NewEntities[0].Name.Should().Be("t/abc/s/def/items/001/values");
+        restored.NewEntities[0].Position.Should().Be(0);
+        restored.NewEntities[0].Crc32.Should().Be(1u);
+        restored.ChangedEntities.Should().HaveCount(1);
+        restored.ChangedEntities[0].Name.Should().Be("t/abc/s/def/items/002/values");
+        restored.DeletedEntities.Should().HaveCount(1);
+        restored.DeletedEntities[0].Name.Should().Be("t/abc/s/ghi/items/003/values");
+        restored.DeletedNames.Should().HaveCount(1);
+        restored.DeletedNames[0].Should().Be("t/abc/s/ghi/items/004/values");
+    }
+
+    [Fact]
+    public void DeltaIndex_WithCompressor_DoesNotMutateOriginal()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+        var delta = new DeltaIndex { DeltaVersion = 5 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "t/abc/items/001/values", Position = 0, Length = 10 });
+
+        NestedIndexHelper.SerializeDeltaIndex(delta, compressor);
+
+        // Original delta should still have full names
+        delta.NewEntities[0].Name.Should().Be("t/abc/items/001/values");
+    }
+
+    [Fact]
+    public void DeltaIndex_WithoutCompressor_HasNoIdPattern()
+    {
+        var delta = new DeltaIndex { DeltaVersion = 5 };
+        delta.NewEntities.Add(new DeltaEntity { Name = "a/b/c", Position = 0, Length = 10 });
+
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta);
+        var rawParsed = DeltaIndex.Parser.ParseFrom(bytes);
+
+        rawParsed.IdPattern.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region On-disk ID pattern compression: SnapshotIndex
+
+    [Fact]
+    public void SnapshotIndex_WithCompressor_RoundtripsViaFromProto()
+    {
+        // Build a snapshot proto with compressed names (simulating what SnapshotCreationPlugin produces)
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
+        var proto = BuildSnapshotProto(10,
+            ("abc/def/001", MakeProtoEntity(1, 0, 10)),
+            ("abc/def/002", MakeProtoEntity(2, 10, 20)),
+            ("abc/ghi/003", MakeProtoEntity(3, 30, 30)));
+        proto.IdPattern = compressor.Pattern;
+
+        // Serialize to bytes and parse back (simulates disk roundtrip)
+        var bytes = proto.ToByteArray();
+        var parsed = SnapshotIndex.Parser.ParseFrom(bytes);
+
+        // FromProto should auto-detect the compressor and produce full names
+        var state = ImmutableDatasetState.FromProto(parsed);
+
+        state.Entities.Count.Should().Be(3);
+        state.Entities.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
+        state.Entities.ContainsKey("t/abc/s/def/items/002/values").Should().BeTrue();
+        state.Entities.ContainsKey("t/abc/s/ghi/items/003/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnapshotIndex_WithCompressor_FromProtoUsesExplicitCompressor()
+    {
+        // Build with compressed names
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
+        var proto = BuildSnapshotProto(5,
+            ("abc/def/001", MakeProtoEntity(1, 0, 10)));
+        proto.IdPattern = compressor.Pattern;
+
+        // Pass an explicit compressor (same pattern) — should use it
+        var state = ImmutableDatasetState.FromProto(proto, compressor);
+
+        state.Entities.Count.Should().Be(1);
+        state.Entities.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnapshotIndex_WithCompressor_LegacyFlatFormat()
+    {
+        // Build a flat snapshot with compressed names + id_pattern
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+        var proto = new SnapshotIndex { SnapshotVersion = 5, IdPattern = compressor.Pattern };
+        proto.Entities.Add("abc/001", MakeProtoEntity(1, 0, 10));
+        proto.Entities.Add("abc/002", MakeProtoEntity(2, 10, 20));
+
+        var state = ImmutableDatasetState.FromProto(proto);
+
+        state.Entities.Count.Should().Be(2);
+        state.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+        state.Entities.ContainsKey("t/abc/items/002/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnapshotIndex_WithoutCompressor_LegacyFullNames()
+    {
+        // No id_pattern — full names in proto, no compressor auto-created
+        var proto = BuildSnapshotProto(5,
+            ("t/abc/s/def/items/001/values", MakeProtoEntity(1, 0, 10)));
+
+        var state = ImmutableDatasetState.FromProto(proto);
+
+        state.Entities.Count.Should().Be(1);
+        state.Entities.ContainsKey("t/abc/s/def/items/001/values").Should().BeTrue();
+    }
+
+    #endregion
+
+    #region On-disk ID pattern compression: SnapshotPositionLookup
+
+    [Fact]
+    public void SnapshotPositionLookup_WithCompressor_ExpandsNestedNames()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
+        var proto = BuildSnapshotProto(5,
+            ("abc/def/001", MakeProtoEntity(1, 0, 10)),
+            ("abc/ghi/002", MakeProtoEntity(2, 10, 20)));
+        proto.IdPattern = compressor.Pattern;
+
+        var lookup = SnapshotPositionLookup.FromProto(proto);
+
+        lookup.TryGetPosition("t/abc/s/def/items/001/values", out var pos1).Should().BeTrue();
+        pos1.Should().Be(0);
+        lookup.TryGetPosition("t/abc/s/ghi/items/002/values", out var pos2).Should().BeTrue();
+        pos2.Should().Be(10);
+    }
+
+    [Fact]
+    public void SnapshotPositionLookup_WithCompressor_ExpandsFlatNames()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+        var proto = new SnapshotIndex { SnapshotVersion = 5, IdPattern = compressor.Pattern };
+        proto.Entities.Add("abc/001", MakeProtoEntity(1, 0, 10));
+
+        var lookup = SnapshotPositionLookup.FromProto(proto);
+
+        lookup.TryGetPosition("t/abc/items/001/values", out var pos).Should().BeTrue();
+        pos.Should().Be(0);
+    }
+
+    [Fact]
+    public void SnapshotPositionLookup_WithoutCompressor_UsesFullNames()
+    {
+        var proto = BuildSnapshotProto(5,
+            ("t/abc/s/def/items/001/values", MakeProtoEntity(1, 0, 10)));
+
+        var lookup = SnapshotPositionLookup.FromProto(proto);
+
+        lookup.TryGetPosition("t/abc/s/def/items/001/values", out var pos).Should().BeTrue();
+        pos.Should().Be(0);
+    }
+
+    #endregion
+
+    #region On-disk ID pattern compression: EnsureFlat + ExpandSnapshotNames
+
+    [Fact]
+    public void EnsureFlat_ThenExpand_ProducesFullNames()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
+        var proto = BuildSnapshotProto(5,
+            ("abc/def/001", MakeProtoEntity(1, 0, 10)),
+            ("abc/ghi/002", MakeProtoEntity(2, 10, 20)));
+        proto.IdPattern = compressor.Pattern;
+
+        NestedIndexHelper.EnsureFlat(proto);
+        NestedIndexHelper.ExpandSnapshotNames(proto);
+
+        proto.Entities.Should().HaveCount(2);
+        proto.Entities.Should().ContainKey("t/abc/s/def/items/001/values");
+        proto.Entities.Should().ContainKey("t/abc/s/ghi/items/002/values");
+    }
+
+    [Fact]
+    public void ExpandSnapshotNames_NoOpWithoutIdPattern()
+    {
+        var proto = new SnapshotIndex { SnapshotVersion = 1 };
+        proto.Entities.Add("a/b", MakeProtoEntity(1, 0, 10));
+
+        NestedIndexHelper.ExpandSnapshotNames(proto);
+
+        proto.Entities.Should().HaveCount(1);
+        proto.Entities.Should().ContainKey("a/b");
+    }
+
+    #endregion
 }
