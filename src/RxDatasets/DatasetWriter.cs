@@ -21,12 +21,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly IStorageProvider<T> _storageProvider;
     private readonly IOptions<WriterConfig> _writerConfig;
     private ImmutableDatasetState? _index;
-    private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
+    private SnapshotPositionLookup? _snapshotPositionLookup;
 
     protected ILogger Logger => _logger;
     protected IReadOnlyStorageProvider<T> ReadOnlyStorageProvider => _storageProvider;
     protected ImmutableDatasetState? CurrentIndex => _index;
-    protected ImmutableDatasetState? MostRecentSnapshotIndex => _indexBasedOnMostRecentSnapshot;
+    protected SnapshotPositionLookup? MostRecentSnapshotPositionLookup => _snapshotPositionLookup;
     protected DatasetHelper DatasetHelper => _datasetHelper;
 
     /// <summary>
@@ -67,7 +67,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         InitializationTask = null;
         _index = null;
-        _indexBasedOnMostRecentSnapshot = null;
+        _snapshotPositionLookup = null;
     }
 
     public virtual void Dispose()
@@ -77,10 +77,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
-        if (_indexBasedOnMostRecentSnapshot == null
-            || snapshotCreatedNotification.Version > _indexBasedOnMostRecentSnapshot.SnapshotVersion)
+        if (_snapshotPositionLookup == null
+            || snapshotCreatedNotification.Version > _snapshotPositionLookup.SnapshotVersion)
         {
-            _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
+            _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
         }
     }
 
@@ -108,7 +108,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             _index = await _datasetHelper.GetLatestIndex();
             try
             {
-                _indexBasedOnMostRecentSnapshot = await _datasetHelper.GetLatestSnapshotIndex();
+                _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
             }
             catch (FileNotFoundException)
             {
@@ -574,14 +574,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (_indexBasedOnMostRecentSnapshot != null && entityVersion <= _indexBasedOnMostRecentSnapshot.SnapshotVersion)
+        if (_snapshotPositionLookup != null && entityVersion <= _snapshotPositionLookup.SnapshotVersion)
         {
-            // At this point, we KNOW it must be in there and be the latest version in existence,
-            // because the latest version is smaller/equal to the snapshot,
-            // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
-            sources.Add((ObjectNameTypeEnum.Snapshot, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
-                entityFromSnapshot.Position));
+            if (_snapshotPositionLookup.TryGetPosition(name, out var snapshotPosition))
+            {
+                sources.Add((ObjectNameTypeEnum.Snapshot, _snapshotPositionLookup.SnapshotVersion,
+                    snapshotPosition));
+            }
         }
 
         if (entityVersion <= _index.SnapshotVersion)

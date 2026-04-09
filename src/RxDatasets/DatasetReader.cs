@@ -19,7 +19,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly bool _retryInitialization;
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
-    private ImmutableDatasetState? _mostRecentSnapshotIndex;
+    private SnapshotPositionLookup? _snapshotPositionLookup;
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -95,10 +95,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
     {
-        if (_mostRecentSnapshotIndex == null
-            || (_mostRecentSnapshotIndex != null && notification.Version > _mostRecentSnapshotIndex.SnapshotVersion))
+        if (_snapshotPositionLookup == null
+            || (_snapshotPositionLookup != null && notification.Version > _snapshotPositionLookup.SnapshotVersion))
         {
-            _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
+            _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
         }
     }
 
@@ -135,7 +135,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             _index = await _datasetHelper.GetLatestIndex();
             try
             {
-                _mostRecentSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
+                _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
             }
             catch (FileNotFoundException)
             {
@@ -154,7 +154,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         _initializationTask = null;
         _index = null;
-        _mostRecentSnapshotIndex = null;
+        _snapshotPositionLookup = null;
     }
 
     private ImmutableDatasetState ThrowIfNotInitialized()
@@ -204,14 +204,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (_mostRecentSnapshotIndex != null && entityVersion <= _mostRecentSnapshotIndex!.SnapshotVersion)
+        if (_snapshotPositionLookup != null && entityVersion <= _snapshotPositionLookup.SnapshotVersion)
         {
-            // At this point, we KNOW it must be in there and be the latest version in existence,
-            // because the latest version is smaller/equal to the snapshot,
-            // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _mostRecentSnapshotIndex.Entities[name];
-            sources.Add((ObjectNameTypeEnum.Snapshot, _mostRecentSnapshotIndex.SnapshotVersion,
-                entityFromSnapshot.Position));
+            if (_snapshotPositionLookup.TryGetPosition(name, out var snapshotPosition))
+            {
+                sources.Add((ObjectNameTypeEnum.Snapshot, _snapshotPositionLookup.SnapshotVersion,
+                    snapshotPosition));
+            }
         }
 
         if (entityVersion <= _index.SnapshotVersion)
@@ -339,7 +338,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public ulong GetLastUsedSnapshotVersion()
     {
         ThrowIfNotInitialized();
-        return _mostRecentSnapshotIndex?.SnapshotVersion ?? 0;
+        return _snapshotPositionLookup?.SnapshotVersion ?? 0;
     }
 
     public ulong GetMainIndexSnapshotVersion()

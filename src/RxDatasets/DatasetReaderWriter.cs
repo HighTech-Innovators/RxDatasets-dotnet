@@ -72,17 +72,19 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
         var index = CurrentIndex!;
-        var snapshotIndex = MostRecentSnapshotIndex;
+        var snapshotLookup = MostRecentSnapshotPositionLookup;
         var entityInMainIndex = index.Entities[name];
         var entityVersion = entityInMainIndex.LatestVersion;
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (snapshotIndex != null && entityVersion <= snapshotIndex.SnapshotVersion)
+        if (snapshotLookup != null && entityVersion <= snapshotLookup.SnapshotVersion)
         {
-            var entityFromSnapshot = snapshotIndex.Entities[name];
-            sources.Add((ObjectNameTypeEnum.Snapshot, snapshotIndex.SnapshotVersion,
-                entityFromSnapshot.Position));
+            if (snapshotLookup.TryGetPosition(name, out var snapshotPosition))
+            {
+                sources.Add((ObjectNameTypeEnum.Snapshot, snapshotLookup.SnapshotVersion,
+                    snapshotPosition));
+            }
         }
 
         if (entityVersion <= index.SnapshotVersion)
@@ -464,7 +466,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     public ulong GetLastUsedSnapshotVersion()
     {
         GetInitializedIndex();
-        return MostRecentSnapshotIndex?.SnapshotVersion ?? 0;
+        return MostRecentSnapshotPositionLookup?.SnapshotVersion ?? 0;
     }
 
     public ulong GetMainIndexSnapshotVersion()

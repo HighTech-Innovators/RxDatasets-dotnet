@@ -151,6 +151,33 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         throw new FileNotFoundException("There are no snapshots available to read.");
     }
 
+    /// <summary>
+    /// Builds a lightweight position-only lookup for the most recent snapshot,
+    /// without constructing the full EntityTrie. Used by readers/writers to find
+    /// entity positions in the newest snapshot for data retrieval.
+    /// </summary>
+    public async Task<SnapshotPositionLookup> GetLatestSnapshotPositionLookup()
+    {
+        var availableVersions = await storageProvider.ListVersions();
+
+        foreach (var version in availableVersions.Snapshots.Select(s => s.Version).OrderDescending())
+        {
+            try
+            {
+                var bytes = await storageProvider.ReadSnapshotIndex(version);
+                var proto = SnapshotIndex.Parser.ParseFrom(bytes.Span);
+                return SnapshotPositionLookup.FromProto(proto);
+            }
+            catch (Exception e)
+            {
+                logger.LogWarning(e,
+                    $"Skipping snapshot v{version} position lookup because we got {e}");
+            }
+        }
+
+        throw new FileNotFoundException("There are no snapshots available to read.");
+    }
+
     private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion)
     {
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
