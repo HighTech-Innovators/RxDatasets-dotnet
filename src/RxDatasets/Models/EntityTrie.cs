@@ -357,6 +357,103 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         return new TrieNode(dict.ToFrozenDictionary(), null);
     }
 
+    /// <summary>
+    /// Merges a nested <see cref="DeltaBucket"/> into this immutable trie using structural
+    /// path-copy. Only nodes on affected paths are cloned; entities in the same subtree
+    /// share the path-copy cost instead of each traversing O(depth) from root separately.
+    /// </summary>
+    internal EntityTrie MergeNestedDelta(DeltaBucket bucket, ulong deltaVersion)
+    {
+        var (newRoot, countDelta) = MergeNodeImmutable(_root, bucket, deltaVersion);
+        return new EntityTrie(newRoot, Count + countDelta, Compressor);
+    }
+
+    private static (TrieNode node, int countDelta) MergeNodeImmutable(
+        TrieNode node, DeltaBucket bucket, ulong deltaVersion)
+    {
+        int countDelta = 0;
+
+        bool hasLeafMutations = bucket.NewEntities.Count > 0
+            || bucket.ChangedEntities.Count > 0
+            || bucket.DeletedEntities.Count > 0
+            || bucket.DeletedNames.Count > 0;
+
+        if (!hasLeafMutations && bucket.Children.Count == 0)
+            return (node, 0);
+
+        // Path-copy: new dictionary sized for existing + potential new children
+        var newChildren = new Dictionary<string, TrieNode>(
+            node.Children.Count + bucket.Children.Count
+            + bucket.NewEntities.Count + bucket.ChangedEntities.Count);
+
+        foreach (var (key, child) in node.Children)
+            newChildren[key] = child;
+
+        // Recurse into child buckets (shared path-copy for all mutations in subtree)
+        foreach (var (segment, childBucket) in bucket.Children)
+        {
+            newChildren.TryGetValue(segment, out var existing);
+            existing ??= TrieNode.EmptyNode;
+            var (merged, childDelta) = MergeNodeImmutable(existing, childBucket, deltaVersion);
+            countDelta += childDelta;
+
+            if (merged.Children.Count == 0 && merged.Value is null)
+                newChildren.Remove(segment);
+            else
+                newChildren[segment] = merged;
+        }
+
+        // Apply leaf mutations at this level
+        foreach (var entity in bucket.NewEntities)
+        {
+            var value = new IndexEntity(deltaVersion, entity.Position, entity.Length, entity.Crc32);
+            newChildren.TryGetValue(entity.Name, out var existing);
+            if (existing is null || existing.Value is null)
+                countDelta++;
+            newChildren[entity.Name] = new TrieNode(
+                existing?.Children ?? FrozenDictionary<string, TrieNode>.Empty, value);
+        }
+
+        foreach (var entity in bucket.ChangedEntities)
+        {
+            var value = new IndexEntity(deltaVersion, entity.Position, entity.Length, entity.Crc32);
+            newChildren.TryGetValue(entity.Name, out var existing);
+            if (existing is null || existing.Value is null)
+                countDelta++;
+            newChildren[entity.Name] = new TrieNode(
+                existing?.Children ?? FrozenDictionary<string, TrieNode>.Empty, value);
+        }
+
+        foreach (var entity in bucket.DeletedEntities)
+        {
+            if (newChildren.TryGetValue(entity.Name, out var existing) && existing.Value is not null)
+            {
+                countDelta--;
+                if (existing.Children.Count == 0)
+                    newChildren.Remove(entity.Name);
+                else
+                    newChildren[entity.Name] = new TrieNode(existing.Children, null);
+            }
+        }
+
+        foreach (var name in bucket.DeletedNames)
+        {
+            if (newChildren.TryGetValue(name, out var existing) && existing.Value is not null)
+            {
+                countDelta--;
+                if (existing.Children.Count == 0)
+                    newChildren.Remove(name);
+                else
+                    newChildren[name] = new TrieNode(existing.Children, null);
+            }
+        }
+
+        if (newChildren.Count == 0 && node.Value is null)
+            return (TrieNode.EmptyNode, countDelta);
+
+        return (new TrieNode(newChildren.ToFrozenDictionary(), node.Value), countDelta);
+    }
+
     #region Builder (for bulk construction and mutation)
 
     public sealed class Builder
@@ -431,6 +528,76 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
         public EntityTrie Build()
         {
             return new EntityTrie(Freeze(_root), _count, _compressor);
+        }
+
+        /// <summary>
+        /// Merges a nested <see cref="DeltaBucket"/> tree directly into the mutable trie.
+        /// Walks the DeltaBucket and MutableTrieNode trees in parallel — zero string
+        /// construction or splitting. Segment names from the proto map directly to
+        /// trie node children.
+        /// </summary>
+        public void MergeNestedDelta(DeltaBucket bucket, ulong deltaVersion)
+        {
+            MergeNestedDeltaRecursive(_root, bucket, deltaVersion);
+        }
+
+        private void MergeNestedDeltaRecursive(MutableTrieNode node, DeltaBucket bucket, ulong deltaVersion)
+        {
+            // Recurse into child buckets (intermediate nodes)
+            foreach (var (segment, childBucket) in bucket.Children)
+            {
+                if (!node.Children.TryGetValue(segment, out var childNode))
+                {
+                    childNode = new MutableTrieNode();
+                    node.Children[segment] = childNode;
+                }
+                MergeNestedDeltaRecursive(childNode, childBucket, deltaVersion);
+            }
+
+            // Apply leaf mutations at this level
+            foreach (var entity in bucket.NewEntities)
+            {
+                var leafNode = GetOrCreateChild(node, entity.Name);
+                if (leafNode.Value is null)
+                    _count++;
+                leafNode.Value = new IndexEntity(deltaVersion, entity.Position, entity.Length, entity.Crc32);
+            }
+
+            foreach (var entity in bucket.ChangedEntities)
+            {
+                var leafNode = GetOrCreateChild(node, entity.Name);
+                if (leafNode.Value is null)
+                    _count++;
+                leafNode.Value = new IndexEntity(deltaVersion, entity.Position, entity.Length, entity.Crc32);
+            }
+
+            foreach (var entity in bucket.DeletedEntities)
+            {
+                if (node.Children.TryGetValue(entity.Name, out var leafNode) && leafNode.Value is not null)
+                {
+                    leafNode.Value = null;
+                    _count--;
+                }
+            }
+
+            foreach (var name in bucket.DeletedNames)
+            {
+                if (node.Children.TryGetValue(name, out var leafNode) && leafNode.Value is not null)
+                {
+                    leafNode.Value = null;
+                    _count--;
+                }
+            }
+        }
+
+        private static MutableTrieNode GetOrCreateChild(MutableTrieNode parent, string segment)
+        {
+            if (!parent.Children.TryGetValue(segment, out var child))
+            {
+                child = new MutableTrieNode();
+                parent.Children[segment] = child;
+            }
+            return child;
         }
 
         private MutableTrieNode NavigateOrCreate(string key)

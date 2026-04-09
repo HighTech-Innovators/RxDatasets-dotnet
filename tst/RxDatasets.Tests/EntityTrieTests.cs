@@ -626,4 +626,254 @@ public class EntityTrieTests
     }
 
     #endregion
+
+    #region Nested delta merge (DeltaBucket tree → trie tree)
+
+    private static DeltaBucket BuildNestedDelta(
+        IEnumerable<(string name, long position, int length, uint crc32)>? newEntities = null,
+        IEnumerable<(string name, long position, int length, uint crc32)>? changedEntities = null,
+        IEnumerable<string>? deletedEntities = null,
+        IEnumerable<string>? deletedNames = null)
+    {
+        // Build a flat DeltaIndex, then nest it to get a proper DeltaBucket tree
+        var delta = new DeltaIndex { DeltaVersion = 99 };
+
+        if (newEntities != null)
+            foreach (var (name, position, length, crc32) in newEntities)
+                delta.NewEntities.Add(new DeltaEntity { Name = name, Position = position, Length = length, Crc32 = crc32 });
+
+        if (changedEntities != null)
+            foreach (var (name, position, length, crc32) in changedEntities)
+                delta.ChangedEntities.Add(new DeltaEntity { Name = name, Position = position, Length = length, Crc32 = crc32 });
+
+        if (deletedEntities != null)
+            foreach (var name in deletedEntities)
+                delta.DeletedEntities.Add(new DeletedEntity { Name = name });
+
+        if (deletedNames != null)
+            foreach (var name in deletedNames)
+                delta.DeletedNames.Add(name);
+
+        NestedIndexHelper.NestDeltaIndex(delta);
+        return delta.Nested!;
+    }
+
+    [Fact]
+    public void Builder_MergeNestedDelta_AddsNewEntities()
+    {
+        var builder = new EntityTrie.Builder();
+        builder.Add("a/b/existing", MakeEntity(1));
+
+        var bucket = BuildNestedDelta(
+            newEntities: [("a/b/new1", 100, 10, 1u), ("a/c/new2", 200, 20, 2u)]);
+
+        builder.MergeNestedDelta(bucket, 5);
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(3);
+        trie["a/b/existing"].LatestVersion.Should().Be(1);
+        trie["a/b/new1"].Should().Be(new IndexEntity(5, 100, 10, 1));
+        trie["a/c/new2"].Should().Be(new IndexEntity(5, 200, 20, 2));
+    }
+
+    [Fact]
+    public void Builder_MergeNestedDelta_UpdatesExisting()
+    {
+        var builder = new EntityTrie.Builder();
+        builder.Add("a/b/item", MakeEntity(1, 0, 10));
+
+        var bucket = BuildNestedDelta(
+            changedEntities: [("a/b/item", 500, 50, 99u)]);
+
+        builder.MergeNestedDelta(bucket, 7);
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(1);
+        trie["a/b/item"].Should().Be(new IndexEntity(7, 500, 50, 99));
+    }
+
+    [Fact]
+    public void Builder_MergeNestedDelta_DeletesEntities()
+    {
+        var builder = new EntityTrie.Builder();
+        builder.Add("a/b/keep", MakeEntity(1));
+        builder.Add("a/b/remove", MakeEntity(1));
+        builder.Add("a/c/also_remove", MakeEntity(1));
+
+        var bucket = BuildNestedDelta(
+            deletedEntities: ["a/b/remove"],
+            deletedNames: ["a/c/also_remove"]);
+
+        builder.MergeNestedDelta(bucket, 3);
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(1);
+        trie.ContainsKey("a/b/keep").Should().BeTrue();
+        trie.ContainsKey("a/b/remove").Should().BeFalse();
+        trie.ContainsKey("a/c/also_remove").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Builder_MergeNestedDelta_MixedOperations()
+    {
+        var builder = new EntityTrie.Builder();
+        builder.Add("x/y/old", MakeEntity(1, 0, 10));
+        builder.Add("x/y/update_me", MakeEntity(1, 10, 20));
+        builder.Add("x/y/delete_me", MakeEntity(1, 30, 30));
+
+        var bucket = BuildNestedDelta(
+            newEntities: [("x/y/brand_new", 100, 5, 1u)],
+            changedEntities: [("x/y/update_me", 200, 25, 2u)],
+            deletedEntities: ["x/y/delete_me"]);
+
+        builder.MergeNestedDelta(bucket, 10);
+        var trie = builder.Build();
+
+        trie.Count.Should().Be(3);
+        trie["x/y/old"].LatestVersion.Should().Be(1);
+        trie["x/y/brand_new"].Should().Be(new IndexEntity(10, 100, 5, 1));
+        trie["x/y/update_me"].Should().Be(new IndexEntity(10, 200, 25, 2));
+        trie.ContainsKey("x/y/delete_me").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Immutable_MergeNestedDelta_AddsAndUpdates()
+    {
+        var trie = EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>
+        {
+            ["a/b/existing"] = MakeEntity(1, 0, 10),
+            ["a/b/to_update"] = MakeEntity(1, 10, 20)
+        });
+
+        var bucket = BuildNestedDelta(
+            newEntities: [("a/b/new_item", 100, 15, 3u)],
+            changedEntities: [("a/b/to_update", 200, 25, 4u)]);
+
+        var merged = trie.MergeNestedDelta(bucket, 8);
+
+        merged.Count.Should().Be(3);
+        merged["a/b/existing"].LatestVersion.Should().Be(1); // Unchanged
+        merged["a/b/new_item"].Should().Be(new IndexEntity(8, 100, 15, 3));
+        merged["a/b/to_update"].Should().Be(new IndexEntity(8, 200, 25, 4));
+
+        // Original trie is unchanged (immutable)
+        trie.Count.Should().Be(2);
+        trie.ContainsKey("a/b/new_item").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Immutable_MergeNestedDelta_DeletesAndPrunes()
+    {
+        var trie = EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>
+        {
+            ["a/b/keep"] = MakeEntity(1),
+            ["a/b/remove"] = MakeEntity(1),
+            ["a/c/only_child"] = MakeEntity(1)
+        });
+
+        var bucket = BuildNestedDelta(
+            deletedEntities: ["a/b/remove"],
+            deletedNames: ["a/c/only_child"]);
+
+        var merged = trie.MergeNestedDelta(bucket, 5);
+
+        merged.Count.Should().Be(1);
+        merged.ContainsKey("a/b/keep").Should().BeTrue();
+        merged.ContainsKey("a/b/remove").Should().BeFalse();
+        merged.ContainsKey("a/c/only_child").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Immutable_MergeNestedDelta_SharedSubtree_OnlyAffectedPathsCopied()
+    {
+        // Build a trie with entities in two subtrees
+        var trie = EntityTrie.FromDictionary(new Dictionary<string, IndexEntity>
+        {
+            ["left/a"] = MakeEntity(1),
+            ["left/b"] = MakeEntity(1),
+            ["right/c"] = MakeEntity(1),
+            ["right/d"] = MakeEntity(1)
+        });
+
+        // Delta only touches "left" subtree
+        var bucket = BuildNestedDelta(
+            changedEntities: [("left/a", 500, 50, 99u)]);
+
+        var merged = trie.MergeNestedDelta(bucket, 3);
+
+        merged.Count.Should().Be(4);
+        merged["left/a"].Should().Be(new IndexEntity(3, 500, 50, 99));
+        merged["left/b"].LatestVersion.Should().Be(1);
+        merged["right/c"].LatestVersion.Should().Be(1);
+        merged["right/d"].LatestVersion.Should().Be(1);
+    }
+
+    [Fact]
+    public void ApplyDelta_UsesNestedMerge_WhenPatternsMatch()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
+
+        // Build an initial snapshot with compressed names
+        // Pattern "t/*/items/*/values" → compressed "abc/001" → nested: abc → leaf "001"
+        var snapshot = new SnapshotIndex { SnapshotVersion = 1, IdPattern = compressor.Pattern };
+        var bucket = new SnapshotBucket();
+        var abcBucket = new SnapshotBucket();
+        abcBucket.Leaves["001"] = new SnapshotEntity
+        {
+            LastInsertedVersion = { 1 }, Position = 0, Length = 10, Crc32 = 42
+        };
+        bucket.Children["abc"] = abcBucket;
+        snapshot.Nested = bucket;
+
+        var state = ImmutableDatasetState.FromProto(snapshot, compressor);
+        state.Entities.Count.Should().Be(1);
+
+        // Build a delta with the same pattern — should use nested merge
+        var delta = new DeltaIndex { DeltaVersion = 2, IdPattern = compressor.Pattern };
+        delta.NewEntities.Add(new DeltaEntity
+            { Name = "t/abc/items/002/values", Position = 10, Length = 20, Crc32 = 5 });
+
+        // Serialize+parse to get nested structure
+        var bytes = NestedIndexHelper.SerializeDeltaIndex(delta, compressor);
+        var parsed = NestedIndexHelper.ParseDeltaIndex(bytes);
+
+        // parsed.Nested should be preserved for tree merge
+        parsed.Nested.Should().NotBeNull();
+        parsed.IdPattern.Should().Be(compressor.Pattern);
+
+        var newState = state.ApplyDelta(parsed);
+        newState.Entities.Count.Should().Be(2);
+        newState.Entities.ContainsKey("t/abc/items/001/values").Should().BeTrue();
+        newState.Entities.ContainsKey("t/abc/items/002/values").Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyDeltas_UsesNestedMerge_ForBulkLoad()
+    {
+        var compressor = NameCompressor.FromPattern("t/*/s/*/items")!;
+        var state = new ImmutableDatasetState(
+            EntityTrie.FromDictionary([], compressor), 0, 0);
+
+        // Create two deltas, serialize with compression, parse back
+        var delta1 = new DeltaIndex { DeltaVersion = 1, IdPattern = compressor.Pattern };
+        delta1.NewEntities.Add(new DeltaEntity { Name = "t/a/s/b/items", Position = 0, Length = 10 });
+        var bytes1 = NestedIndexHelper.SerializeDeltaIndex(delta1, compressor);
+        var parsed1 = NestedIndexHelper.ParseDeltaIndex(bytes1);
+
+        var delta2 = new DeltaIndex { DeltaVersion = 2, IdPattern = compressor.Pattern };
+        delta2.NewEntities.Add(new DeltaEntity { Name = "t/a/s/c/items", Position = 10, Length = 20 });
+        delta2.ChangedEntities.Add(new DeltaEntity { Name = "t/a/s/b/items", Position = 30, Length = 15 });
+        var bytes2 = NestedIndexHelper.SerializeDeltaIndex(delta2, compressor);
+        var parsed2 = NestedIndexHelper.ParseDeltaIndex(bytes2);
+
+        var newState = state.ApplyDeltas([parsed1, parsed2]);
+
+        newState.Entities.Count.Should().Be(2);
+        newState.Entities["t/a/s/b/items"].LatestVersion.Should().Be(2);
+        newState.Entities["t/a/s/b/items"].Position.Should().Be(30);
+        newState.Entities["t/a/s/c/items"].LatestVersion.Should().Be(2);
+        newState.LatestVersion.Should().Be(2);
+    }
+
+    #endregion
 }

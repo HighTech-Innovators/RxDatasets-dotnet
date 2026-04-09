@@ -78,7 +78,11 @@ public static class NestedIndexHelper
     {
         var delta = DeltaIndex.Parser.ParseFrom(data);
         if (delta.Nested != null)
-            FlattenDeltaIndex(delta);
+        {
+            var savedNested = delta.Nested; // Preserve for tree merge
+            FlattenDeltaIndex(delta);       // Populates flat fields, clears Nested
+            delta.Nested = savedNested;     // Restore: flat fields have expanded names, Nested has raw proto names
+        }
         if (delta.IdPattern.Length > 0)
             ExpandDeltaNames(delta);
         return delta;
@@ -91,7 +95,11 @@ public static class NestedIndexHelper
     {
         var delta = DeltaIndex.Parser.ParseFrom(data);
         if (delta.Nested != null)
+        {
+            var savedNested = delta.Nested;
             FlattenDeltaIndex(delta);
+            delta.Nested = savedNested;
+        }
         if (delta.IdPattern.Length > 0)
             ExpandDeltaNames(delta);
         return delta;

@@ -6,6 +6,10 @@ namespace RxDatasets;
 /// Extension methods for applying delta indices to <see cref="ImmutableDatasetState"/>
 /// using the slim <see cref="IndexEntity"/> (no version-history arrays).
 /// Deleted entities are removed from the trie instead of being kept with a Deleted marker.
+///
+/// When a delta has a <see cref="DeltaIndex.Nested"/> tree and the <c>id_pattern</c> matches
+/// the trie's compressor, mutations are applied via structural tree merge — walking the
+/// DeltaBucket and trie trees in parallel with zero name string construction or splitting.
 /// </summary>
 public static class DatasetIndexExtensions
 {
@@ -38,8 +42,17 @@ public static class DatasetIndexExtensions
 
     private static ImmutableDatasetState ApplyDeltaImmutable(ImmutableDatasetState index, DeltaIndex delta)
     {
-        var trie = index.Entities;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
+
+        // Structural tree merge: walk DeltaBucket + TrieNode trees in parallel
+        if (CanUseNestedMerge(delta, index.Entities))
+        {
+            var merged = index.Entities.MergeNestedDelta(delta.Nested!, deltaVersion);
+            return new ImmutableDatasetState(merged, index.SnapshotVersion, deltaVersion);
+        }
+
+        // Fallback: per-entity immutable path-copy
+        var trie = index.Entities;
 
         foreach (var newEntity in delta.NewEntities)
         {
@@ -69,7 +82,7 @@ public static class DatasetIndexExtensions
     private static ImmutableDatasetState ApplyDeltaViaBuilder(ImmutableDatasetState index, DeltaIndex delta)
     {
         var builder = index.Entities.ToBuilder();
-        var deltaVersion = ApplyDeltaToBuilder(builder, delta);
+        var deltaVersion = ApplyDeltaToBuilder(builder, delta, index.Entities.Compressor?.Pattern ?? "");
         return new ImmutableDatasetState(builder.Build(), index.SnapshotVersion, deltaVersion);
     }
 
@@ -80,20 +93,29 @@ public static class DatasetIndexExtensions
     public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState index, IEnumerable<DeltaIndex> deltas)
     {
         var builder = index.Entities.ToBuilder();
+        var compressorPattern = index.Entities.Compressor?.Pattern ?? "";
         ulong latestVersion = index.LatestVersion;
 
         foreach (var delta in deltas)
         {
-            latestVersion = ApplyDeltaToBuilder(builder, delta);
+            latestVersion = ApplyDeltaToBuilder(builder, delta, compressorPattern);
         }
 
         return new ImmutableDatasetState(builder.Build(), index.SnapshotVersion, latestVersion);
     }
 
-    private static ulong ApplyDeltaToBuilder(EntityTrie.Builder builder, DeltaIndex delta)
+    private static ulong ApplyDeltaToBuilder(EntityTrie.Builder builder, DeltaIndex delta, string compressorPattern)
     {
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
 
+        // Structural tree merge: walk DeltaBucket + MutableTrieNode trees in parallel
+        if (delta.Nested != null && delta.IdPattern == compressorPattern)
+        {
+            builder.MergeNestedDelta(delta.Nested, deltaVersion);
+            return deltaVersion;
+        }
+
+        // Fallback: per-entity flat path (handles pattern transitions, legacy format)
         foreach (var newEntity in delta.NewEntities)
         {
             builder.SetItem(newEntity.Name,
@@ -117,5 +139,16 @@ public static class DatasetIndexExtensions
         }
 
         return deltaVersion;
+    }
+
+    /// <summary>
+    /// Returns true when the delta's nested tree structure can be merged directly
+    /// into the trie — requires the nested tree to be present and the compression
+    /// patterns to match so segment names align.
+    /// </summary>
+    private static bool CanUseNestedMerge(DeltaIndex delta, EntityTrie trie)
+    {
+        return delta.Nested != null
+            && delta.IdPattern == (trie.Compressor?.Pattern ?? "");
     }
 }
