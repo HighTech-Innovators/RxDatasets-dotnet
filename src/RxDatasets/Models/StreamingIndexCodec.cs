@@ -566,6 +566,196 @@ internal static class StreamingIndexCodec
 
     #endregion
 
+    #region ── Bucket-by-Bucket Snapshot Creation ──
+
+    /// <summary>
+    /// Descriptor for a leaf bucket within the nested snapshot index wire format.
+    /// </summary>
+    internal readonly record struct LeafBucketDescriptor(
+        string Prefix,
+        int BucketOffset,
+        int BucketLength);
+
+    /// <summary>
+    /// Scans the SnapshotIndex wire format to find the nested root bucket and all leaf buckets.
+    /// Returns the root bucket byte range plus a list of leaf bucket descriptors with
+    /// absolute offsets into the full index data.
+    /// </summary>
+    internal static (int NestedOffset, int NestedLength, List<LeafBucketDescriptor> Buckets)
+        ScanLeafBuckets(ReadOnlySpan<byte> data)
+    {
+        int pos = 0;
+        int nestedOffset = 0, nestedLength = 0;
+
+        while (pos < data.Length)
+        {
+            int fieldNumber = ReadTag(data, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
+            {
+                case SI_Nested:
+                    nestedLength = (int)ReadVarint(data, ref pos);
+                    nestedOffset = pos;
+                    pos += nestedLength;
+                    break;
+                default:
+                    SkipField(data, ref pos, wireType);
+                    break;
+            }
+        }
+
+        if (nestedLength == 0)
+            return (0, 0, []);
+
+        var buckets = new List<LeafBucketDescriptor>();
+        ScanBucketRecursive(data, nestedOffset, nestedLength, "", buckets);
+        return (nestedOffset, nestedLength, buckets);
+    }
+
+    private static void ScanBucketRecursive(
+        ReadOnlySpan<byte> fullData, int bucketOffset, int bucketLength,
+        string prefix, List<LeafBucketDescriptor> result)
+    {
+        var bucketSpan = fullData.Slice(bucketOffset, bucketLength);
+        int pos = 0;
+        bool hasLeaves = false;
+        var childEntries = new List<(string key, int absoluteOffset, int length)>();
+
+        while (pos < bucketSpan.Length)
+        {
+            int fieldNumber = ReadTag(bucketSpan, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
+            {
+                case SB_Leaves:
+                    hasLeaves = true;
+                    int leafLen = (int)ReadVarint(bucketSpan, ref pos);
+                    pos += leafLen;
+                    break;
+                case SB_Children:
+                {
+                    int entryLen = (int)ReadVarint(bucketSpan, ref pos);
+                    var entrySpan = bucketSpan.Slice(pos, entryLen);
+                    int entryPos = 0;
+                    string? key = null;
+                    int childAbsOffset = 0, childLen = 0;
+
+                    while (entryPos < entrySpan.Length)
+                    {
+                        int fn = ReadTag(entrySpan, ref entryPos, out int wt);
+                        if (fn == 0) break;
+                        switch (fn)
+                        {
+                            case Map_Key:
+                                key = ReadString(entrySpan, ref entryPos);
+                                break;
+                            case Map_Value:
+                                childLen = (int)ReadVarint(entrySpan, ref entryPos);
+                                childAbsOffset = bucketOffset + pos + entryPos;
+                                entryPos += childLen;
+                                break;
+                            default:
+                                SkipField(entrySpan, ref entryPos, wt);
+                                break;
+                        }
+                    }
+
+                    if (key != null && childLen > 0)
+                        childEntries.Add((key, childAbsOffset, childLen));
+
+                    pos += entryLen;
+                    break;
+                }
+                default:
+                    SkipField(bucketSpan, ref pos, wireType);
+                    break;
+            }
+        }
+
+        if (hasLeaves)
+            result.Add(new LeafBucketDescriptor(prefix, bucketOffset, bucketLength));
+
+        foreach (var (key, absOffset, len) in childEntries)
+        {
+            var childPrefix = prefix.Length > 0 ? $"{prefix}/{key}" : key;
+            ScanBucketRecursive(fullData, absOffset, len, childPrefix, result);
+        }
+    }
+
+    /// <summary>
+    /// Parses one leaf bucket's proto entities (with full version arrays) from the wire format.
+    /// Returns a dictionary of leaf-name → SnapshotEntity for entities in this bucket.
+    /// </summary>
+    internal static Dictionary<string, SnapshotEntity> ReadBucketProtoEntities(
+        ReadOnlySpan<byte> fullData, LeafBucketDescriptor bucket)
+    {
+        var bucketSpan = fullData.Slice(bucket.BucketOffset, bucket.BucketLength);
+        var entities = new Dictionary<string, SnapshotEntity>();
+        int pos = 0;
+
+        while (pos < bucketSpan.Length)
+        {
+            int fieldNumber = ReadTag(bucketSpan, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
+            {
+                case SB_Leaves:
+                {
+                    int len = (int)ReadVarint(bucketSpan, ref pos);
+                    var entrySpan = bucketSpan.Slice(pos, len);
+                    ReadProtoLeafEntry(entrySpan, entities);
+                    pos += len;
+                    break;
+                }
+                default:
+                    SkipField(bucketSpan, ref pos, wireType);
+                    break;
+            }
+        }
+        return entities;
+    }
+
+    /// <summary>
+    /// Reads a single leaf map entry and parses the value as a full SnapshotEntity proto.
+    /// </summary>
+    private static void ReadProtoLeafEntry(ReadOnlySpan<byte> entrySpan, Dictionary<string, SnapshotEntity> entities)
+    {
+        int pos = 0;
+        string? key = null;
+        ReadOnlySpan<byte> valueSpan = default;
+
+        while (pos < entrySpan.Length)
+        {
+            int fieldNumber = ReadTag(entrySpan, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
+            {
+                case Map_Key:
+                    key = ReadString(entrySpan, ref pos);
+                    break;
+                case Map_Value:
+                    int len = (int)ReadVarint(entrySpan, ref pos);
+                    valueSpan = entrySpan.Slice(pos, len);
+                    pos += len;
+                    break;
+                default:
+                    SkipField(entrySpan, ref pos, wireType);
+                    break;
+            }
+        }
+
+        if (key != null && valueSpan.Length > 0)
+        {
+            entities[key] = SnapshotEntity.Parser.ParseFrom(valueSpan);
+        }
+    }
+
+    #endregion
+
     #region ── Legacy Flat Map Reader ──
 
     private static void ReadFlatSnapshotMapEntry(

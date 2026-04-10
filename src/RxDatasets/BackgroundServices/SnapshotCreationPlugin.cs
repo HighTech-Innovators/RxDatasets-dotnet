@@ -117,29 +117,27 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        // Build the mutable proto index for on-disk serialization (full version arrays).
-        // Uses a Dictionary<string, SnapshotEntity> built from old snapshot proto + delta protos.
-        var protoEntities = new Dictionary<string, SnapshotEntity>();
-
         var tempPath = DatasetHelper.GetTempFilePath();
-
         await using var targetSnapshotStream = File.OpenWrite(tempPath);
         try
         {
             long targetSnapshotStreamPosition = 0;
 
-            // Load old snapshot proto for version-array preservation
-            Dictionary<string, SnapshotEntity>? oldSnapshotProtoEntities = null;
+            // Phase 1a: Copy alive entities from old snapshot data → output.
+            // Records oldPosition → newPosition for position remapping (no proto objects allocated).
+            var positionMap = new Dictionary<long, long>();
             if (currentIndex.SnapshotVersion > 0)
             {
-                oldSnapshotProtoEntities = await LoadOldSnapshotProtoEntities(currentIndex.SnapshotVersion);
-
-                targetSnapshotStreamPosition =
-                    await CopyRelevantItemsFromOldSnapshot(currentIndex, protoEntities, oldSnapshotProtoEntities,
-                        targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
+                targetSnapshotStreamPosition = await CopyOldSnapshotData(
+                    currentIndex, targetSnapshotStream, targetSnapshotStreamPosition,
+                    positionMap, stoppingToken);
             }
 
-            targetSnapshotStreamPosition = await CopyRelevantItemsFromDeltas(currentIndex, protoEntities,
+            // Phase 1b: Copy alive entities from deltas → output.
+            // Builds proto entities for delta-originated items (compressed names).
+            var deltaProtoEntities = new Dictionary<string, SnapshotEntity>();
+            targetSnapshotStreamPosition = await CopyDeltaData(
+                currentIndex, deltaProtoEntities,
                 targetSnapshotStream, targetSnapshotStreamPosition, stoppingToken);
 
             if (targetSnapshotStreamPosition == 0)
@@ -148,33 +146,21 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             await targetSnapshotStream.FlushAsync(stoppingToken);
             targetSnapshotStream.Close();
 
+            // Phase 2: Build SnapshotIndex bucket-by-bucket.
+            // Only one leaf bucket's proto entities are in memory at a time (~100K entries).
+            var snapshotBucket = await BuildIndexBucketByBucket(
+                currentIndex, positionMap, deltaProtoEntities, stoppingToken);
+
             await using var localSnapshotReader = File.OpenRead(tempPath);
-
-            // Build SnapshotIndex proto directly from protoEntities.
-            // When a name compressor is active, compress entity keys for on-disk storage.
-            var protoToSerialize = _nameCompressor != null
-                ? protoEntities.ToDictionary(kvp => _nameCompressor.Compress(kvp.Key), kvp => kvp.Value)
-                : protoEntities;
-
-            var snapshotIndexProto = new SnapshotIndex
-            {
-                SnapshotVersionLegacy = 0,
-                SnapshotVersion = newSnapshotVersion,
-                Nested = BuildNestedSnapshotBucket(protoToSerialize),
-                IdPattern = _nameCompressor?.Pattern ?? ""
-            };
-
-            localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
             await _storageProvider.StoreSnapshot(newSnapshotVersion,
                 StreamingIndexCodec.WriteSnapshot(
-                    newSnapshotVersion, _nameCompressor?.Pattern ?? "", snapshotIndexProto.Nested),
+                    newSnapshotVersion, _nameCompressor?.Pattern ?? "", snapshotBucket),
                 localSnapshotReader);
 
             localSnapshotReader.Close();
             _logger.LogInformation($"Created snapshot version {newSnapshotVersion}");
-
         }
         finally
         {
@@ -184,65 +170,61 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     /// <summary>
-    /// Loads the old snapshot index proto from disk and flattens it into a name→SnapshotEntity dictionary.
-    /// If the snapshot was written with a compressed id_pattern, keys are expanded to full names.
+    /// Phase 1a: Streams old snapshot data, copies alive entities to the output stream,
+    /// and records old→new position mappings. Does NOT parse proto entities — saving ~2-3 GB.
     /// </summary>
-    private async Task<Dictionary<string, SnapshotEntity>> LoadOldSnapshotProtoEntities(ulong snapshotVersion)
+    private async Task<long> CopyOldSnapshotData(
+        ImmutableDatasetState currentIndex, Stream targetStream, long targetStreamPosition,
+        Dictionary<long, long> positionMap, CancellationToken stoppingToken)
     {
-        var indexBytes = await _storageProvider.ReadSnapshotIndex(snapshotVersion);
-        var snapshotIndex = SnapshotIndex.Parser.ParseFrom(indexBytes.Span);
-        NestedIndexHelper.EnsureFlat(snapshotIndex);
+        await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
+        {
+            long sourceStreamPosition = 0;
 
-        if (snapshotIndex.IdPattern.Length > 0)
-            NestedIndexHelper.ExpandSnapshotNames(snapshotIndex);
+            foreach (var entity in currentIndex.Entities
+                         .Where(x => x.Value.LatestVersion <= currentIndex.SnapshotVersion)
+                         .OrderBy(x => x.Value.Position))
+            {
+                if (stoppingToken.IsCancellationRequested) return;
 
-        return new Dictionary<string, SnapshotEntity>(snapshotIndex.Entities);
+                var entityLength = entity.Value.Length;
+                targetStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetStream, entityLength);
+                var newEntityPosition = targetStreamPosition;
+
+                var gap = entity.Value.Position - sourceStreamPosition;
+                sourceStreamPosition += SeekForwardBy(sourceStream, gap);
+                EfficientCopy(sourceStream, targetStream, entityLength);
+                sourceStreamPosition += entityLength;
+                targetStreamPosition += entityLength;
+
+                positionMap[entity.Value.Position] = newEntityPosition;
+            }
+        });
+
+        stoppingToken.ThrowIfCancellationRequested();
+        return targetStreamPosition;
     }
 
     /// <summary>
-    /// Builds a nested SnapshotBucket from a flat dictionary of proto entities.
+    /// Phase 1b: Copies delta entities to output, builds proto entities keyed by compressed name.
+    /// Also records deletion proto entries for entities removed by deltas.
     /// </summary>
-    private static SnapshotBucket BuildNestedSnapshotBucket(Dictionary<string, SnapshotEntity> entities)
-    {
-        var root = new SnapshotBucket();
-        foreach (var (name, entity) in entities)
-        {
-            var segments = name.Split('/');
-            var current = root;
-
-            for (int i = 0; i < segments.Length - 1; i++)
-            {
-                if (!current.Children.TryGetValue(segments[i], out var child))
-                {
-                    child = new SnapshotBucket();
-                    current.Children[segments[i]] = child;
-                }
-                current = child;
-            }
-
-            current.Leaves[segments[^1]] = entity;
-        }
-        return root;
-    }
-
-    private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
-        Dictionary<string, SnapshotEntity> protoEntities,
+    private async Task<long> CopyDeltaData(
+        ImmutableDatasetState currentIndex,
+        Dictionary<string, SnapshotEntity> deltaProtoEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        // All entities in the slim index with LatestVersion > SnapshotVersion came from deltas.
-        // They are all alive (no deleted entities in the trie).
         var liveEntities = currentIndex.Entities
             .Where(x => x.Value.LatestVersion > currentIndex.SnapshotVersion)
             .ToList();
 
-        // Also gather deleted entities from delta indices (not in trie but need proto entries)
+        // Record deleted entities from delta indices
         var deltas = await _datasetHelper.GetChangedDeltas(currentIndex.SnapshotVersion, currentIndex.LatestVersion);
         foreach (var delta in deltas)
         {
             var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
             foreach (var deletedEntity in delta.DeletedEntities)
             {
-                // Only record if not already alive in the trie (meaning it wasn't re-created later)
                 if (!currentIndex.Entities.ContainsKey(deletedEntity.Name))
                 {
                     var protoEntity = new SnapshotEntity
@@ -252,10 +234,10 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                         Length = 0
                     };
                     if (deletedEntity.PreviousVersion > 0)
-                    {
                         protoEntity.LastInsertedVersion.Add(deletedEntity.PreviousVersion);
-                    }
-                    protoEntities[deletedEntity.Name] = protoEntity;
+
+                    var compressedName = _nameCompressor?.Compress(deletedEntity.Name) ?? deletedEntity.Name;
+                    deltaProtoEntities[compressedName] = protoEntity;
                 }
             }
 
@@ -263,7 +245,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             {
                 if (!currentIndex.Entities.ContainsKey(deletedName))
                 {
-                    protoEntities[deletedName] = new SnapshotEntity
+                    var compressedName = _nameCompressor?.Compress(deletedName) ?? deletedName;
+                    deltaProtoEntities[compressedName] = new SnapshotEntity
                     {
                         LastDeletedVersion = { deltaVersion },
                         Position = 0,
@@ -276,12 +259,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         if (liveEntities.Count == 0)
             return targetSnapshotStreamPosition;
 
-        // Group entities by their source delta version to avoid fetching the same delta multiple times
+        // Group entities by their source delta version
         var entitiesByDelta = liveEntities
             .GroupBy(e => e.Value.LatestVersion)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Pre-fetch all unique delta data blobs in parallel (limited concurrency)
+        // Pre-fetch all unique delta data blobs in parallel
         var deltaDataBlobs = new Dictionary<ulong, ReadOnlyMemory<byte>>();
         using var throttle = new SemaphoreSlim(10);
         var fetchTasks = entitiesByDelta.Keys.Select(async deltaVersion =>
@@ -333,7 +316,6 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
             targetSnapshotStreamPosition += entityLength;
 
-            // Build the proto entity with version arrays
             var protoEntity = new SnapshotEntity
             {
                 Position = targetEntityPosition,
@@ -350,70 +332,217 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             }
             else
             {
-                // Fallback: we know it's alive with this version
                 protoEntity.LastInsertedVersion.Add(deltaVersion);
             }
 
-            protoEntities[entity.Key] = protoEntity;
+            var compressedName = _nameCompressor?.Compress(entity.Key) ?? entity.Key;
+            deltaProtoEntities[compressedName] = protoEntity;
         }
 
         return targetSnapshotStreamPosition;
     }
 
-    private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
-        Dictionary<string, SnapshotEntity> protoEntities,
-        Dictionary<string, SnapshotEntity> oldSnapshotProtoEntities,
-        Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
+    /// <summary>
+    /// Phase 2: Builds the SnapshotIndex bucket-by-bucket from old snapshot index bytes.
+    /// For each leaf bucket (~100K entities): parse old proto entities, update positions,
+    /// merge delta entities, then discard. Peak memory: ~20 MB per bucket instead of ~3 GB total.
+    /// </summary>
+    private async Task<SnapshotBucket> BuildIndexBucketByBucket(
+        ImmutableDatasetState currentIndex,
+        Dictionary<long, long> positionMap,
+        Dictionary<string, SnapshotEntity> deltaProtoEntities,
+        CancellationToken stoppingToken)
     {
-        await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
+        if (currentIndex.SnapshotVersion == 0)
         {
-            long sourceStreamPosition = 0;
+            // No old snapshot — build entirely from delta proto entities
+            return BuildNestedSnapshotBucket(deltaProtoEntities);
+        }
 
-            foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.LatestVersion <= currentIndex.SnapshotVersion)
-                         .OrderBy(x => x.Value.Position))
+        var oldIndexBytes = await _storageProvider.ReadSnapshotIndex(currentIndex.SnapshotVersion);
+        var (_, _, leafBuckets) = StreamingIndexCodec.ScanLeafBuckets(oldIndexBytes.Span);
+
+        if (leafBuckets.Count == 0)
+        {
+            // Legacy flat format — fall back to monolithic approach
+            return BuildIndexFromFlatSnapshot(oldIndexBytes, positionMap, deltaProtoEntities);
+        }
+
+        // Group delta proto entities by bucket prefix for efficient per-bucket merging
+        var deltasByBucket = new Dictionary<string, Dictionary<string, SnapshotEntity>>();
+        var unclaimedDeltas = new Dictionary<string, SnapshotEntity>();
+
+        // Known bucket prefixes from the scan
+        var bucketPrefixes = new HashSet<string>(leafBuckets.Select(b => b.Prefix));
+
+        foreach (var (compressedName, proto) in deltaProtoEntities)
+        {
+            var lastSlash = compressedName.LastIndexOf('/');
+            var prefix = lastSlash >= 0 ? compressedName[..lastSlash] : "";
+            var leafKey = lastSlash >= 0 ? compressedName[(lastSlash + 1)..] : compressedName;
+
+            if (bucketPrefixes.Contains(prefix))
             {
-                if (stoppingToken.IsCancellationRequested)
-                    return;
-
-                // Entity is in the trie → alive. Copy its data.
-                var entityLength = entity.Value.Length;
-
-                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                var targetEntityPosition = targetSnapshotStreamPosition;
-
-                var gap = entity.Value.Position - sourceStreamPosition;
-                sourceStreamPosition += SeekForwardBy(sourceStream, gap);
-
-                EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
-
-                sourceStreamPosition += entityLength;
-                targetSnapshotStreamPosition += entityLength;
-
-                // Preserve the old snapshot proto entity (with full version arrays), update Position
-                if (oldSnapshotProtoEntities.TryGetValue(entity.Key, out var oldProtoEntity))
+                if (!deltasByBucket.TryGetValue(prefix, out var dict))
                 {
-                    var updatedProtoEntity = oldProtoEntity.Clone();
-                    updatedProtoEntity.Position = targetEntityPosition;
-                    updatedProtoEntity.Length = entityLength;
-                    protoEntities[entity.Key] = updatedProtoEntity;
+                    dict = new Dictionary<string, SnapshotEntity>();
+                    deltasByBucket[prefix] = dict;
+                }
+                dict[leafKey] = proto;
+            }
+            else
+            {
+                unclaimedDeltas[compressedName] = proto;
+            }
+        }
+
+        // Build the result tree bucket-by-bucket
+        var rootBucket = new SnapshotBucket();
+
+        foreach (var leafBucket in leafBuckets)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+
+            // Parse only this bucket's proto entities from the old index bytes
+            var oldProtoEntities = StreamingIndexCodec.ReadBucketProtoEntities(oldIndexBytes.Span, leafBucket);
+            var bucketDeltas = deltasByBucket.GetValueOrDefault(leafBucket.Prefix);
+
+            // Merge into a new dictionary: update positions, override with delta entities
+            var mergedEntities = new Dictionary<string, SnapshotEntity>(oldProtoEntities.Count);
+            foreach (var (leafKey, oldProto) in oldProtoEntities)
+            {
+                if (bucketDeltas != null && bucketDeltas.Remove(leafKey, out var deltaProto))
+                {
+                    // Delta overrides old proto (new/changed/deleted)
+                    mergedEntities[leafKey] = deltaProto;
+                }
+                else if (positionMap.TryGetValue(oldProto.Position, out var newPosition))
+                {
+                    // Entity alive from old snapshot — remap position
+                    var updated = oldProto.Clone();
+                    updated.Position = newPosition;
+                    mergedEntities[leafKey] = updated;
                 }
                 else
                 {
-                    // Fallback: create a minimal proto entity
-                    protoEntities[entity.Key] = new SnapshotEntity
-                    {
-                        LastInsertedVersion = { entity.Value.LatestVersion },
-                        Position = targetEntityPosition,
-                        Length = entityLength,
-                        Crc32 = entity.Value.Crc32
-                    };
+                    // Entity was already dead in old snapshot — keep as-is
+                    mergedEntities[leafKey] = oldProto;
                 }
             }
-        });
 
-        stoppingToken.ThrowIfCancellationRequested();
-        return targetSnapshotStreamPosition;
+            // Add delta entities NEW to this bucket (not in old snapshot)
+            if (bucketDeltas != null)
+            {
+                foreach (var (leafKey, deltaProto) in bucketDeltas)
+                    mergedEntities[leafKey] = deltaProto;
+            }
+
+            // Place this bucket's leaves into the result tree
+            InsertLeafBucket(rootBucket, leafBucket.Prefix, mergedEntities);
+            // oldProtoEntities is now eligible for GC
+        }
+
+        // Handle delta entities for buckets not in the old snapshot (new stores)
+        foreach (var (compressedName, proto) in unclaimedDeltas)
+        {
+            InsertEntity(rootBucket, compressedName, proto);
+        }
+
+        return rootBucket;
+    }
+
+    /// <summary>
+    /// Fallback for legacy flat-format snapshots: parse the full index and build from it.
+    /// </summary>
+    private SnapshotBucket BuildIndexFromFlatSnapshot(
+        ReadOnlyMemory<byte> oldIndexBytes,
+        Dictionary<long, long> positionMap,
+        Dictionary<string, SnapshotEntity> deltaProtoEntities)
+    {
+        var snapshotIndex = SnapshotIndex.Parser.ParseFrom(oldIndexBytes.Span);
+        NestedIndexHelper.EnsureFlat(snapshotIndex);
+        if (snapshotIndex.IdPattern.Length > 0)
+            NestedIndexHelper.ExpandSnapshotNames(snapshotIndex);
+
+        // Update positions from old snapshot entities, merge deltas
+        var protoEntities = new Dictionary<string, SnapshotEntity>();
+        foreach (var (name, oldProto) in snapshotIndex.Entities)
+        {
+            var compressedName = _nameCompressor?.Compress(name) ?? name;
+            if (deltaProtoEntities.Remove(compressedName, out var deltaProto))
+            {
+                protoEntities[compressedName] = deltaProto;
+            }
+            else if (positionMap.TryGetValue(oldProto.Position, out var newPosition))
+            {
+                var updated = oldProto.Clone();
+                updated.Position = newPosition;
+                protoEntities[compressedName] = updated;
+            }
+            else
+            {
+                protoEntities[compressedName] = oldProto;
+            }
+        }
+
+        foreach (var (compressedName, proto) in deltaProtoEntities)
+            protoEntities[compressedName] = proto;
+
+        return BuildNestedSnapshotBucket(protoEntities);
+    }
+
+    /// <summary>
+    /// Navigates/creates the tree path for a leaf bucket prefix and sets its leaves.
+    /// </summary>
+    private static void InsertLeafBucket(
+        SnapshotBucket root, string prefix, Dictionary<string, SnapshotEntity> leaves)
+    {
+        var current = root;
+        if (prefix.Length > 0)
+        {
+            foreach (var segment in prefix.Split('/'))
+            {
+                if (!current.Children.TryGetValue(segment, out var child))
+                {
+                    child = new SnapshotBucket();
+                    current.Children[segment] = child;
+                }
+                current = child;
+            }
+        }
+
+        foreach (var (key, entity) in leaves)
+            current.Leaves[key] = entity;
+    }
+
+    /// <summary>
+    /// Inserts a single entity into the tree at the correct position.
+    /// </summary>
+    private static void InsertEntity(SnapshotBucket root, string compressedName, SnapshotEntity entity)
+    {
+        var segments = compressedName.Split('/');
+        var current = root;
+        for (int i = 0; i < segments.Length - 1; i++)
+        {
+            if (!current.Children.TryGetValue(segments[i], out var child))
+            {
+                child = new SnapshotBucket();
+                current.Children[segments[i]] = child;
+            }
+            current = child;
+        }
+        current.Leaves[segments[^1]] = entity;
+    }
+
+    /// <summary>
+    /// Builds a nested SnapshotBucket from a flat dictionary of (compressed) name → entity.
+    /// </summary>
+    private static SnapshotBucket BuildNestedSnapshotBucket(Dictionary<string, SnapshotEntity> entities)
+    {
+        var root = new SnapshotBucket();
+        foreach (var (name, entity) in entities)
+            InsertEntity(root, name, entity);
+        return root;
     }
 
     public static long EfficientCopy(Stream sourceStream, Stream targetStream, int numberOfBytesToCopy)

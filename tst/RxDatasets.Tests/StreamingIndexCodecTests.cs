@@ -569,4 +569,162 @@ public class StreamingIndexCodecTests
     }
 
     #endregion
+
+    #region ── Bucket-by-Bucket Scanning Tests ──
+
+    [Fact]
+    public void ScanLeafBuckets_FindsOneLeafBucketPerStore_WithCompressedNames()
+    {
+        // With pattern t/*/s/*/items/*/values, compressed names are <tenant>/<store>/<itemid>
+        // BuildNestedBucket creates: root → tenant1 → store1 (leaf bucket with items as leaves)
+        var entities = new Dictionary<string, SnapshotEntity>
+        {
+            ["tenant1/store1/0001"] = MakeEntity(1, 0, 100),
+            ["tenant1/store1/0002"] = MakeEntity(1, 100, 100),
+            ["tenant1/store2/0001"] = MakeEntity(1, 200, 100),
+            ["tenant1/store2/0002"] = MakeEntity(1, 300, 100),
+            ["tenant1/store3/0001"] = MakeEntity(1, 400, 100),
+        };
+        var nested = BuildNestedBucket(entities);
+        byte[] data = WriteProtoSnapshot(1, Pattern, nested);
+
+        var (nestedOffset, nestedLength, buckets) = StreamingIndexCodec.ScanLeafBuckets(data);
+
+        nestedOffset.Should().BeGreaterThan(0);
+        nestedLength.Should().BeGreaterThan(0);
+
+        // 3 stores → 3 leaf buckets
+        buckets.Should().HaveCount(3);
+        buckets.Select(b => b.Prefix).Should().BeEquivalentTo(
+            ["tenant1/store1", "tenant1/store2", "tenant1/store3"]);
+
+        // All buckets should have valid byte ranges within the nested span
+        foreach (var bucket in buckets)
+        {
+            bucket.BucketOffset.Should().BeGreaterOrEqualTo(nestedOffset);
+            bucket.BucketLength.Should().BeGreaterThan(0);
+            (bucket.BucketOffset + bucket.BucketLength).Should().BeLessOrEqualTo(nestedOffset + nestedLength);
+        }
+    }
+
+    [Fact]
+    public void ScanLeafBuckets_ReturnsEmptyForLegacyFlatSnapshot()
+    {
+        var entities = new Dictionary<string, SnapshotEntity>
+        {
+            ["entity1"] = MakeEntity(1, 0, 100),
+        };
+        byte[] data = WriteLegacyFlatSnapshot(1, entities);
+
+        var (nestedOffset, nestedLength, buckets) = StreamingIndexCodec.ScanLeafBuckets(data);
+
+        nestedOffset.Should().Be(0);
+        nestedLength.Should().Be(0);
+        buckets.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReadBucketProtoEntities_ReturnsFullProtoEntitiesWithVersionArrays()
+    {
+        // Compressed names: <tenant>/<store>/<itemid>
+        var entities = new Dictionary<string, SnapshotEntity>
+        {
+            ["t1/store1/0001"] = MakeEntity(1, 0, 100, 111),
+            ["t1/store1/0002"] = MakeEntity(2, 100, 200, 222),
+            ["t1/store2/0001"] = MakeEntity(3, 300, 300, 333),
+        };
+        var nested = BuildNestedBucket(entities);
+        byte[] data = WriteProtoSnapshot(1, Pattern, nested);
+
+        var (_, _, buckets) = StreamingIndexCodec.ScanLeafBuckets(data);
+        buckets.Should().HaveCount(2); // store1, store2
+
+        // Parse all leaf buckets and collect their entities
+        var allParsed = new Dictionary<string, SnapshotEntity>();
+        foreach (var bucket in buckets)
+        {
+            var bucketEntities = StreamingIndexCodec.ReadBucketProtoEntities(data, bucket);
+            foreach (var (key, entity) in bucketEntities)
+            {
+                var fullName = bucket.Prefix.Length > 0 ? $"{bucket.Prefix}/{key}" : key;
+                allParsed[fullName] = entity;
+            }
+        }
+
+        allParsed.Should().HaveCount(3);
+        allParsed.Keys.Should().BeEquivalentTo(entities.Keys);
+
+        foreach (var (name, expected) in entities)
+        {
+            var actual = allParsed[name];
+            actual.Position.Should().Be(expected.Position);
+            actual.Length.Should().Be(expected.Length);
+            actual.Crc32.Should().Be(expected.Crc32);
+            actual.LastInsertedVersion.Should().BeEquivalentTo(expected.LastInsertedVersion);
+        }
+    }
+
+    [Fact]
+    public void ReadBucketProtoEntities_PreservesDeletedVersionArrays()
+    {
+        // Compressed: <tenant>/<store>/<itemid>
+        var entities = new Dictionary<string, SnapshotEntity>
+        {
+            ["t1/s1/001"] = MakeEntity(1, 0, 100),
+            ["t1/s1/002"] = MakeDeletedEntity(1, 5, 100, 200),
+        };
+        var nested = BuildNestedBucket(entities);
+        byte[] data = WriteProtoSnapshot(1, Pattern, nested);
+
+        var (_, _, buckets) = StreamingIndexCodec.ScanLeafBuckets(data);
+        buckets.Should().HaveCount(1); // single store "s1"
+
+        var bucketEntities = StreamingIndexCodec.ReadBucketProtoEntities(data, buckets[0]);
+        bucketEntities.Should().HaveCount(2);
+        bucketEntities["002"].LastDeletedVersion.Should().Contain(5UL);
+        bucketEntities["002"].LastInsertedVersion.Should().Contain(1UL);
+    }
+
+    [Fact]
+    public void ScanLeafBuckets_LargerDataset_MatchesStoreCount()
+    {
+        // Simulate compressed names: 1 tenant, 10 stores, 50 items each = 500 entities
+        var entities = new Dictionary<string, SnapshotEntity>();
+        int pos = 0;
+        for (int store = 0; store < 10; store++)
+        {
+            for (int item = 0; item < 50; item++)
+            {
+                var name = $"tenant1/store{store:D4}/{item:D10}";
+                entities[name] = MakeEntity(1, pos, 100);
+                pos += 100;
+            }
+        }
+
+        var nested = BuildNestedBucket(entities);
+        byte[] data = WriteProtoSnapshot(1, Pattern, nested);
+
+        var (_, _, buckets) = StreamingIndexCodec.ScanLeafBuckets(data);
+
+        // 10 stores → 10 leaf buckets, each with 50 items
+        buckets.Should().HaveCount(10);
+
+        // Round-trip: collect all entities from all leaf buckets
+        var allParsed = new Dictionary<string, SnapshotEntity>();
+        foreach (var bucket in buckets)
+        {
+            var bucketEntities = StreamingIndexCodec.ReadBucketProtoEntities(data, bucket);
+            bucketEntities.Should().HaveCount(50, $"bucket '{bucket.Prefix}' should have 50 items");
+            foreach (var (key, entity) in bucketEntities)
+            {
+                var fullName = $"{bucket.Prefix}/{key}";
+                allParsed[fullName] = entity;
+            }
+        }
+
+        allParsed.Should().HaveCount(500);
+        allParsed.Keys.Should().BeEquivalentTo(entities.Keys);
+    }
+
+    #endregion
 }
