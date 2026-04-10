@@ -153,8 +153,7 @@ internal static class StreamingIndexCodec
 
         string idPattern = "";
         ulong version = 0, versionLegacy = 0;
-        TrieNode? nestedRoot = null;
-        int nestedCount = 0;
+        ReadOnlySpan<byte> nestedSpan = default;
         long maxEnd = 0;
         EntityTrie.Builder? legacyBuilder = null;
 
@@ -182,8 +181,7 @@ internal static class StreamingIndexCodec
                 case SI_Nested:
                 {
                     int len = (int)ReadVarint(span, ref pos);
-                    var bucketSpan = span.Slice(pos, len);
-                    (nestedRoot, nestedCount, maxEnd) = ReadBucket(bucketSpan);
+                    nestedSpan = span.Slice(pos, len);
                     pos += len;
                     break;
                 }
@@ -209,24 +207,27 @@ internal static class StreamingIndexCodec
         }
 
         EntityTrie trie;
-        if (nestedRoot != null)
+        if (nestedSpan.Length > 0)
         {
             var protoPattern = idPattern;
             var runtimePattern = compressor?.Pattern ?? "";
 
             if (protoPattern == runtimePattern)
             {
+                // Patterns match — build frozen trie directly from wire format (fast path)
+                var (nestedRoot, nestedCount, nestedMaxEnd) = ReadBucket(nestedSpan);
+                maxEnd = nestedMaxEnd;
                 trie = EntityTrie.FromRootNode(nestedRoot, nestedCount, compressor);
             }
             else
             {
-                // Pattern transition: file has different (or no) compression than runtime.
-                // Walk the already-parsed tree and rebuild with the target compressor,
-                // avoiding the expensive ParseFrom fallback.
-                var protoCompressor = protoPattern.Length > 0
+                // Pattern transition: stream wire format directly into a Builder
+                // with the target compressor. Never materializes the intermediate frozen trie.
+                var sourceExpander = protoPattern.Length > 0
                     ? NameCompressor.FromPattern(protoPattern) : null;
-                trie = RebuildTrieWithCompressor(
-                    nestedRoot, nestedCount, protoCompressor, compressor);
+                var builder = new EntityTrie.Builder(compressor);
+                ReadBucketIntoBuilder(nestedSpan, "", sourceExpander, builder, ref maxEnd);
+                trie = builder.Build();
             }
         }
         else if (legacyBuilder != null)
@@ -244,28 +245,117 @@ internal static class StreamingIndexCodec
     }
 
     /// <summary>
-    /// Walks an already-parsed TrieNode tree, expands names using the source compressor,
-    /// and rebuilds into a new EntityTrie using the target compressor. Avoids ParseFrom fallback.
+    /// Streams through a SnapshotBucket's wire format depth-first, reading each leaf entity
+    /// and inserting it directly into the target Builder. Constructs full source-format names
+    /// from the prefix path, expands them if the source had compression, and lets the Builder
+    /// compress for the target pattern. Never materializes a frozen intermediate trie.
     /// </summary>
-    private static EntityTrie RebuildTrieWithCompressor(
-        TrieNode root, int count, NameCompressor? sourceCompressor, NameCompressor? targetCompressor)
+    private static void ReadBucketIntoBuilder(
+        ReadOnlySpan<byte> span, string prefix, NameCompressor? sourceExpander,
+        EntityTrie.Builder builder, ref long maxEnd)
     {
-        var builder = new EntityTrie.Builder(targetCompressor);
-        EnumerateAndAdd(root, "", builder, sourceCompressor);
-        return builder.Build();
-
-        static void EnumerateAndAdd(
-            TrieNode node, string prefix, EntityTrie.Builder builder, NameCompressor? sourceCompressor)
+        int pos = 0;
+        while (pos < span.Length)
         {
-            if (node.Value is { } entity)
+            int fieldNumber = ReadTag(span, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
             {
-                var fullName = sourceCompressor?.Expand(prefix) ?? prefix;
-                builder.Add(fullName, entity);
+                case SB_Leaves:
+                {
+                    int len = (int)ReadVarint(span, ref pos);
+                    var entrySpan = span.Slice(pos, len);
+                    ReadLeafIntoBuilder(entrySpan, prefix, sourceExpander, builder, ref maxEnd);
+                    pos += len;
+                    break;
+                }
+                case SB_Children:
+                {
+                    int len = (int)ReadVarint(span, ref pos);
+                    var entrySpan = span.Slice(pos, len);
+                    ReadChildIntoBuilder(entrySpan, prefix, sourceExpander, builder, ref maxEnd);
+                    pos += len;
+                    break;
+                }
+                default:
+                    SkipField(span, ref pos, wireType);
+                    break;
             }
-            foreach (var (segment, child) in node.Children)
+        }
+    }
+
+    private static void ReadLeafIntoBuilder(
+        ReadOnlySpan<byte> span, string prefix, NameCompressor? sourceExpander,
+        EntityTrie.Builder builder, ref long maxEnd)
+    {
+        int pos = 0;
+        string? key = null;
+        IndexEntity? entity = null;
+        bool deleted = false;
+
+        while (pos < span.Length)
+        {
+            int fieldNumber = ReadTag(span, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
             {
-                var childPath = prefix.Length == 0 ? segment : $"{prefix}/{segment}";
-                EnumerateAndAdd(child, childPath, builder, sourceCompressor);
+                case Map_Key:
+                    key = ReadString(span, ref pos);
+                    break;
+                case Map_Value:
+                    int len = (int)ReadVarint(span, ref pos);
+                    (entity, deleted) = ReadSnapshotEntityFields(span.Slice(pos, len));
+                    pos += len;
+                    break;
+                default:
+                    SkipField(span, ref pos, wireType);
+                    break;
+            }
+        }
+
+        if (!deleted && key != null && entity != null)
+        {
+            var compressedPath = prefix.Length > 0 ? $"{prefix}/{key}" : key;
+            var fullName = sourceExpander?.Expand(compressedPath) ?? compressedPath;
+            builder.Add(fullName, entity);
+            long end = entity.Position + entity.Length;
+            if (end > maxEnd) maxEnd = end;
+        }
+    }
+
+    private static void ReadChildIntoBuilder(
+        ReadOnlySpan<byte> span, string prefix, NameCompressor? sourceExpander,
+        EntityTrie.Builder builder, ref long maxEnd)
+    {
+        int pos = 0;
+        string? key = null;
+
+        while (pos < span.Length)
+        {
+            int fieldNumber = ReadTag(span, ref pos, out int wireType);
+            if (fieldNumber == 0) break;
+
+            switch (fieldNumber)
+            {
+                case Map_Key:
+                    key = ReadString(span, ref pos);
+                    break;
+                case Map_Value:
+                {
+                    int len = (int)ReadVarint(span, ref pos);
+                    var childPrefix = key != null
+                        ? (prefix.Length > 0 ? $"{prefix}/{key}" : key)
+                        : prefix;
+                    ReadBucketIntoBuilder(
+                        span.Slice(pos, len), childPrefix, sourceExpander, builder, ref maxEnd);
+                    pos += len;
+                    break;
+                }
+                default:
+                    SkipField(span, ref pos, wireType);
+                    break;
             }
         }
     }
