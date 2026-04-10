@@ -92,14 +92,24 @@ public static class DatasetIndexExtensions
     /// </summary>
     public static ImmutableDatasetState ApplyDeltas(this ImmutableDatasetState index, IEnumerable<DeltaIndex> deltas)
     {
+        // Fast path: if no deltas, return the original state unchanged (avoids
+        // thawing the entire trie to a Builder and re-freezing it for nothing).
+        if (deltas is ICollection<DeltaIndex> { Count: 0 } or IReadOnlyCollection<DeltaIndex> { Count: 0 })
+            return index;
+
         var builder = index.Entities.ToBuilder();
         var compressorPattern = index.Entities.Compressor?.Pattern ?? "";
         ulong latestVersion = index.LatestVersion;
+        bool anyApplied = false;
 
         foreach (var delta in deltas)
         {
             latestVersion = ApplyDeltaToBuilder(builder, delta, compressorPattern);
+            anyApplied = true;
         }
+
+        if (!anyApplied)
+            return index;
 
         return new ImmutableDatasetState(builder.Build(), index.SnapshotVersion, latestVersion);
     }
