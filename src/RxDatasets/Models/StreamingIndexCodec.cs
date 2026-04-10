@@ -220,16 +220,13 @@ internal static class StreamingIndexCodec
             }
             else
             {
-                // Pattern transition — rare. Fall back to standard ParseFrom.
-                var parsed = SnapshotIndex.Parser.ParseFrom(data.Span);
-                var state = ImmutableDatasetState.FromProto(parsed, compressor);
-                long transitionMaxEnd = 0;
-                foreach (var (_, e) in state.Entities)
-                {
-                    long end = e.Position + e.Length;
-                    if (end > transitionMaxEnd) transitionMaxEnd = end;
-                }
-                return new SnapshotReadResult(state, version, versionLegacy, transitionMaxEnd);
+                // Pattern transition: file has different (or no) compression than runtime.
+                // Walk the already-parsed tree and rebuild with the target compressor,
+                // avoiding the expensive ParseFrom fallback.
+                var protoCompressor = protoPattern.Length > 0
+                    ? NameCompressor.FromPattern(protoPattern) : null;
+                trie = RebuildTrieWithCompressor(
+                    nestedRoot, nestedCount, protoCompressor, compressor);
             }
         }
         else if (legacyBuilder != null)
@@ -244,6 +241,33 @@ internal static class StreamingIndexCodec
         var v = version > 0 ? version : versionLegacy;
         return new SnapshotReadResult(
             new ImmutableDatasetState(trie, v, v), version, versionLegacy, maxEnd);
+    }
+
+    /// <summary>
+    /// Walks an already-parsed TrieNode tree, expands names using the source compressor,
+    /// and rebuilds into a new EntityTrie using the target compressor. Avoids ParseFrom fallback.
+    /// </summary>
+    private static EntityTrie RebuildTrieWithCompressor(
+        TrieNode root, int count, NameCompressor? sourceCompressor, NameCompressor? targetCompressor)
+    {
+        var builder = new EntityTrie.Builder(targetCompressor);
+        EnumerateAndAdd(root, "", builder, sourceCompressor);
+        return builder.Build();
+
+        static void EnumerateAndAdd(
+            TrieNode node, string prefix, EntityTrie.Builder builder, NameCompressor? sourceCompressor)
+        {
+            if (node.Value is { } entity)
+            {
+                var fullName = sourceCompressor?.Expand(prefix) ?? prefix;
+                builder.Add(fullName, entity);
+            }
+            foreach (var (segment, child) in node.Children)
+            {
+                var childPath = prefix.Length == 0 ? segment : $"{prefix}/{segment}";
+                EnumerateAndAdd(child, childPath, builder, sourceCompressor);
+            }
+        }
     }
 
     /// <summary>
