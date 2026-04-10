@@ -95,6 +95,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
     {
+        if (_initializationTask?.IsCompleted != true)
+            return;
+
         if (_snapshotIndex == null
             || (_snapshotIndex != null && notification.Version > _snapshotIndex.SnapshotVersion))
         {

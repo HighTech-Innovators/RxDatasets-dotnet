@@ -79,6 +79,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
+        // During initialization, GetLatestIndex already loads the latest snapshot —
+        // running GetLatestSnapshotState concurrently would parse the same 500 MB+
+        // index a second time for nothing. Also skip when InitializationTask is null
+        // (StorageProviderReadiness hasn't fired yet — no _index to supplement).
+        if (InitializationTask?.IsCompleted != true)
+            return;
+
         if (_snapshotIndex == null
             || snapshotCreatedNotification.Version > _snapshotIndex.SnapshotVersion)
         {

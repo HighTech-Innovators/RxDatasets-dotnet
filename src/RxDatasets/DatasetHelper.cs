@@ -179,20 +179,20 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         throw new FileNotFoundException("There are no snapshots available to read.");
     }
 
-    private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion)
+    private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
         if (mutableSnapshotIndexBytes.Length > 100 * 1024 * 1024)
         {
-            logger.LogInformation("Parsing snapshot v{Version} index ({SizeMb:F0} MB)...",
-                snapshotVersion, mutableSnapshotIndexBytes.Length / (1024.0 * 1024));
+            logger.LogInformation("Parsing snapshot v{Version} index ({SizeMb:F0} MB, caller={Caller})...",
+                snapshotVersion, mutableSnapshotIndexBytes.Length / (1024.0 * 1024), caller);
         }
         var sw = Stopwatch.StartNew();
         var result = StreamingIndexCodec.ReadSnapshot(mutableSnapshotIndexBytes, nameCompressor);
         if (sw.ElapsedMilliseconds > 3000)
         {
-            logger.LogInformation("Parsed snapshot v{Version} index into trie ({EntityCount} entities) in {ElapsedMs}ms",
-                snapshotVersion, result.State.Entities.Count, sw.ElapsedMilliseconds);
+            logger.LogInformation("Parsed snapshot v{Version} index into trie ({EntityCount} entities) in {ElapsedMs}ms (caller={Caller})",
+                snapshotVersion, result.State.Entities.Count, sw.ElapsedMilliseconds, caller);
         }
 
         // Validate version
