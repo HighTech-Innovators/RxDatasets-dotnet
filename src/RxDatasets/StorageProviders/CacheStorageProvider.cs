@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
@@ -37,6 +37,7 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
             var bytesAsSpan = new ReadOnlyMemory<byte>(data);
             SetCache(dataCacheKey, bytesAsSpan);
             await _storageProvider.StoreSnapshot(snapshotVersion, index, data);
+            TrackSnapshotAndScheduleEviction(snapshotVersion);
         }
         catch (Exception ex)
         {
@@ -97,6 +98,40 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
                 var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
                 SetCache(dataCacheKey, bytesAsSpan);
                 await _storageProvider.StoreSnapshot(snapshotVersion, index, byteArray);
+                TrackSnapshotAndScheduleEviction(snapshotVersion);
+            }
+            else if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
+            {
+                // >2 GB but within cache limit: read into 1 GB blocks for caching,
+                // then pass the stream (reset to start) to the underlying provider.
+                var blocks = new List<ReadOnlyMemory<byte>>();
+                var buffer = new byte[BlockSize];
+                while (true)
+                {
+                    int totalRead = 0;
+                    while (totalRead < BlockSize)
+                    {
+                        int read = await data.ReadAsync(buffer, totalRead, BlockSize - totalRead);
+                        if (read == 0) break;
+                        totalRead += read;
+                    }
+                    if (totalRead == 0) break;
+
+                    var block = new byte[totalRead];
+                    Buffer.BlockCopy(buffer, 0, block, 0, totalRead);
+                    blocks.Add(block);
+                }
+
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    var blockCacheKey = GetBlockCacheKey(snapshotVersion, ObjectNameTypeEnum.Snapshot, i);
+                    SetCache(blockCacheKey, blocks[i]);
+                }
+
+                // Reset stream and pass to underlying provider for upload
+                data.Position = 0;
+                await _storageProvider.StoreSnapshot(snapshotVersion, index, data);
+                TrackSnapshotAndScheduleEviction(snapshotVersion, blocks.Count);
             }
             else
             {
@@ -105,10 +140,41 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Something went wrong while storing delta data cache!");
+            _logger.LogError(ex, "Something went wrong while storing snapshot data!");
             MemoryCache.Remove(indexCacheKey);
             MemoryCache.Remove(dataCacheKey);
+            for (int i = 0; i < _currentlyCachedBlockCount; i++)
+                MemoryCache.Remove(GetBlockCacheKey(snapshotVersion, ObjectNameTypeEnum.Snapshot, i));
             throw;
+        }
+    }
+
+    private const int EvictionDelaySeconds = 30;
+
+    /// <summary>
+    /// Tracks the new snapshot version so <c>InitCache</c> won't re-download it,
+    /// and schedules a delayed eviction of the previous snapshot's cache entries.
+    /// The delay gives in-flight readers time to finish serving from the old data.
+    /// </summary>
+    private void TrackSnapshotAndScheduleEviction(ulong snapshotVersion, int newBlockCount = 0)
+    {
+        var oldVersion = _currentlyCachedSnapshot;
+        var oldBlockCount = _currentlyCachedBlockCount;
+        _currentlyCachedSnapshot = snapshotVersion;
+        _currentlyCachedBlockCount = newBlockCount;
+
+        if (oldVersion > 0 && oldVersion != snapshotVersion)
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(EvictionDelaySeconds));
+                MemoryCache.Remove(GetCacheKey(oldVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot));
+                MemoryCache.Remove(GetCacheKey(oldVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot));
+                for (int i = 0; i < oldBlockCount; i++)
+                    MemoryCache.Remove(GetBlockCacheKey(oldVersion, ObjectNameTypeEnum.Snapshot, i));
+                _logger.LogInformation("Evicted old snapshot v{Version} from cache after {Delay}s delay",
+                    oldVersion, EvictionDelaySeconds);
+            });
         }
     }
 

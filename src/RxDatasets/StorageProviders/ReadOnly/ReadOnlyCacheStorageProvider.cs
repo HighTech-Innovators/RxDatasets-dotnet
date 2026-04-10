@@ -19,13 +19,13 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     : IReadOnlyStorageProvider<T>, IHostedService where TStorageProvider : IReadOnlyStorageProvider<T>
 {
     private const long MB_BYTES = 1024 * 1024;
-    private const int BlockSize = 1024 * 1024 * 1024; // 1 GB blocks for >2 GB snapshot data
+    protected const int BlockSize = 1024 * 1024 * 1024; // 1 GB blocks for >2 GB snapshot data
     protected readonly IMemoryCache MemoryCache = new MemoryCache(new MemoryCacheOptions()
     {
         SizeLimit = (long)cacheConfig.Value.CacheSizeMB * MB_BYTES
     });
-    private ulong _currentlyCachedSnapshot;
-    private int _currentlyCachedBlockCount;
+    protected ulong _currentlyCachedSnapshot;
+    protected int _currentlyCachedBlockCount;
     private readonly CompositeDisposable _subscriptions = new();
 
     // Coalesces concurrent requests for the same cache key into a single RPC.
@@ -201,7 +201,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     }
     protected string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
     private string GetPositionedCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot, long position, int length) => $"{deltaOrSnapshot}_{indexData}_{version}_pos{position}_len{length}";
-    private static string GetBlockCacheKey(ulong version, ObjectNameTypeEnum type, int blockIndex) => $"{type}_Data_{version}_blk{blockIndex}";
+    protected static string GetBlockCacheKey(ulong version, ObjectNameTypeEnum type, int blockIndex) => $"{type}_Data_{version}_blk{blockIndex}";
 
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
