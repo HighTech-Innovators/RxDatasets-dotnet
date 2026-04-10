@@ -85,15 +85,22 @@ public class HybridBigtableStorageReader<T>(
             {
                 // lz4frame supports streaming decompression — wrap the download stream
                 // so we never materialize the full decompressed blob in memory.
+                if (Log)
+                {
+                    logger.LogInformation(
+                        "Starting streaming lz4frame download+decompression of Snapshot Data v{Version} from GCS (Key: {Key})",
+                        snapshotVersion, artifact.DataFallbackObjectKey);
+                }
                 await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, compressedStream =>
                 {
-                    using var lz4 = LZ4Stream.Decode(compressedStream);
+                    using var lz4 = new ByteCountingStream(LZ4Stream.Decode(compressedStream));
+                    callback(lz4);
                     if (Log)
                     {
-                        logger.LogInformation("Streaming lz4frame decompression of Snapshot Data from GCS in {ElapsedMs}ms",
-                            swGcs!.ElapsedMilliseconds);
+                        logger.LogInformation(
+                            "Completed streaming lz4frame Snapshot Data v{Version}: {DecompressedBytes} bytes decompressed in {ElapsedMs}ms",
+                            snapshotVersion, lz4.BytesRead, swGcs!.ElapsedMilliseconds);
                     }
-                    callback(lz4);
                 });
             }
             else if (isCompressed)
@@ -440,5 +447,36 @@ public class HybridBigtableStorageReader<T>(
         }
 
         throw new FileNotFoundException("The requested hybrid artifact data payload is missing.");
+    }
+
+    /// <summary>
+    /// Wraps a stream to count bytes read without buffering.
+    /// </summary>
+    private sealed class ByteCountingStream(Stream inner) : Stream
+    {
+        public long BytesRead { get; private set; }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int read = inner.Read(buffer, offset, count);
+            BytesRead += read;
+            return read;
+        }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() => inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => inner.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }
