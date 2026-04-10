@@ -14,7 +14,7 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
+public class DatasetWriter<T> : IDatasetWriter<T>, ICurrentIndexProvider<T>, IDisposable
 {
     private readonly ILogger<DatasetWriter<T>> _logger;
     private readonly DatasetHelper _datasetHelper;
@@ -29,6 +29,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     protected ImmutableDatasetState? CurrentIndex => _index;
     protected ImmutableDatasetState? MostRecentSnapshotIndex => _snapshotIndex;
     protected DatasetHelper DatasetHelper => _datasetHelper;
+
+    ImmutableDatasetState? ICurrentIndexProvider<T>.CurrentDatasetState => _index;
 
     /// <summary>
     /// Called after a delta has been computed and persisted, but before <c>_index</c> is

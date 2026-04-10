@@ -209,11 +209,13 @@ namespace RxDatasets
                 services.AddSingleton<DatasetReaderWriter<TEntity>>();
                 services.AddSingletonAlias<IDatasetReader<TEntity>, DatasetReaderWriter<TEntity>>();
                 services.AddSingletonAlias<IDatasetWriter<TEntity>, DatasetReaderWriter<TEntity>>();
+                services.AddSingletonAlias<ICurrentIndexProvider<TEntity>, DatasetReaderWriter<TEntity>>();
             }
             else
             {
                 services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
                 services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+                services.AddSingleton<ICurrentIndexProvider<TEntity>>(sp => (ICurrentIndexProvider<TEntity>)sp.GetRequiredService<IDatasetWriter<TEntity>>());
             }
 
             if (!_isInMemoryDataset)
