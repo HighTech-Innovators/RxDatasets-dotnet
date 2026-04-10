@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Google.Protobuf;
+using K4os.Compression.LZ4.Streams;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
@@ -80,8 +81,24 @@ public class HybridBigtableStorageReader<T>(
         if (!string.IsNullOrEmpty(artifact.DataFallbackObjectKey))
         {
             var swGcs = Log ? Stopwatch.StartNew() : null;
-            if (isCompressed)
+            if (isCompressed && artifact.DataEncoding == GoogleCloudVersionedArtifactRowStore.EncodingLz4Frame)
             {
+                // lz4frame supports streaming decompression — wrap the download stream
+                // so we never materialize the full decompressed blob in memory.
+                await blobStorage.DownloadWithCallBack(artifact.DataFallbackObjectKey, compressedStream =>
+                {
+                    using var lz4 = LZ4Stream.Decode(compressedStream);
+                    if (Log)
+                    {
+                        logger.LogInformation("Streaming lz4frame decompression of Snapshot Data from GCS in {ElapsedMs}ms",
+                            swGcs!.ElapsedMilliseconds);
+                    }
+                    callback(lz4);
+                });
+            }
+            else if (isCompressed)
+            {
+                // lz4 Pickler or other formats: must decompress fully (no streaming support)
                 var compressed = await blobStorage.DownloadBytes(artifact.DataFallbackObjectKey);
                 var decompressed = GoogleCloudVersionedArtifactRowStore.Decompress(compressed.ToArray(), artifact.DataEncoding!);
                 if (Log)

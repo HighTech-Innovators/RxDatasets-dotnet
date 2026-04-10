@@ -19,11 +19,13 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     : IReadOnlyStorageProvider<T>, IHostedService where TStorageProvider : IReadOnlyStorageProvider<T>
 {
     private const long MB_BYTES = 1024 * 1024;
+    private const int BlockSize = 1024 * 1024 * 1024; // 1 GB blocks for >2 GB snapshot data
     protected readonly IMemoryCache MemoryCache = new MemoryCache(new MemoryCacheOptions()
     {
         SizeLimit = (long)cacheConfig.Value.CacheSizeMB * MB_BYTES
     });
     private ulong _currentlyCachedSnapshot;
+    private int _currentlyCachedBlockCount;
     private readonly CompositeDisposable _subscriptions = new();
 
     // Coalesces concurrent requests for the same cache key into a single RPC.
@@ -141,15 +143,55 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
         var cacheKey = GetCacheKey(oldSnapshotVersion, ObjectNameIndexOrDataEnum.Data,
             ObjectNameTypeEnum.Snapshot);
         MemoryCache.Remove(cacheKey);
+
+        // Evict block-based cache entries
+        for (int i = 0; i < _currentlyCachedBlockCount; i++)
+            MemoryCache.Remove(GetBlockCacheKey(oldSnapshotVersion, ObjectNameTypeEnum.Snapshot, i));
+        _currentlyCachedBlockCount = 0;
     }
 
     private async Task CacheSnapshot(ulong snapshotVersion)
     {
         var dataLength = await GetSnapshotDataContentLength(snapshotVersion);
-        if (dataLength <= (long)cacheConfig.Value.CacheSizeMB * MB_BYTES)
+        if (dataLength > (long)cacheConfig.Value.CacheSizeMB * MB_BYTES)
+            return;
+
+        if (dataLength <= int.MaxValue)
         {
-            _ = await ReadSnapshotData(snapshotVersion); // This triggers a cache set
+            // Small enough for a single byte[] — use the simple path
+            _ = await ReadSnapshotData(snapshotVersion); // triggers cache set via GetOrCreateCoalesced
+            return;
         }
+
+        // >2 GB: stream-read into 1 GB blocks to stay within byte[] limits.
+        // Uses the Stream-based overload which supports streaming decompression (lz4frame).
+        var blocks = new List<ReadOnlyMemory<byte>>();
+        await _readOnlyStorageProvider.ReadSnapshotData(snapshotVersion, stream =>
+        {
+            var buffer = new byte[BlockSize];
+            while (true)
+            {
+                int totalRead = 0;
+                while (totalRead < BlockSize)
+                {
+                    int read = stream.Read(buffer, totalRead, BlockSize - totalRead);
+                    if (read == 0) break;
+                    totalRead += read;
+                }
+                if (totalRead == 0) break;
+
+                var block = new byte[totalRead];
+                Buffer.BlockCopy(buffer, 0, block, 0, totalRead);
+                blocks.Add(block);
+            }
+        });
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            var cacheKey = GetBlockCacheKey(snapshotVersion, ObjectNameTypeEnum.Snapshot, i);
+            SetCache(cacheKey, blocks[i]);
+        }
+        _currentlyCachedBlockCount = blocks.Count;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -159,6 +201,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     }
     protected string GetCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot) => $"{deltaOrSnapshot}_{indexData}_{version}";
     private string GetPositionedCacheKey(ulong version, ObjectNameIndexOrDataEnum indexData, ObjectNameTypeEnum deltaOrSnapshot, long position, int length) => $"{deltaOrSnapshot}_{indexData}_{version}_pos{position}_len{length}";
+    private static string GetBlockCacheKey(ulong version, ObjectNameTypeEnum type, int blockIndex) => $"{type}_Data_{version}_blk{blockIndex}";
 
     public Task<ReadOnlyMemory<byte>> ReadDeltaIndex(ulong version)
     {
@@ -191,7 +234,6 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
         foreach (var (type, version, position) in sources)
         {
-            var cacheKeyWhole = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, type);
             var cacheKeySpecificRange = GetPositionedCacheKey(version, ObjectNameIndexOrDataEnum.Data, type, position, length);
 
             if (MemoryCache.TryGetValue(cacheKeySpecificRange, out ReadOnlyMemory<byte> data))
@@ -199,9 +241,19 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
                 return data;
             }
 
+            var cacheKeyWhole = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, type);
             if (MemoryCache.TryGetValue(cacheKeyWhole, out data))
             {
                 return data.Slice((int)position, length);
+            }
+
+            // Block-based cache: check if the requested range falls within a cached block
+            int blockIndex = (int)(position / BlockSize);
+            var blockCacheKey = GetBlockCacheKey(version, type, blockIndex);
+            if (MemoryCache.TryGetValue(blockCacheKey, out data))
+            {
+                int offsetInBlock = (int)(position - (long)blockIndex * BlockSize);
+                return data.Slice(offsetInBlock, length);
             }
         }
 
