@@ -153,11 +153,13 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     }
 
     /// <summary>
-    /// Builds a lightweight position-only lookup for the most recent snapshot,
-    /// without constructing the full EntityTrie. Used by readers/writers to find
-    /// entity positions in the newest snapshot for data retrieval.
+    /// Builds an <see cref="ImmutableDatasetState"/> for the most recent snapshot.
+    /// Used by readers/writers as a secondary position index when a newer snapshot
+    /// appears after the main index was built. Uses the same streaming trie builder
+    /// as <c>GetLatestIndex</c>, so positions are looked up via an efficient trie
+    /// instead of a Dictionary with full entity name strings.
     /// </summary>
-    public async Task<SnapshotPositionLookup> GetLatestSnapshotPositionLookup()
+    public async Task<ImmutableDatasetState> GetLatestSnapshotState()
     {
         var availableVersions = await storageProvider.ListVersions();
 
@@ -165,13 +167,12 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         {
             try
             {
-                var bytes = await storageProvider.ReadSnapshotIndex(version);
-                return StreamingIndexCodec.ReadSnapshotPositionLookup(bytes);
+                return await TryGetSnapshot(version);
             }
             catch (Exception e)
             {
                 logger.LogWarning(e,
-                    $"Skipping snapshot v{version} position lookup because we got {e}");
+                    $"Skipping snapshot v{version} state because we got {e}");
             }
         }
 

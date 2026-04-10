@@ -693,10 +693,10 @@ public class NestedIndexHelperTests
 
     #endregion
 
-    #region On-disk ID pattern compression: SnapshotPositionLookup
+    #region On-disk ID pattern compression: Snapshot position via trie
 
     [Fact]
-    public void SnapshotPositionLookup_WithCompressor_ExpandsNestedNames()
+    public void SnapshotState_WithCompressor_ExpandsNestedNames()
     {
         var compressor = NameCompressor.FromPattern("t/*/s/*/items/*/values")!;
         var proto = BuildSnapshotProto(5,
@@ -704,37 +704,37 @@ public class NestedIndexHelperTests
             ("abc/ghi/002", MakeProtoEntity(2, 10, 20)));
         proto.IdPattern = compressor.Pattern;
 
-        var lookup = SnapshotPositionLookup.FromProto(proto);
+        var state = ImmutableDatasetState.FromProto(proto, compressor);
 
-        lookup.TryGetPosition("t/abc/s/def/items/001/values", out var pos1).Should().BeTrue();
-        pos1.Should().Be(0);
-        lookup.TryGetPosition("t/abc/s/ghi/items/002/values", out var pos2).Should().BeTrue();
-        pos2.Should().Be(10);
+        state.Entities.TryGetValue("t/abc/s/def/items/001/values", out var e1).Should().BeTrue();
+        e1.Position.Should().Be(0);
+        state.Entities.TryGetValue("t/abc/s/ghi/items/002/values", out var e2).Should().BeTrue();
+        e2.Position.Should().Be(10);
     }
 
     [Fact]
-    public void SnapshotPositionLookup_WithCompressor_ExpandsFlatNames()
+    public void SnapshotState_WithCompressor_ExpandsFlatNames()
     {
         var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
         var proto = new SnapshotIndex { SnapshotVersion = 5, IdPattern = compressor.Pattern };
         proto.Entities.Add("abc/001", MakeProtoEntity(1, 0, 10));
 
-        var lookup = SnapshotPositionLookup.FromProto(proto);
+        var state = ImmutableDatasetState.FromProto(proto, compressor);
 
-        lookup.TryGetPosition("t/abc/items/001/values", out var pos).Should().BeTrue();
-        pos.Should().Be(0);
+        state.Entities.TryGetValue("t/abc/items/001/values", out var entity).Should().BeTrue();
+        entity.Position.Should().Be(0);
     }
 
     [Fact]
-    public void SnapshotPositionLookup_WithoutCompressor_UsesFullNames()
+    public void SnapshotState_WithoutCompressor_UsesFullNames()
     {
         var proto = BuildSnapshotProto(5,
             ("t/abc/s/def/items/001/values", MakeProtoEntity(1, 0, 10)));
 
-        var lookup = SnapshotPositionLookup.FromProto(proto);
+        var state = ImmutableDatasetState.FromProto(proto);
 
-        lookup.TryGetPosition("t/abc/s/def/items/001/values", out var pos).Should().BeTrue();
-        pos.Should().Be(0);
+        state.Entities.TryGetValue("t/abc/s/def/items/001/values", out var entity).Should().BeTrue();
+        entity.Position.Should().Be(0);
     }
 
     #endregion

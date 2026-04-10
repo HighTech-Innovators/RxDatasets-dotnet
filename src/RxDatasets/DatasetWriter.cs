@@ -22,12 +22,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly IOptions<WriterConfig> _writerConfig;
     private readonly NameCompressor? _nameCompressor;
     private ImmutableDatasetState? _index;
-    private SnapshotPositionLookup? _snapshotPositionLookup;
+    private ImmutableDatasetState? _snapshotIndex;
 
     protected ILogger Logger => _logger;
     protected IReadOnlyStorageProvider<T> ReadOnlyStorageProvider => _storageProvider;
     protected ImmutableDatasetState? CurrentIndex => _index;
-    protected SnapshotPositionLookup? MostRecentSnapshotPositionLookup => _snapshotPositionLookup;
+    protected ImmutableDatasetState? MostRecentSnapshotIndex => _snapshotIndex;
     protected DatasetHelper DatasetHelper => _datasetHelper;
 
     /// <summary>
@@ -69,7 +69,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         InitializationTask = null;
         _index = null;
-        _snapshotPositionLookup = null;
+        _snapshotIndex = null;
     }
 
     public virtual void Dispose()
@@ -79,10 +79,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification snapshotCreatedNotification)
     {
-        if (_snapshotPositionLookup == null
-            || snapshotCreatedNotification.Version > _snapshotPositionLookup.SnapshotVersion)
+        if (_snapshotIndex == null
+            || snapshotCreatedNotification.Version > _snapshotIndex.SnapshotVersion)
         {
-            _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
+            _snapshotIndex = await _datasetHelper.GetLatestSnapshotState();
         }
     }
 
@@ -108,7 +108,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            // SnapshotPositionLookup is not needed at init — the main _index trie
+            // Snapshot position index is not needed at init — the main _index trie
             // already has snapshot positions. It's only populated later by OnSnapshotCreated
             // when a newer snapshot appears while _index still references the old one.
 
@@ -571,12 +571,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (_snapshotPositionLookup != null && entityVersion <= _snapshotPositionLookup.SnapshotVersion)
+        var snapshotIdx = _snapshotIndex;
+        if (snapshotIdx != null && entityVersion <= snapshotIdx.SnapshotVersion)
         {
-            if (_snapshotPositionLookup.TryGetPosition(name, out var snapshotPosition))
+            if (snapshotIdx.Entities.TryGetValue(name, out var snapshotEntity))
             {
-                sources.Add((ObjectNameTypeEnum.Snapshot, _snapshotPositionLookup.SnapshotVersion,
-                    snapshotPosition));
+                sources.Add((ObjectNameTypeEnum.Snapshot, snapshotIdx.SnapshotVersion,
+                    snapshotEntity.Position));
             }
         }
 

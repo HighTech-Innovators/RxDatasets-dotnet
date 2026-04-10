@@ -803,10 +803,10 @@ public class CompressionRoundTripTests
 
     #endregion
 
-    #region SnapshotPositionLookup cross-format
+    #region Snapshot position trie cross-format
 
     [Fact]
-    public void SnapshotPositionLookup_CompressedSnapshot_RoundTrip()
+    public void SnapshotPositionTrie_CompressedSnapshot_RoundTrip()
     {
         var compressor = NameCompressor.FromPattern("t/*/items/*/values")!;
         var bytes = WriteSnapshotBytes(5, compressor,
@@ -818,31 +818,31 @@ public class CompressionRoundTripTests
         // Verify proto has compressed names
         FlattenNestedNames(parsed.Nested).Should().BeEquivalentTo(["abc/001", "abc/002"]);
 
-        // SnapshotPositionLookup should expand and provide full-name lookups
-        var lookup = SnapshotPositionLookup.FromProto(parsed);
-        lookup.TryGetPosition("t/abc/items/001/values", out var pos1).Should().BeTrue();
-        pos1.Should().Be(0);
-        lookup.TryGetPosition("t/abc/items/002/values", out var pos2).Should().BeTrue();
-        pos2.Should().Be(100);
+        // Trie-based state should expand and provide full-name lookups
+        var state = ImmutableDatasetState.FromProto(parsed, compressor);
+        state.Entities.TryGetValue("t/abc/items/001/values", out var e1).Should().BeTrue();
+        e1.Position.Should().Be(0);
+        state.Entities.TryGetValue("t/abc/items/002/values", out var e2).Should().BeTrue();
+        e2.Position.Should().Be(100);
 
-        // Compressed name should NOT be found
-        lookup.TryGetPosition("abc/001", out _).Should().BeFalse();
+        // Compressed name also works via the trie (unlike the old Dictionary-based lookup)
+        state.Entities.TryGetValue("abc/001", out _).Should().BeTrue();
     }
 
     [Fact]
-    public void SnapshotPositionLookup_LegacyFlatSnapshot_RoundTrip()
+    public void SnapshotPositionTrie_LegacyFlatSnapshot_RoundTrip()
     {
         var bytes = WriteLegacyFlatSnapshotBytes(5,
             ("items/a", 0, 10, 1),
             ("items/b", 100, 20, 2));
 
         var parsed = SnapshotIndex.Parser.ParseFrom(bytes);
-        var lookup = SnapshotPositionLookup.FromProto(parsed);
+        var state = ImmutableDatasetState.FromProto(parsed);
 
-        lookup.TryGetPosition("items/a", out var pos1).Should().BeTrue();
-        pos1.Should().Be(0);
-        lookup.TryGetPosition("items/b", out var pos2).Should().BeTrue();
-        pos2.Should().Be(100);
+        state.Entities.TryGetValue("items/a", out var e1).Should().BeTrue();
+        e1.Position.Should().Be(0);
+        state.Entities.TryGetValue("items/b", out var e2).Should().BeTrue();
+        e2.Position.Should().Be(100);
     }
 
     #endregion

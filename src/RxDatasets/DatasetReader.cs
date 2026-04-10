@@ -19,7 +19,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly bool _retryInitialization;
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
-    private SnapshotPositionLookup? _snapshotPositionLookup;
+    private ImmutableDatasetState? _snapshotIndex;
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -95,10 +95,10 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task OnSnapshotCreated(SnapshotCreatedNotification notification)
     {
-        if (_snapshotPositionLookup == null
-            || (_snapshotPositionLookup != null && notification.Version > _snapshotPositionLookup.SnapshotVersion))
+        if (_snapshotIndex == null
+            || (_snapshotIndex != null && notification.Version > _snapshotIndex.SnapshotVersion))
         {
-            _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
+            _snapshotIndex = await _datasetHelper.GetLatestSnapshotState();
         }
     }
 
@@ -133,7 +133,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            // SnapshotPositionLookup is not needed at init — the main _index trie
+            // Snapshot position index is not needed at init — the main _index trie
             // already has snapshot positions. It's only populated later by OnSnapshotCreated
             // when a newer snapshot appears while _index still references the old one.
             _logger.LogInformation($"Initialized DataReader {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
@@ -149,7 +149,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         _initializationTask = null;
         _index = null;
-        _snapshotPositionLookup = null;
+        _snapshotIndex = null;
     }
 
     private ImmutableDatasetState ThrowIfNotInitialized()
@@ -199,12 +199,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
-        if (_snapshotPositionLookup != null && entityVersion <= _snapshotPositionLookup.SnapshotVersion)
+        var snapshotIdx = _snapshotIndex;
+        if (snapshotIdx != null && entityVersion <= snapshotIdx.SnapshotVersion)
         {
-            if (_snapshotPositionLookup.TryGetPosition(name, out var snapshotPosition))
+            if (snapshotIdx.Entities.TryGetValue(name, out var snapshotEntity))
             {
-                sources.Add((ObjectNameTypeEnum.Snapshot, _snapshotPositionLookup.SnapshotVersion,
-                    snapshotPosition));
+                sources.Add((ObjectNameTypeEnum.Snapshot, snapshotIdx.SnapshotVersion,
+                    snapshotEntity.Position));
             }
         }
 
@@ -333,7 +334,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     public ulong GetLastUsedSnapshotVersion()
     {
         ThrowIfNotInitialized();
-        return _snapshotPositionLookup?.SnapshotVersion ?? 0;
+        return _snapshotIndex?.SnapshotVersion ?? 0;
     }
 
     public ulong GetMainIndexSnapshotVersion()

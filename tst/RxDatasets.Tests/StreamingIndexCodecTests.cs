@@ -344,10 +344,10 @@ public class StreamingIndexCodecTests
 
     #endregion
 
-    #region ── Position Lookup Tests ──
+    #region ── Snapshot Position Trie Tests ──
 
     [Fact]
-    public void ReadSnapshotPositionLookup_Nested()
+    public void ReadSnapshot_PositionLookup_Nested()
     {
         var compressor = NameCompressor.FromPattern(Pattern)!;
         var entities = new Dictionary<string, SnapshotEntity>
@@ -359,18 +359,18 @@ public class StreamingIndexCodecTests
         var nested = BuildNestedBucket(entities);
         var bytes = StreamingIndexCodec.WriteSnapshot(10, compressor.Pattern, nested);
 
-        var lookup = StreamingIndexCodec.ReadSnapshotPositionLookup(bytes);
+        var result = StreamingIndexCodec.ReadSnapshot(bytes, compressor);
 
-        lookup.SnapshotVersion.Should().Be(10);
-        lookup.TryGetPosition("t/abc/s/def/items/001/values", out var pos1).Should().BeTrue();
-        pos1.Should().Be(0);
-        lookup.TryGetPosition("t/abc/s/def/items/002/values", out var pos2).Should().BeTrue();
-        pos2.Should().Be(100);
-        lookup.TryGetPosition("t/abc/s/def/items/003/values", out _).Should().BeFalse();
+        result.State.SnapshotVersion.Should().Be(10);
+        result.State.Entities.TryGetValue("t/abc/s/def/items/001/values", out var e1).Should().BeTrue();
+        e1.Position.Should().Be(0);
+        result.State.Entities.TryGetValue("t/abc/s/def/items/002/values", out var e2).Should().BeTrue();
+        e2.Position.Should().Be(100);
+        result.State.Entities.TryGetValue("t/abc/s/def/items/003/values", out _).Should().BeFalse();
     }
 
     [Fact]
-    public void ReadSnapshotPositionLookup_LegacyFlat()
+    public void ReadSnapshot_PositionLookup_LegacyFlat()
     {
         var entities = new Dictionary<string, SnapshotEntity>
         {
@@ -378,15 +378,15 @@ public class StreamingIndexCodecTests
         };
         var bytes = WriteLegacyFlatSnapshot(5, entities);
 
-        var lookup = StreamingIndexCodec.ReadSnapshotPositionLookup(bytes);
+        var result = StreamingIndexCodec.ReadSnapshot(bytes);
 
-        lookup.SnapshotVersion.Should().Be(5);
-        lookup.TryGetPosition("foo/bar", out var pos).Should().BeTrue();
-        pos.Should().Be(42);
+        result.State.SnapshotVersion.Should().Be(5);
+        result.State.Entities.TryGetValue("foo/bar", out var entity).Should().BeTrue();
+        entity.Position.Should().Be(42);
     }
 
     [Fact]
-    public void ReadSnapshotPositionLookup_ProtoWritten_MatchesProtoBasedLookup()
+    public void ReadSnapshot_PositionLookup_MatchesProtoBasedState()
     {
         var compressor = NameCompressor.FromPattern(Pattern)!;
         var entities = new Dictionary<string, SnapshotEntity>
@@ -397,21 +397,21 @@ public class StreamingIndexCodecTests
         var nested = BuildNestedBucket(entities);
         var protoBytes = WriteProtoSnapshot(10, Pattern, nested);
 
-        // Proto-based lookup
+        // Proto-based state
         var proto = SnapshotIndex.Parser.ParseFrom(protoBytes);
-        var protoLookup = SnapshotPositionLookup.FromProto(proto);
+        var protoState = ImmutableDatasetState.FromProto(proto, compressor);
 
-        // Streaming lookup
-        var streamingLookup = StreamingIndexCodec.ReadSnapshotPositionLookup(protoBytes);
+        // Streaming state
+        var streamingState = StreamingIndexCodec.ReadSnapshot(protoBytes, compressor).State;
 
         // Both should return the same positions
-        protoLookup.TryGetPosition("t/abc/s/def/items/001/values", out var p1a);
-        streamingLookup.TryGetPosition("t/abc/s/def/items/001/values", out var p1b);
-        p1a.Should().Be(p1b);
+        protoState.Entities.TryGetValue("t/abc/s/def/items/001/values", out var p1a);
+        streamingState.Entities.TryGetValue("t/abc/s/def/items/001/values", out var p1b);
+        p1a.Position.Should().Be(p1b.Position);
 
-        protoLookup.TryGetPosition("t/abc/s/def/items/002/values", out var p2a);
-        streamingLookup.TryGetPosition("t/abc/s/def/items/002/values", out var p2b);
-        p2a.Should().Be(p2b);
+        protoState.Entities.TryGetValue("t/abc/s/def/items/002/values", out var p2a);
+        streamingState.Entities.TryGetValue("t/abc/s/def/items/002/values", out var p2b);
+        p2a.Position.Should().Be(p2b.Position);
     }
 
     #endregion
