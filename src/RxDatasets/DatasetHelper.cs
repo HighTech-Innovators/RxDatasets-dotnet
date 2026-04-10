@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -180,7 +181,18 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     private async Task<ImmutableDatasetState> TryGetSnapshot(ulong snapshotVersion)
     {
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
+        if (mutableSnapshotIndexBytes.Length > 100 * 1024 * 1024)
+        {
+            logger.LogInformation("Parsing snapshot v{Version} index ({SizeMb:F0} MB)...",
+                snapshotVersion, mutableSnapshotIndexBytes.Length / (1024.0 * 1024));
+        }
+        var sw = Stopwatch.StartNew();
         var result = StreamingIndexCodec.ReadSnapshot(mutableSnapshotIndexBytes, nameCompressor);
+        if (sw.ElapsedMilliseconds > 3000)
+        {
+            logger.LogInformation("Parsed snapshot v{Version} index into trie ({EntityCount} entities) in {ElapsedMs}ms",
+                snapshotVersion, result.State.Entities.Count, sw.ElapsedMilliseconds);
+        }
 
         // Validate version
         var version = result.Version > 0 ? result.Version : result.VersionLegacy;

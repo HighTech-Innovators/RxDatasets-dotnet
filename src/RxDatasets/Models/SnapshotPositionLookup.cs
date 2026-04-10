@@ -22,6 +22,14 @@ public sealed class SnapshotPositionLookup
     internal static SnapshotPositionLookup FromPositions(ulong version, Dictionary<string, long> positions)
         => new(version, positions);
 
+    public static SnapshotPositionLookup FromState(ImmutableDatasetState state)
+    {
+        var positions = new Dictionary<string, long>(state.Entities.Count);
+        foreach (var (name, entity) in state.Entities)
+            positions[name] = entity.Position;
+        return new SnapshotPositionLookup(state.SnapshotVersion, positions);
+    }
+
     public static SnapshotPositionLookup FromProto(SnapshotIndex proto)
     {
         var compressor = proto.IdPattern.Length > 0

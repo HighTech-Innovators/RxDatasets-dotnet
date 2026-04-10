@@ -133,14 +133,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         try
         {
             _index = await _datasetHelper.GetLatestIndex();
-            try
-            {
-                _snapshotPositionLookup = await _datasetHelper.GetLatestSnapshotPositionLookup();
-            }
-            catch (FileNotFoundException)
-            {
-                //ignored as we dont have a snapshot yet
-            }
+            // SnapshotPositionLookup is not needed at init — the main _index trie
+            // already has snapshot positions. It's only populated later by OnSnapshotCreated
+            // when a newer snapshot appears while _index still references the old one.
             _logger.LogInformation($"Initialized DataReader {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
