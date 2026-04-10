@@ -323,19 +323,86 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     public Task ReadSnapshotData(ulong version, Action<Stream> callback)
     {
-
         var cacheKeyWholeSnapshot = GetCacheKey(version, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot);
 
-        if (!MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
-            return _readOnlyStorageProvider.ReadSnapshotData(version, callback);
-
-        var memoryStream = new MemoryStream(data.ToArray());
-        using (memoryStream)
+        if (MemoryCache.TryGetValue(cacheKeyWholeSnapshot, out ReadOnlyMemory<byte> data))
         {
+            using var memoryStream = new MemoryStream(data.ToArray());
             callback(memoryStream);
             return Task.CompletedTask;
         }
 
+        // Check block-based cache for >2 GB snapshots
+        if (_currentlyCachedSnapshot == version && _currentlyCachedBlockCount > 0)
+        {
+            var blocks = new List<ReadOnlyMemory<byte>>(_currentlyCachedBlockCount);
+            bool allBlocksFound = true;
+            for (int i = 0; i < _currentlyCachedBlockCount; i++)
+            {
+                var blockKey = GetBlockCacheKey(version, ObjectNameTypeEnum.Snapshot, i);
+                if (!MemoryCache.TryGetValue(blockKey, out ReadOnlyMemory<byte> block))
+                {
+                    allBlocksFound = false;
+                    break;
+                }
+                blocks.Add(block);
+            }
+
+            if (allBlocksFound)
+            {
+                using var stream = new ConcatenatingBlockStream(blocks);
+                callback(stream);
+                return Task.CompletedTask;
+            }
+        }
+
+        return _readOnlyStorageProvider.ReadSnapshotData(version, callback);
+    }
+
+    /// <summary>
+    /// Read-only, forward-only stream that reads sequentially through a list of memory blocks.
+    /// Used to serve block-cached >2 GB snapshot data as a single stream.
+    /// </summary>
+    private sealed class ConcatenatingBlockStream(List<ReadOnlyMemory<byte>> blocks) : Stream
+    {
+        private int _currentBlock;
+        private int _positionInBlock;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int totalRead = 0;
+            while (count > 0 && _currentBlock < blocks.Count)
+            {
+                var block = blocks[_currentBlock];
+                int available = block.Length - _positionInBlock;
+                int toCopy = Math.Min(available, count);
+                block.Span.Slice(_positionInBlock, toCopy).CopyTo(buffer.AsSpan(offset, toCopy));
+                offset += toCopy;
+                count -= toCopy;
+                totalRead += toCopy;
+                _positionInBlock += toCopy;
+                if (_positionInBlock >= block.Length)
+                {
+                    _currentBlock++;
+                    _positionInBlock = 0;
+                }
+            }
+            return totalRead;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => blocks.Sum(b => (long)b.Length);
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     public Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
