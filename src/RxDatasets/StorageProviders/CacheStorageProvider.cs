@@ -10,7 +10,7 @@ namespace RxDatasets.StorageProviders;
 
 public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStorageProvider<T, TStorageProvider>, IStorageProvider<T> where TStorageProvider : IStorageProvider<T>
 {
-    private const int MB_BYTES = 1024 * 1024;
+    private const long MB_BYTES = 1024 * 1024;
 
     private readonly IOptions<DtoStorageCacheConfig> _cacheConfig;
     private readonly IStorageProvider<T> _storageProvider;

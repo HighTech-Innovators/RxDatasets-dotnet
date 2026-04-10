@@ -18,10 +18,10 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     ILogger<ReadOnlyCacheStorageProvider<T, TStorageProvider>> logger)
     : IReadOnlyStorageProvider<T>, IHostedService where TStorageProvider : IReadOnlyStorageProvider<T>
 {
-    private const int MB_BYTES = 1024 * 1024;
+    private const long MB_BYTES = 1024 * 1024;
     protected readonly IMemoryCache MemoryCache = new MemoryCache(new MemoryCacheOptions()
     {
-        SizeLimit = cacheConfig.Value.CacheSizeMB * MB_BYTES
+        SizeLimit = (long)cacheConfig.Value.CacheSizeMB * MB_BYTES
     });
     private ulong _currentlyCachedSnapshot;
     private readonly CompositeDisposable _subscriptions = new();
@@ -145,10 +145,8 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
 
     private async Task CacheSnapshot(ulong snapshotVersion)
     {
-        var index = await ReadSnapshotIndex(snapshotVersion);
-        var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
-        var totalLength = DatasetHelper.GetAllSnapshotEntities(mutableSnapshotIndex).Sum(entity => entity.Length);
-        if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
+        var dataLength = await GetSnapshotDataContentLength(snapshotVersion);
+        if (dataLength <= (long)cacheConfig.Value.CacheSizeMB * MB_BYTES)
         {
             _ = await ReadSnapshotData(snapshotVersion); // This triggers a cache set
         }
