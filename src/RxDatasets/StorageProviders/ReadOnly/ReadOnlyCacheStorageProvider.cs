@@ -247,13 +247,27 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
                 return data.Slice((int)position, length);
             }
 
-            // Block-based cache: check if the requested range falls within a cached block
+            // Block-based cache: check if the requested range falls within cached block(s)
             int blockIndex = (int)(position / BlockSize);
             var blockCacheKey = GetBlockCacheKey(version, type, blockIndex);
             if (MemoryCache.TryGetValue(blockCacheKey, out data))
             {
                 int offsetInBlock = (int)(position - (long)blockIndex * BlockSize);
-                return data.Slice(offsetInBlock, length);
+                if (offsetInBlock + length <= data.Length)
+                {
+                    return data.Slice(offsetInBlock, length);
+                }
+
+                // Read spans a block boundary — copy tail of this block + head of next
+                int fromFirst = data.Length - offsetInBlock;
+                var nextBlockKey = GetBlockCacheKey(version, type, blockIndex + 1);
+                if (MemoryCache.TryGetValue(nextBlockKey, out ReadOnlyMemory<byte> nextData))
+                {
+                    var result = new byte[length];
+                    data.Slice(offsetInBlock, fromFirst).CopyTo(result);
+                    nextData.Slice(0, length - fromFirst).CopyTo(result.AsMemory(fromFirst));
+                    return result;
+                }
             }
         }
 
