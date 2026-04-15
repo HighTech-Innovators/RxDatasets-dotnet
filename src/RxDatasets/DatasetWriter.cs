@@ -31,6 +31,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, ICurrentIndexProvider<T>, IDi
     protected DatasetHelper DatasetHelper => _datasetHelper;
 
     ImmutableDatasetState? ICurrentIndexProvider<T>.CurrentDatasetState => _index;
+    ImmutableDatasetState? ICurrentIndexProvider<T>.MostRecentSnapshotState => _snapshotIndex;
 
     /// <summary>
     /// Called after a delta has been computed and persisted, but before <c>_index</c> is

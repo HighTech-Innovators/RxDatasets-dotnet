@@ -21,14 +21,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     private readonly TimeSpan _currentValuePeriodIntervalAsTimespan;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly NameCompressor? _nameCompressor;
-    private readonly ICurrentIndexProvider<T>? _indexProvider;
 
     public SnapshotCreationPlugin(
         ILogger<SnapshotCreationPlugin<T>> logger,
         IStorageProvider<T> storageProvider,
         IOptions<SnapshotCreationConfig> config, IScheduler scheduler,
-        NameCompressor? nameCompressor = null,
-        ICurrentIndexProvider<T>? indexProvider = null)
+        NameCompressor? nameCompressor = null)
     {
         _logger = logger;
         _storageProvider = storageProvider;
@@ -36,7 +34,6 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         _config = config;
         _scheduler = scheduler;
         _nameCompressor = nameCompressor;
-        _indexProvider = indexProvider;
         _currentValuePeriodIntervalAsTimespan = _config.Value.PeriodIntervalAsTimespan;
     }
     public string ConsumerIdentifier { get; } = $"SnapshotCreationPlugin-of-{typeof(T)}";
@@ -108,23 +105,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     private async Task CreateASnapshot(ulong version, CancellationToken stoppingToken)
     {
         _logger.LogInformation($"Snapshot Hosted {typeof(T).Name} Service is working. Creating snapshot for delta {version}.");
-
-        // Try to borrow the already-built index from the DatasetWriter to avoid
-        // re-parsing the 500 MB+ snapshot index (it's immutable, so thread-safe).
-        var writerState = _indexProvider?.CurrentDatasetState;
-        ImmutableDatasetState tempState;
-        if (writerState != null && writerState.LatestVersion >= version)
-        {
-            _logger.LogInformation(
-                "Borrowing index from DatasetWriter (v{WriterVersion}) instead of re-parsing snapshot index",
-                writerState.LatestVersion);
-            tempState = writerState;
-        }
-        else
-        {
-            tempState = await _datasetHelper.GetIndexOfVersion(version);
-        }
-
+        var tempState = await _datasetHelper.GetIndexOfVersion(version);
         _logger.LogInformation($"The previous snapshot is {tempState.SnapshotVersion}.");
 
         await CreateNewSnapshot(tempState, stoppingToken);

@@ -15,6 +15,7 @@ public sealed class EntityTrie : IReadOnlyDictionary<string, IndexEntity>
     internal static readonly EntityTrie Empty = new(TrieNode.EmptyNode, 0, null);
 
     private readonly TrieNode _root;
+    internal TrieNode Root => _root;
     internal NameCompressor? Compressor { get; }
 
     public int Count { get; }
