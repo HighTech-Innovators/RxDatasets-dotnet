@@ -36,6 +36,7 @@ namespace RxDatasets
         private bool _isInMemoryDataset;
         private bool _withDistributedLock;
         private bool _withSnapshot;
+        private bool _withSimpleSnapshot;
         private bool _withCleanup;
         private bool _withSharedReaderWriter;
         private string? _idPattern;
@@ -96,6 +97,19 @@ namespace RxDatasets
         public DtoServerBuilder<TEntity> WithSnapshot()
         {
             _withSnapshot = true;
+            return this;
+        }
+
+        /// <summary>
+        /// Enables a simplified snapshot creator that borrows the writer's in-memory indices
+        /// and reads entity data via the multi-source read API (random-access, cache-friendly).
+        /// Does not store version history — suitable for deployments that don't need
+        /// <c>ListChanges</c> for ranges beyond what is still available in delta files.
+        /// Mutually exclusive with <see cref="WithSnapshot"/>.
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithSimpleSnapshot()
+        {
+            _withSimpleSnapshot = true;
             return this;
         }
 
@@ -179,6 +193,14 @@ namespace RxDatasets
                 services.AddSingleton<IScheduler>(_ => Scheduler.Default);
                 services.AddSingleton<SnapshotCreationPlugin<TEntity>>();
                 services.AddHostedService<DatasetUpdateConsumingService<TEntity, SnapshotCreationPlugin<TEntity>>>();
+            }
+
+            if (!_isInMemoryDataset && _withSimpleSnapshot)
+            {
+                services.AddValidatedConfigSection<SnapshotCreationConfig>();
+                services.TryAddSingleton<IScheduler>(_ => Scheduler.Default);
+                services.AddSingleton<SimpleSnapshotCreationPlugin<TEntity>>();
+                services.AddHostedService<DatasetUpdateConsumingService<TEntity, SimpleSnapshotCreationPlugin<TEntity>>>();
             }
 
             if (!_isInMemoryDataset && _withCleanup)

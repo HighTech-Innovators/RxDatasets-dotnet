@@ -336,8 +336,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     }
     public ulong GetLastUsedSnapshotVersion()
     {
-        ThrowIfNotInitialized();
-        return _snapshotIndex?.SnapshotVersion ?? 0;
+        var indexRef = ThrowIfNotInitialized();
+        return _snapshotIndex?.SnapshotVersion ?? indexRef.SnapshotVersion;
     }
 
     public ulong GetMainIndexSnapshotVersion()

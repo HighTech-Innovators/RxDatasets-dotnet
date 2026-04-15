@@ -466,8 +466,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
 
     public ulong GetLastUsedSnapshotVersion()
     {
-        GetInitializedIndex();
-        return MostRecentSnapshotIndex?.SnapshotVersion ?? 0;
+        var indexRef = GetInitializedIndex();
+        return MostRecentSnapshotIndex?.SnapshotVersion ?? indexRef.SnapshotVersion;
     }
 
     public ulong GetMainIndexSnapshotVersion()
