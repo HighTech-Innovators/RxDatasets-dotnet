@@ -65,35 +65,41 @@ public class SnapshotCreationPluginTests
 
         var (storageProvider, _, datasetWriter) = await SetupDataset(scheduler);
 
-        const ulong howManyDeltasToCreate = 4ul;
-        await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
+        // Write a single delta first — with no prior snapshot and null lastSnapshotTime,
+        // the time condition is immediately met (TimeSpan.Zero), creating snapshot v1.
+        await CreateNumberDeltas(1, datasetWriter);
 
-        // Wait for the time-based snapshot to be created
-        for (var i = 0; i < 50; i++)
+        // Wait for snapshot v1 to be created
+        for (var i = 0; i < 100; i++)
         {
             var (_, _, s) = await storageProvider.ListVersions();
             if (s.Count >= 1) break;
             await Task.Delay(100);
         }
 
-        var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
-        newestDelta.Should().Be(howManyDeltasToCreate);
-        snapshots.Count.Should().Be(1);
-        scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4
+        var (_, _, firstSnapshots) = await storageProvider.ListVersions();
+        firstSnapshots.Count.Should().Be(1, "first snapshot should be created from time condition");
 
-        // Wait for the scheduled snapshot creation to complete
-        for (var i = 0; i < 50; i++)
+        // Write remaining deltas — these schedule a callback at ~1h because the gap
+        // condition (interval=10) is not met and lastSnapshotTime is recent.
+        await CreateNumberDeltas(3, datasetWriter);
+
+        // Advance past the 1-hour period — this fires the scheduled callback
+        scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks);
+
+        // Wait for the second snapshot
+        for (var i = 0; i < 100; i++)
         {
             var (_, _, s2) = await storageProvider.ListVersions();
             if (s2.Count >= 2) break;
             await Task.Delay(100);
         }
 
-        (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
+        (var oldestDelta, var newestDelta, var snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(2);
         snapshots.First().Version.Should().Be(oldestDelta);
         snapshots.Last().Version.Should().Be(newestDelta);
-        await storageProvider.StoreProcessedVersion("unittest", howManyDeltasToCreate);
+        await storageProvider.StoreProcessedVersion("unittest", 4ul);
     }
 
 

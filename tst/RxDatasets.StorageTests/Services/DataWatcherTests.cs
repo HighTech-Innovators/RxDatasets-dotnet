@@ -17,9 +17,12 @@ public class DataWatcherTests
     public async Task WhenThereIsASubscriber_ShouldCallOnVersionStart()
     {
         // Arrange
-        var (datasetWriter, datasetObserver, datasetWatcher, _) = await SetupWatcher();
+        var (datasetWriter, datasetObserver, datasetWatcher, storageProvider) = await SetupWatcher();
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1]);
+
+        // Wait for snapshot creation (triggered by time-based condition with no prior snapshot)
+        await WaitForSnapshot(storageProvider);
 
         CancellationTokenSource cts = new();
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
@@ -40,10 +43,14 @@ public class DataWatcherTests
     public async Task WhenThereIsADisposedSubscriber_ShouldNotCallOnVersionStart()
     {
         // Arrange
-        var (datasetWriter, datasetObserver, datasetWatcher, _) = await SetupWatcher();
+        var (datasetWriter, datasetObserver, datasetWatcher, storageProvider) = await SetupWatcher();
 
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1]);
+
+        // Wait for snapshot creation (triggered by time-based condition with no prior snapshot)
+        await WaitForSnapshot(storageProvider);
+
         CancellationTokenSource cts = new();
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
 
@@ -134,5 +141,15 @@ public class DataWatcherTests
             CheckingIntervalInSeconds = 0
         }));
         return (datasetWriter, datasetObserver, datasetWatcher, storageProvider);
+    }
+
+    private static async Task WaitForSnapshot(IStorageProvider<object> storageProvider, int minCount = 1)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            var (_, _, s) = await storageProvider.ListVersions();
+            if (s.Count >= minCount) return;
+            await Task.Delay(50);
+        }
     }
 }
