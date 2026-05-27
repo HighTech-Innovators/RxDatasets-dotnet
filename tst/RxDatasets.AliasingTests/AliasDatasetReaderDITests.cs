@@ -272,6 +272,120 @@ public class AliasDatasetReaderDITests
         entity3.Id.Should().Be("relation/4");
     }
 
+    [Fact]
+    public void GetAliasesFor_Returns_All_Tuples_For_All_Registered_Alias_Names()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var logger = new ServiceCollection()
+            .AddLogging(b => b.AddConsole())
+            .BuildServiceProvider()
+            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
+
+        var dataset = new InMemoryDataset<TestEntity>();
+        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
+        services.AddSingleton(logger);
+        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+
+        services.AddDatasetAlias<TestEntity>("byitem", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("bybarcode", bytes =>
+        {
+            var entity = TestEntity.Parser.ParseFrom(bytes.Span);
+            return entity.Aliases.Select(a => "barcode:" + a);
+        });
+
+        var sp = services.BuildServiceProvider();
+
+        var dto = new TestEntity { Id = "relation/5" };
+        dto.Aliases.Add("item-abc");
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/5", dto);
+
+        // Assert
+        aliases.Should().HaveCount(2);
+        aliases.Should().Contain(("byitem", "item-abc"));
+        aliases.Should().Contain(("bybarcode", "barcode:item-abc"));
+    }
+
+    [Fact]
+    public void GetAliasesFor_Returns_Empty_When_No_Alias_Readers_Registered()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var dataset = new InMemoryDataset<TestEntity>();
+        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
+
+        var sp = services.BuildServiceProvider();
+        var dto = new TestEntity { Id = "relation/6" };
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/6", dto);
+
+        // Assert
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAliasesFor_Returns_Empty_When_Factory_Produces_No_Aliases()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var logger = new ServiceCollection()
+            .AddLogging(b => b.AddConsole())
+            .BuildServiceProvider()
+            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
+
+        var dataset = new InMemoryDataset<TestEntity>();
+        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
+        services.AddSingleton(logger);
+        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+
+        services.AddDatasetAlias<TestEntity>("empty-aliases", _ => Enumerable.Empty<string>());
+
+        var sp = services.BuildServiceProvider();
+        var dto = new TestEntity { Id = "relation/7" };
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/7", dto);
+
+        // Assert
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAliasesFor_Passes_EntityId_To_Factory()
+    {
+        // Arrange
+        string? capturedEntityId = null;
+
+        var services = new ServiceCollection();
+        var logger = new ServiceCollection()
+            .AddLogging(b => b.AddConsole())
+            .BuildServiceProvider()
+            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
+
+        var dataset = new InMemoryDataset<TestEntity>();
+        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
+        services.AddSingleton(logger);
+        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+
+        services.AddDatasetAlias<TestEntity>("id-capture", (entityId, _) =>
+        {
+            capturedEntityId = entityId;
+            return ["captured"];
+        });
+
+        var sp = services.BuildServiceProvider();
+        var dto = new TestEntity { Id = "relation/8" };
+
+        // Act
+        sp.GetAliasesFor("relation/8", dto);
+
+        // Assert
+        capturedEntityId.Should().Be("relation/8");
+    }
+
     // Dummy implementation for IHostApplicationLifetime for testing purposes
     private class DummyHostApplicationLifetime : IHostApplicationLifetime
     {
