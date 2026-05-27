@@ -59,6 +59,11 @@ public static class DI
                 return aliasReader;
             });
 
+        // Also register as non-keyed AliasDatasetReader<T> so GetServices<AliasDatasetReader<T>>()
+        // returns all readers for this type (one entry per alias name).
+        services.AddSingleton<AliasDatasetReader<T>>(
+            sp => (AliasDatasetReader<T>)sp.GetRequiredKeyedService<IDatasetReader<T>>(aliasName));
+
         return services;
     }
 
