@@ -389,16 +389,32 @@ public class DatasetWriter<T> : IDatasetWriter<T>, ICurrentIndexProvider<T>, IDi
             };
         }
 
-        // Apply the delta and store it
-        var newIndex = _index!.ApplyDelta(deltaIndex);
-        using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
+        // Apply the delta and store it.
+        // NOTE: _index must be swapped BEFORE StoreDelta fires DatasetUpdatedNotification,
+        // otherwise a reactive waiter (notably AliasDatasetReader's background sync) that
+        // wakes on the notification re-reads the old LatestVersion, re-arms a fresh TCS,
+        // and is stuck until the next write — silently losing the changeset for this delta.
+        // The race only became observable once DatasetReader+DatasetWriter were merged into
+        // DatasetReaderWriter (one _index now serves both roles).
+        // On StoreDelta failure we revert _index so in-memory state stays consistent with disk.
+        var oldIndex = _index!;
+        var newIndex = oldIndex.ApplyDelta(deltaIndex);
+        _index = newIndex;
+        try
         {
-            await _storageProvider.StoreDelta(newIndex.LatestVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), deltaDataStream);
+            using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
+            {
+                await _storageProvider.StoreDelta(newIndex.LatestVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), deltaDataStream);
+            }
+        }
+        catch
+        {
+            _index = oldIndex;
+            throw;
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
         await OnDeltaApplied(deltaIndex);
-        _index = newIndex;
 
         _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
 
@@ -673,11 +689,22 @@ public class DatasetWriter<T> : IDatasetWriter<T>, ICurrentIndexProvider<T>, IDi
         }
 
         concatenatedByteStream.Position = 0;
-        await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), concatenatedByteStream);
-
-        var newIndex = _index!.ApplyDelta(deltaIndex);
-        await OnDeltaApplied(deltaIndex);
+        // _index swap before StoreDelta — see PutEntitiesAsync for race rationale.
+        // Revert on StoreDelta failure to keep in-memory state consistent with disk.
+        var oldIndex = _index!;
+        var newIndex = oldIndex.ApplyDelta(deltaIndex);
         _index = newIndex;
+        try
+        {
+            await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, NestedIndexHelper.SerializeDeltaIndex(deltaIndex, _nameCompressor), concatenatedByteStream);
+        }
+        catch
+        {
+            _index = oldIndex;
+            throw;
+        }
+
+        await OnDeltaApplied(deltaIndex);
 
         return _index;
     }
