@@ -528,7 +528,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     /// </summary>
     internal IEnumerable<(string Name, string Value)> EvaluateAliases(string entityId, ReadOnlyMemory<byte> bytes)
     {
-        foreach (var alias in _aliasFactory(entityId, bytes))
+        foreach (var alias in _aliasFactory(bytes))
             yield return (_aliasName, alias);
     }
 
