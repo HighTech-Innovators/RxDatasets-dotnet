@@ -522,6 +522,16 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         throw new NotImplementedException("TailHistory is not supported for alias datasets");
     }
 
+    /// <summary>
+    /// Evaluates all aliases for the given entity bytes using this reader's alias factory.
+    /// Returns (aliasName, aliasValue) tuples — aliasName is fixed to this reader's registered name.
+    /// </summary>
+    internal IEnumerable<(string Name, string Value)> EvaluateAliases(string entityId, ReadOnlyMemory<byte> bytes)
+    {
+        foreach (var alias in _aliasFactory(bytes))
+            yield return (_aliasName, alias);
+    }
+
     public void Dispose()
     {
         _syncCancellationTokenSource?.Cancel();
