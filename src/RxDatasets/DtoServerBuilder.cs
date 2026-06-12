@@ -1,4 +1,5 @@
 ﻿using System.Reactive.Concurrency;
+using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -125,7 +126,7 @@ namespace RxDatasets
             {
                 services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
                 services.AddSingletonAsHostedService<DistributedLockService<TEntity>>();
-                services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{typeof(TEntity).Name}", null, readinessTags);
+                services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{VersionedEntityName(typeof(TEntity))}", null, readinessTags);
             }
 
             if (!_isInMemoryDataset && _withSnapshot)
@@ -152,15 +153,15 @@ namespace RxDatasets
             if (readOnlyMode)
             {
                 services.AddHealthChecks()
-                    .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
-                    .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+                    .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{VersionedEntityName(typeof(TEntity))}", null, readinessTags)
+                    .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{VersionedEntityName(typeof(TEntity))}");
                 return;
 
             }
 
             services.AddHealthChecks()
-                .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{typeof(TEntity).Name}", null, readinessTags)
-                .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{typeof(TEntity).Name}");
+                .AddCheck<DatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{VersionedEntityName(typeof(TEntity))}", null, readinessTags)
+                .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{VersionedEntityName(typeof(TEntity))}");
 
             services.AddValidatedConfigSection<WriterConfig>();
             services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
@@ -170,6 +171,15 @@ namespace RxDatasets
                 services.AddSingleton<DataMigrator<TEntity>>();
                 services.AddSingleton<IDataMigrator>(sp => sp.GetRequiredService<DataMigrator<TEntity>>());
             }
+        }
+
+        internal static string VersionedEntityName(Type entityType)
+        {
+            string name = entityType.Name;
+            string? ns = entityType.Namespace;
+            if (ns is null) return name;
+            MatchCollection matches = Regex.Matches(ns, @"[Vv]\d+");
+            return matches.Count > 0 ? $"{name}-{matches[^1].Value}" : name;
         }
 
         private void AddStorageProvider()
