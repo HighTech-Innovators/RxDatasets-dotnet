@@ -60,7 +60,7 @@ public class DeltaInfoDriftReproduction
         // Act - write 5 deltas successfully
         for (int i = 1; i <= 5; i++)
         {
-            await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i));
+            await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i), null, null);
         }
 
         // Verify: DeltaInfo should be 5, actual files up to 5
@@ -72,7 +72,7 @@ public class DeltaInfoDriftReproduction
         faultyStorage.FailNextDeltaInfoUpload();
 
         // Write delta 6 - should fail because SaveDeltaInfo will throw
-        Func<Task> failingWrite = () => datasetWriter.Put("entity_6", BitConverter.GetBytes(6));
+        Func<Task> failingWrite = () => datasetWriter.Put("entity_6", BitConverter.GetBytes(6), null, null);
         await failingWrite.Should().ThrowAsync<Exception>();
 
         // In-memory DeltaInfo should be rolled back to 5 (not advanced to 6)
@@ -81,7 +81,7 @@ public class DeltaInfoDriftReproduction
             "DeltaInfo should be rolled back after SaveDeltaInfo failure");
 
         // Now retry - this should write delta 6 again (same version, since _index wasn't updated)
-        var retryResult = await datasetWriter.Put("entity_6", BitConverter.GetBytes(6));
+        var retryResult = await datasetWriter.Put("entity_6", BitConverter.GetBytes(6), null, null);
 
         // Assert: with the fix, DeltaInfo should NOT drift
         var versionsAfterRetry = await storageProvider.ListVersions();
@@ -140,20 +140,20 @@ public class DeltaInfoDriftReproduction
 
                 try
                 {
-                    await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i));
+                    await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i), null, null);
                 }
                 catch
                 {
                     transientFailures++;
                     // Retry the same write
-                    await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i));
+                    await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i), null, null);
                 }
 
                 totalSuccessfulWrites++;
             }
             else
             {
-                await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i));
+                await datasetWriter.Put($"entity_{i}", BitConverter.GetBytes(i), null, null);
                 totalSuccessfulWrites++;
             }
         }
@@ -228,7 +228,7 @@ public class DeltaInfoDriftReproduction
                 for (int i = 0; i < writesPerWriter; i++)
                 {
                     var entityName = $"writer{writerId}/entity_{i}";
-                    await datasetWriter.Put(entityName, BitConverter.GetBytes(writerId * 1000 + i));
+                    await datasetWriter.Put(entityName, BitConverter.GetBytes(writerId * 1000 + i), null, null);
                 }
             })).ToArray();
 

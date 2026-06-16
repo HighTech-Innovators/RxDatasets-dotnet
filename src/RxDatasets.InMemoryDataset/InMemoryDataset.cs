@@ -15,7 +15,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private readonly List<Delta> _deltas = [];
     private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
@@ -48,7 +48,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(theDelta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
@@ -80,7 +80,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         Delta delta;

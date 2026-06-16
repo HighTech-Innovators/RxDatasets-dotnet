@@ -132,7 +132,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         if (_writerConfig.Value.EnableWriteCoalescing)
@@ -197,7 +197,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -255,7 +255,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         throw new ArgumentOutOfRangeException(nameof(entityName), entityName, $"Validation failed for entity name validation regex {_writerConfig.Value.AllowedNamesRegex}");
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, string? trackingId = null, DateTimeOffset? slaTimestamp = null, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         ThrowIfNotInitialized();
         EnsureNameIsValid(name);

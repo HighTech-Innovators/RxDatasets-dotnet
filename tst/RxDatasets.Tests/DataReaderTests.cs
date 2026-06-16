@@ -39,7 +39,7 @@ public class DataReaderTests
     public async Task AddingOneShouldLeadToListOfOneNewEntity()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -56,7 +56,7 @@ public class DataReaderTests
     public async Task RequestingChangesAfterLastChangeShouldLeadToEmptyResponse()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = putResult.NewDatasetVersion }, default);
@@ -73,8 +73,8 @@ public class DataReaderTests
     public async Task AddingOneThenDeletingOneShouldLeadToEmptyResultOverBothChanges()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var deleteResult = await _dataset.Delete(SomeName);
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var deleteResult = await _dataset.Delete(SomeName, null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -91,8 +91,8 @@ public class DataReaderTests
     public async Task AddingOneThenChangingOneShouldLeadToListWithOnlyNewOverBothChanges()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var updateResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var updateResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -109,8 +109,8 @@ public class DataReaderTests
     public async Task AddingOneThenChangingOneShouldLeadToListWithChangeOverTheLastDeltaOnly()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var updateResult = await _dataset.Put(ChangedPackage.Name, ChangedPackage.ToByteArray());
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var updateResult = await _dataset.Put(ChangedPackage.Name, ChangedPackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = putResult.NewDatasetVersion }, default);
@@ -127,8 +127,8 @@ public class DataReaderTests
     public async Task AddingOneThenDeletingOneShouldLeadToListWithDeleteOverTheLastDeltaOnly()
     {
         // Given
-        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var deleteResult = await _dataset.Delete(SomeName);
+        var putResult = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var deleteResult = await _dataset.Delete(SomeName, null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = putResult.NewDatasetVersion }, default);
@@ -145,8 +145,8 @@ public class DataReaderTests
     public async Task AddingTwoThenAskingForAllChangesWithDefaultPageSizeShouldNotGivePagedResult()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -161,8 +161,8 @@ public class DataReaderTests
     public async Task AddingTwoThenAskingForAllChangesWithPageSizeOneShouldGivePagedResult()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
 
         // When
         var result = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
@@ -179,8 +179,8 @@ public class DataReaderTests
     public async Task WhenAddingTwoAndRequestingSecondPageShouldGiveLastPage()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
 
         // When
@@ -198,8 +198,8 @@ public class DataReaderTests
     public async Task WhenAddingTwoAndRequestingSecondPageTwiceShouldThrowAnError()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
         _ = await _sut.ListChanges(new() { PageToken = firstPage.NextPageToken, PageSize = 1 }, default);
 
@@ -212,8 +212,8 @@ public class DataReaderTests
     public async Task WhenAddingTwoAndRequestingSecondPageAfter5SecondThrowAnError()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
         await Task.Delay(TimeSpan.FromSeconds(1.1));
 
@@ -227,8 +227,8 @@ public class DataReaderTests
     public async Task WhenAddingTwoAndRequestingSecondPageWithin5SecondSucceed()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
         await Task.Delay(TimeSpan.FromSeconds(.3));
 
@@ -246,9 +246,9 @@ public class DataReaderTests
     public async Task WhenAddingThreeAndRequestingThirdPageShouldGiveLastPage()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
-        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
         var nextPage = await _sut.ListChanges(new() { PageToken = firstPage.NextPageToken, PageSize = 1 }, default);
 
@@ -267,9 +267,9 @@ public class DataReaderTests
     public async Task CanIncreasePageSizeOnLaterPages()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
-        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
 
         // When
@@ -287,9 +287,9 @@ public class DataReaderTests
     public async Task FromDatasetVersionIsIgnoredOnLaterPages()
     {
         // Given
-        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray());
-        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray());
-        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray());
+        _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
+        _ = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
+        var putResult = await _dataset.Put(LastPackage.Name, LastPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
 
         // When
@@ -394,7 +394,7 @@ public class DataReaderTests
 
         // When
         _ = await _dataset.PutAll(packages.Select(x => (x.Name, x.ToByteArray(), (string?)null, (DateTimeOffset?)null)));
-        var putResult = await _dataset.Put(ChangedPackage.Name, ChangedPackage.ToByteArray());
+        var putResult = await _dataset.Put(ChangedPackage.Name, ChangedPackage.ToByteArray(), null, null);
 
         // Then
         putResult.NumAddedEntities.Should().Be(0);

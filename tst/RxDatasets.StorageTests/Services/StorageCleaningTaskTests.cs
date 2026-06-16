@@ -1,4 +1,4 @@
-﻿using System.Reactive.Concurrency;
+using System.Reactive.Concurrency;
 using System.Runtime.CompilerServices;
 using DotNet.Testcontainers;
 using FluentAssertions;
@@ -121,7 +121,7 @@ public class StorageCleanTaskTests
 
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
         var randomBytes = GenerateRandomData(UNIT_KB, 1);
-        await datasetWriter?.Put("Same_DTO", randomBytes)!; //creates 1st snapshot
+        await datasetWriter?.Put("Same_DTO", randomBytes, null, null)!; //creates 1st snapshot
 
         await WaitForANumberOfSnapshotsToBeCreated(storageProvider, 1);
         ulong N = 5;
@@ -465,13 +465,13 @@ public class StorageCleanTaskTests
             {
                 var randomBytes = GenerateRandomData(UNIT_KB, i);
 
-                await datasetWriter?.Put("Same_DTO", randomBytes)!;
+                await datasetWriter?.Put("Same_DTO", randomBytes, null, null)!;
             }
             else
             {
 
                 var randomBytes2 = GenerateRandomData(UNIT_KB, 1);
-                await datasetWriter?.Put("Same_DTO", randomBytes2)!;
+                await datasetWriter?.Put("Same_DTO", randomBytes2, null, null)!;
             }
         }
     }

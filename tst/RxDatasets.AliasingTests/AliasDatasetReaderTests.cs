@@ -86,7 +86,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
     /// </summary>
     private async Task<ulong> PutEntity(TestEntity entity)
     {
-        var putResult = await _inMemoryDataset.Put(entity.Id, entity.ToByteArray());
+        var putResult = await _inMemoryDataset.Put(entity.Id, entity.ToByteArray(), null, null);
         return putResult.NewDatasetVersion;
     }
 
@@ -95,7 +95,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
     /// </summary>
     private async Task<ulong> DeleteEntity(string entityId)
     {
-        var deleteResult = await _inMemoryDataset.Delete(entityId);
+        var deleteResult = await _inMemoryDataset.Delete(entityId, null, null);
         return deleteResult.NewDatasetVersion;
     }
 
@@ -1029,7 +1029,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
         // Arrange - create a failing upstream reader that fails first 2 attempts, then succeeds
         var entity = new TestEntity { Id = "entity/recovery-test" };
         entity.Aliases.Add("recovery-alias");
-        await _inMemoryDataset.Put(entity.Id, entity.ToByteArray());
+        await _inMemoryDataset.Put(entity.Id, entity.ToByteArray(), null, null);
 
         var failingReader = new FailingDatasetReader(_inMemoryDataset, failureCount: 2);
 

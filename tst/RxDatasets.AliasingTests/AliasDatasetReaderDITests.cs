@@ -53,7 +53,7 @@ public class AliasDatasetReaderDITests
         // Create test data
         var relation = new TestEntity { Id = "relation/1" };
         relation.Aliases.Add("prod-product-1");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve the registered alias reader
         var aliasReader = serviceProvider.GetDatasetReader<TestEntity>("prod-aliases");
@@ -96,7 +96,7 @@ public class AliasDatasetReaderDITests
         // Create test data
         var relation = new TestEntity { Id = "relation/2" };
         relation.Aliases.Add("shared-product");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve both alias readers
         var stagingReader = serviceProvider.GetDatasetReader<TestEntity>("staging-aliases");
@@ -174,7 +174,7 @@ public class AliasDatasetReaderDITests
         // Create test data
         var relation = new TestEntity { Id = "relation/3" };
         relation.Aliases.Add("alias-name");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act
         // Access the dataset directly (non-keyed)
@@ -233,7 +233,7 @@ public class AliasDatasetReaderDITests
         // Create test data
         var relation = new TestEntity { Id = "relation/4" };
         relation.Aliases.Add("test-alias");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve each reader by name
         var reader1 = serviceProvider.GetDatasetReader<TestEntity>("reader-1");

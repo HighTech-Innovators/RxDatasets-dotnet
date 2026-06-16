@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using Microsoft.Extensions.Hosting;
@@ -164,7 +164,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         for (var i = 0ul; i < count; i++)
         {
             var version = offset + i;
-            await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version));
+            await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version), null, null);
         }
     }
     private async Task<List<ulong>> WaitForSnapshotVersionsAtLeast(int minimumSnapshots)
