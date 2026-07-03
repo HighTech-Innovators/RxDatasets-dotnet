@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using Microsoft.Extensions.Hosting;
@@ -93,7 +93,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
         var preDeleteSnapshots = await WaitForSnapshotVersionsAtLeast(2);
 
-        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
+        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
         // Write more deltas to guarantee another snapshot that includes the PutAll delete state
         await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
         var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
@@ -118,7 +118,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
         await WaitForSnapshotVersionsAtLeast(2);
 
-        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
+        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
         await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
         var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
         var latestSnapshot = allSnapshots[^1];
@@ -164,7 +164,7 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         for (var i = 0ul; i < count; i++)
         {
             var version = offset + i;
-            await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version));
+            await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version), null, null);
         }
     }
     private async Task<List<ulong>> WaitForSnapshotVersionsAtLeast(int minimumSnapshots)

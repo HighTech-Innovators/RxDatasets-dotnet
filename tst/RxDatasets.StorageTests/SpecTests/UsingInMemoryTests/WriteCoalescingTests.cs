@@ -53,7 +53,7 @@ public class WriteCoalescingTests
 
         const int numWriters = 20;
         var tasks = Enumerable.Range(0, numWriters).Select(i =>
-            Task.Run(() => writer.Put($"entity_{i}", TestData(i)))).ToArray();
+            Task.Run(() => writer.Put($"entity_{i}", TestData(i), null, null))).ToArray();
 
         var responses = await Task.WhenAll(tasks);
 
@@ -77,12 +77,12 @@ public class WriteCoalescingTests
         var (writer, _, _) = await SetupAsync(uploadDelay: TimeSpan.FromMilliseconds(20));
 
         // First establish the entity
-        await writer.Put("shared", TestData(0));
+        await writer.Put("shared", TestData(0), null, null);
 
         // Now fire many concurrent updates
         const int numWriters = 10;
         var tasks = Enumerable.Range(1, numWriters).Select(i =>
-            Task.Run(() => writer.Put("shared", TestData(i)))).ToArray();
+            Task.Run(() => writer.Put("shared", TestData(i), null, null))).ToArray();
 
         var responses = await Task.WhenAll(tasks);
 
@@ -105,19 +105,19 @@ public class WriteCoalescingTests
         var (writer, _, _) = await SetupAsync(uploadDelay: TimeSpan.FromMilliseconds(50));
 
         // Establish entity first
-        await writer.Put("target", TestData(42));
+        await writer.Put("target", TestData(42), null, null);
 
         // Use a barrier to ensure both operations enqueue before the leader processes
         var barrier = new Barrier(2);
         var putTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.Put("target", TestData(99));
+            return await writer.Put("target", TestData(99), null, null);
         });
         var deleteTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.Delete("target");
+            return await writer.Delete("target", null, null);
         });
 
         var results = await Task.WhenAll(putTask, deleteTask);
@@ -142,7 +142,7 @@ public class WriteCoalescingTests
             Task.Run(async () =>
             {
                 var entities = Enumerable.Range(0, 3)
-                    .Select(i => ($"batch{batchId}/entity_{i}", TestData(batchId * 100 + i)));
+                    .Select(i => ($"batch{batchId}/entity_{i}", (byte[]?)TestData(batchId * 100 + i), (string?)null, (DateTimeOffset?)null));
                 return await writer.PutMany(entities.ToAsyncEnumerable());
             })).ToArray();
 
@@ -188,7 +188,7 @@ public class WriteCoalescingTests
             Task.Run(async () =>
             {
                 barrier.SignalAndWait();
-                return await writer.Put($"entity_{i}", TestData(i));
+                return await writer.Put($"entity_{i}", TestData(i), null, null);
             })).ToArray();
 
         // At least one should throw (the leader's batch fails, propagating to all)
@@ -215,14 +215,14 @@ public class WriteCoalescingTests
 
         // Seed some entities
         for (int i = 0; i < 5; i++)
-            await writer.Put($"entity_{i}", TestData(i));
+            await writer.Put($"entity_{i}", TestData(i), null, null);
 
         // Fire concurrent Put (coalesced) and PutAll (exclusive) — they should not interfere
-        var putTask = Task.Run(() => writer.Put("new_entity", TestData(100)));
+        var putTask = Task.Run(() => writer.Put("new_entity", TestData(100), null, null));
         var putAllTask = Task.Run(async () =>
         {
             var entities = Enumerable.Range(10, 3)
-                .Select(i => ($"entity_{i}", TestData(i)));
+                .Select(i => ($"entity_{i}", (byte[]?)TestData(i), (string?)null, (DateTimeOffset?)null));
             return await writer.PutAll(entities.ToAsyncEnumerable());
         });
 
@@ -244,7 +244,7 @@ public class WriteCoalescingTests
         var tasks = Enumerable.Range(0, numWriters).Select(i =>
             Task.Run(async () =>
             {
-                var response = await writer.Put($"entity_{i}", TestData(i));
+                var response = await writer.Put($"entity_{i}", TestData(i), null, null);
                 return (Index: i, Response: response);
             })).ToArray();
 
@@ -274,7 +274,7 @@ public class WriteCoalescingTests
 
         // Serial writes (not concurrent, so coalescing wouldn't help anyway)
         for (int i = 0; i < 5; i++)
-            await writer.Put($"entity_{i}", TestData(i));
+            await writer.Put($"entity_{i}", TestData(i), null, null);
 
         var versions = await storageProvider.ListVersions();
         versions.NewestDelta.Should().Be(5,
@@ -288,7 +288,7 @@ public class WriteCoalescingTests
 
         // Seed entities
         for (int i = 0; i < 5; i++)
-            await writer.Put($"entity_{i}", TestData(i));
+            await writer.Put($"entity_{i}", TestData(i), null, null);
 
         var seedVersion = (await storageProvider.ListVersions()).NewestDelta;
 
@@ -298,12 +298,12 @@ public class WriteCoalescingTests
         {
             barrier.SignalAndWait();
             var names = new[] { "entity_0", "entity_1", "entity_2" };
-            return await writer.DeleteMany(names.ToAsyncEnumerable());
+            return await writer.DeleteMany(names.Select(n => (n, (string?)null, (DateTimeOffset?)null)).ToAsyncEnumerable());
         });
         var putTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.Put("entity_new", TestData(999));
+            return await writer.Put("entity_new", TestData(999), null, null);
         });
 
         var results = await Task.WhenAll(deleteTask, putTask);
@@ -326,8 +326,8 @@ public class WriteCoalescingTests
         var (writer, storageProvider, _) = await SetupAsync(uploadDelay: TimeSpan.FromMilliseconds(20));
 
         // Seed some entities
-        await writer.Put("keep", TestData(1));
-        await writer.Put("to_delete", TestData(2));
+        await writer.Put("keep", TestData(1), null, null);
+        await writer.Put("to_delete", TestData(2), null, null);
 
         var seedVersion = (await storageProvider.ListVersions()).NewestDelta;
 
@@ -336,17 +336,17 @@ public class WriteCoalescingTests
         var mixedTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            var operations = new (string name, byte[]? entityBytes)[]
+            var operations = new (string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)[]
             {
-                ("new_via_mixed", TestData(10)),
-                ("to_delete", null)
+                ("new_via_mixed", TestData(10), null, null),
+                ("to_delete", null, null, null)
             };
             return await writer.PutOrDeleteMany(operations.ToAsyncEnumerable());
         });
         var putTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.Put("another_new", TestData(20));
+            return await writer.Put("another_new", TestData(20), null, null);
         });
 
         var results = await Task.WhenAll(mixedTask, putTask);
@@ -381,8 +381,8 @@ public class WriteCoalescingTests
 
         var intents = new List<DatasetWriter<object>.WriteIntent>
         {
-            new() { Operations = [("foo", dataB)], Completion = new() },
-            new() { Operations = [("foo", dataA)], Completion = new() }
+            new() { Operations = [("foo", dataB, null, null)], Completion = new() },
+            new() { Operations = [("foo", dataA, null, null)], Completion = new() }
         };
 
         var (mergedChanges, responses) = DatasetWriter<object>.MergeIntents(intents, index);
@@ -407,9 +407,9 @@ public class WriteCoalescingTests
         var (writer, storageProvider, _) = await SetupAsync(uploadDelay: TimeSpan.FromMilliseconds(20));
 
         // Seed parent + children entities
-        await writer.Put("type/parent/child/c1", TestData(1));
-        await writer.Put("type/parent/child/c2", TestData(2));
-        await writer.Put("type/other/child/c3", TestData(3));
+        await writer.Put("type/parent/child/c1", TestData(1), null, null);
+        await writer.Put("type/parent/child/c2", TestData(2), null, null);
+        await writer.Put("type/other/child/c3", TestData(3), null, null);
 
         var seedVersion = (await storageProvider.ListVersions()).NewestDelta;
 
@@ -418,12 +418,12 @@ public class WriteCoalescingTests
         var deleteChildrenTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.DeleteChildren("type/parent");
+            return await writer.DeleteChildren("type/parent", null, null);
         });
         var putTask = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await writer.Put("type/other/child/c4", TestData(4));
+            return await writer.Put("type/other/child/c4", TestData(4), null, null);
         });
 
         var results = await Task.WhenAll(deleteChildrenTask, putTask);
@@ -432,4 +432,6 @@ public class WriteCoalescingTests
         results[1].NumAddedEntities.Should().Be(1);
     }
 }
+
+
 

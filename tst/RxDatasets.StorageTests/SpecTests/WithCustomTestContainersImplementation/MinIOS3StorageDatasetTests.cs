@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,7 +88,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => datasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_Storage_After_Initialization", bytes);
+        var putAction = () => datasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_Storage_After_Initialization", bytes, null, null);
         await putAction.Should().ThrowAsync<InvalidOperationException>();
     }
 
@@ -99,7 +99,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes);
+        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes, null, null);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
 
@@ -116,7 +116,7 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
         var bytes = GenerateRandomData();
 
         // Act
-        Func<Task> putAction = () => datasetWriter.Put(name, bytes);
+        Func<Task> putAction = () => datasetWriter.Put(name, bytes, null, null);
 
         // Assert
         if (shouldSucceed)

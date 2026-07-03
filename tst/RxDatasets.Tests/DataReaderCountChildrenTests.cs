@@ -43,9 +43,9 @@ public class DataReaderCountChildrenTests
     public async Task CountChildren_WithParentHavingChildren_ReturnsCorrectCount()
     {
         // Given
-        await _dataset.Put(ChildName1, ChildEntity1.ToByteArray());
-        await _dataset.Put(ChildName2, ChildEntity2.ToByteArray());
-        await _dataset.Put(ChildName3, ChildEntity3.ToByteArray());
+        await _dataset.Put(ChildName1, ChildEntity1.ToByteArray(), null, null);
+        await _dataset.Put(ChildName2, ChildEntity2.ToByteArray(), null, null);
+        await _dataset.Put(ChildName3, ChildEntity3.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(ParentPath, CancellationToken.None);
@@ -84,7 +84,7 @@ public class DataReaderCountChildrenTests
     public async Task CountChildren_WithCancellationToken_RespectsCancellation()
     {
         // Given
-        await _dataset.Put(ChildName1, ChildEntity1.ToByteArray());
+        await _dataset.Put(ChildName1, ChildEntity1.ToByteArray(), null, null);
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
@@ -102,9 +102,9 @@ public class DataReaderCountChildrenTests
         const string topLevel2 = "department2/info";
         const string nested = "department1/team/member";
 
-        await _dataset.Put(topLevel1, ChildEntity1.ToByteArray());
-        await _dataset.Put(topLevel2, ChildEntity2.ToByteArray());
-        await _dataset.Put(nested, ChildEntity3.ToByteArray());
+        await _dataset.Put(topLevel1, ChildEntity1.ToByteArray(), null, null);
+        await _dataset.Put(topLevel2, ChildEntity2.ToByteArray(), null, null);
+        await _dataset.Put(nested, ChildEntity3.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(rootPath, CancellationToken.None);
@@ -122,7 +122,7 @@ public class DataReaderCountChildrenTests
         {
             var childName = $"departments/engineering/employees/employee{i}";
             var entity = new Demodto { Name = childName };
-            await _dataset.Put(childName, entity.ToByteArray());
+            await _dataset.Put(childName, entity.ToByteArray(), null, null);
         }
 
         // When
@@ -143,7 +143,7 @@ public class DataReaderCountChildrenTests
         {
             var childName = $"{parentPath}/member{i}";
             var entity = new Demodto { Name = childName };
-            await _dataset.Put(childName, entity.ToByteArray());
+            await _dataset.Put(childName, entity.ToByteArray(), null, null);
         }
 
         // When - measure performance
@@ -169,8 +169,8 @@ public class DataReaderCountChildrenTests
         var entity1 = new Demodto { Name = childWithSpecialChars1 };
         var entity2 = new Demodto { Name = childWithSpecialChars2 };
         
-        await _dataset.Put(childWithSpecialChars1, entity1.ToByteArray());
-        await _dataset.Put(childWithSpecialChars2, entity2.ToByteArray());
+        await _dataset.Put(childWithSpecialChars1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(childWithSpecialChars2, entity2.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(parentPath, CancellationToken.None);
@@ -192,9 +192,9 @@ public class DataReaderCountChildrenTests
         var entity2 = new Demodto { Name = childWithUnicode2 };
         var entity3 = new Demodto { Name = childWithUnicode3 };
         
-        await _dataset.Put(childWithUnicode1, entity1.ToByteArray());
-        await _dataset.Put(childWithUnicode2, entity2.ToByteArray());
-        await _dataset.Put(childWithUnicode3, entity3.ToByteArray());
+        await _dataset.Put(childWithUnicode1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(childWithUnicode2, entity2.ToByteArray(), null, null);
+        await _dataset.Put(childWithUnicode3, entity3.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(parentPath, CancellationToken.None);
@@ -214,8 +214,8 @@ public class DataReaderCountChildrenTests
         var entity1 = new Demodto { Name = childPath1 };
         var entity2 = new Demodto { Name = childPath2 };
         
-        await _dataset.Put(childPath1, entity1.ToByteArray());
-        await _dataset.Put(childPath2, entity2.ToByteArray());
+        await _dataset.Put(childPath1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(childPath2, entity2.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(longPath, CancellationToken.None);
@@ -235,8 +235,8 @@ public class DataReaderCountChildrenTests
         var entity1 = new Demodto { Name = childWithSpace1 };
         var entity2 = new Demodto { Name = childWithSpace2 };
         
-        await _dataset.Put(childWithSpace1, entity1.ToByteArray());
-        await _dataset.Put(childWithSpace2, entity2.ToByteArray());
+        await _dataset.Put(childWithSpace1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(childWithSpace2, entity2.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(parentPath, CancellationToken.None);
@@ -260,10 +260,10 @@ public class DataReaderCountChildrenTests
         var entity3 = new Demodto { Name = sibling };
         var entity4 = new Demodto { Name = grandchild };
         
-        await _dataset.Put(directChild1, entity1.ToByteArray());
-        await _dataset.Put(directChild2, entity2.ToByteArray());
-        await _dataset.Put(sibling, entity3.ToByteArray());
-        await _dataset.Put(grandchild, entity4.ToByteArray());
+        await _dataset.Put(directChild1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(directChild2, entity2.ToByteArray(), null, null);
+        await _dataset.Put(sibling, entity3.ToByteArray(), null, null);
+        await _dataset.Put(grandchild, entity4.ToByteArray(), null, null);
 
         // When
         var count = await _grpcService.CountChildren(parentPath, CancellationToken.None);
@@ -284,9 +284,9 @@ public class DataReaderCountChildrenTests
         var entity2 = new Demodto { Name = topLevel2 };
         var entity3 = new Demodto { Name = nested };
         
-        await _dataset.Put(topLevel1, entity1.ToByteArray());
-        await _dataset.Put(topLevel2, entity2.ToByteArray());
-        await _dataset.Put(nested, entity3.ToByteArray());
+        await _dataset.Put(topLevel1, entity1.ToByteArray(), null, null);
+        await _dataset.Put(topLevel2, entity2.ToByteArray(), null, null);
+        await _dataset.Put(nested, entity3.ToByteArray(), null, null);
 
         // When - test with empty string parent (should treat as root, count all descendants)
         var countWithEmpty = await _grpcService.CountChildren(string.Empty, CancellationToken.None);

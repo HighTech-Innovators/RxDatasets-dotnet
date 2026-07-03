@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -221,12 +221,12 @@ public class SnapshotCreationPluginTests
             {
                 var randomBytes = GenerateRandomData((i + 6) * UNIT_KB, (int)i);
 
-                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes)!;
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes, null, null)!;
             }
             else
             {
                 var randomBytes2 = GenerateRandomData((i + 6) * UNIT_KB, 1);
-                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes2)!;
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes2, null, null)!;
             }
         }
     }

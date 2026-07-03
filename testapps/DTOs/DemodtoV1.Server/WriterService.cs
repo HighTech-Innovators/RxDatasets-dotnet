@@ -12,7 +12,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Delete(request.Name, context.CancellationToken));
+            return Map(await dataset.Delete(request.Name, ct: context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {
@@ -24,7 +24,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), context.CancellationToken));
+            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), ct: context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {
@@ -34,7 +34,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutAll(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray(), (string?)null, (DateTimeOffset?)null));
         try
         {
             return Map(await dataset.PutAll(stream, context.CancellationToken));
@@ -46,7 +46,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     }
     public override async Task<WriteResponse> PutAllChildren(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray(), (string?)null, (DateTimeOffset?)null));
         try
         {
             return Map(await dataset.PutAllChildren(stream, context.CancellationToken));
@@ -58,7 +58,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     }
     public override async Task<WriteResponse> PutMany(IAsyncStreamReader<Demodto> requestStream, ServerCallContext context)
     {
-        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray(), (string?)null, (DateTimeOffset?)null));
         try
         {
             return Map(await dataset.PutMany(stream, context.CancellationToken));
@@ -71,7 +71,7 @@ public class WriterServiceImpl(IDatasetWriter<Demodto> dataset) : WriterService.
     public override async Task<WriteResponse> PutOrDeleteMany(IAsyncStreamReader<PutOrDelete> requestStream, ServerCallContext context)
     {
         var stream = requestStream.ReadAllAsync(context.CancellationToken)
-            .Select(pod => ((string name, byte[]? entityBytes))(pod.Name, pod.IsDelete ? (byte[]?)null : pod.EntityBytes.ToByteArray()));
+            .Select(pod => (pod.Name, pod.IsDelete ? (byte[]?)null : pod.EntityBytes.ToByteArray(), (string?)null, (DateTimeOffset?)null));
         try
         {
             return Map(await dataset.PutOrDeleteMany(stream, context.CancellationToken));

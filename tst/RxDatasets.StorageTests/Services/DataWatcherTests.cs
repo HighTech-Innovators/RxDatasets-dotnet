@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using RxDatasets.Abstractions;
@@ -19,7 +19,7 @@ public class DataWatcherTests
         // Arrange
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
         const string testAdd = "Test";
-        await datasetWriter.Put(testAdd, [1]);
+        await datasetWriter.Put(testAdd, [1], null, null);
 
         CancellationTokenSource cts = new();
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
@@ -43,7 +43,7 @@ public class DataWatcherTests
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
 
         const string testAdd = "Test";
-        await datasetWriter.Put(testAdd, [1]);
+        await datasetWriter.Put(testAdd, [1], null, null);
         CancellationTokenSource cts = new();
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
 
@@ -57,7 +57,7 @@ public class DataWatcherTests
         datasetObserver.Verify(o => o.OnDatasetVersionStart(1), Times.Once);
         datasetObserver.Verify(o => o.OnDatasetVersionEnd(1), Times.Once);
 
-        await datasetWriter.Put(testAdd, []);
+        await datasetWriter.Put(testAdd, [], null, null);
         await Task.Delay(10);
 
         datasetObserver.Verify(o => o.OnDatasetVersionStart(2), Times.Never);
@@ -72,18 +72,18 @@ public class DataWatcherTests
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
 
         const string testAdd = "Test";
-        await datasetWriter.Put(testAdd, [1]);
+        await datasetWriter.Put(testAdd, [1], null, null);
 
         const string testAddUpdateDeleted = "Test2";
-        await datasetWriter.Put(testAddUpdateDeleted, [1]);
-        await datasetWriter.Put(testAddUpdateDeleted, [2]);
-        await datasetWriter.Delete(testAddUpdateDeleted);
+        await datasetWriter.Put(testAddUpdateDeleted, [1], null, null);
+        await datasetWriter.Put(testAddUpdateDeleted, [2], null, null);
+        await datasetWriter.Delete(testAddUpdateDeleted, null, null);
 
         var testAddUpdate3Times = "Test3";
-        await datasetWriter.Put(testAddUpdate3Times, [1]);
-        await datasetWriter.Put(testAddUpdate3Times, [2]);
-        await datasetWriter.Put(testAddUpdate3Times, [3]);
-        await datasetWriter.Put(testAddUpdate3Times, [4]);
+        await datasetWriter.Put(testAddUpdate3Times, [1], null, null);
+        await datasetWriter.Put(testAddUpdate3Times, [2], null, null);
+        await datasetWriter.Put(testAddUpdate3Times, [3], null, null);
+        await datasetWriter.Put(testAddUpdate3Times, [4], null, null);
         CancellationTokenSource cts = new();
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(7))).Callback(() => cts.Cancel());
 

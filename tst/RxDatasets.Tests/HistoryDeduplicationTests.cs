@@ -38,8 +38,8 @@ public class HistoryDeduplicationTests
     public async Task CreateAndDelete_ShouldBeCorrectInCurrentState()
     {
         // Given: Create and delete an entity
-        var putResult = await _dataset.Put(EntityName, TestEntity.ToByteArray());
-        var deleteResult = await _dataset.Delete(EntityName);
+        var putResult = await _dataset.Put(EntityName, TestEntity.ToByteArray(), null, null);
+        var deleteResult = await _dataset.Delete(EntityName, null, null);
 
         // When: Get current changes
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -54,9 +54,9 @@ public class HistoryDeduplicationTests
     public async Task CreateUpdateAndDelete_ShouldTrackCorrectSequence()
     {
         // Given: Create, update, and delete an entity
-        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray());
-        var updateResult = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray());
-        var deleteResult = await _dataset.Delete(EntityName);
+        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray(), null, null);
+        var updateResult = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray(), null, null);
+        var deleteResult = await _dataset.Delete(EntityName, null, null);
 
         // When: Get current state
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -71,8 +71,8 @@ public class HistoryDeduplicationTests
     public async Task CreateUpdateWithoutDelete_ShouldShowUpdate()
     {
         // Given: Create and update an entity  
-        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray());
-        var updateResult = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray());
+        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray(), null, null);
+        var updateResult = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray(), null, null);
 
         // When: Get current state
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -87,13 +87,13 @@ public class HistoryDeduplicationTests
     public async Task MultipleEntitiesWithDeletes_ShouldMaintainCorrectState()
     {
         // Given: Create multiple entities, update some, delete some
-        var entity1Create = await _dataset.Put("entity1", TestEntity.ToByteArray());
-        var entity2Create = await _dataset.Put("entity2", TestEntity.ToByteArray());
-        var entity3Create = await _dataset.Put("entity3", TestEntity.ToByteArray());
+        var entity1Create = await _dataset.Put("entity1", TestEntity.ToByteArray(), null, null);
+        var entity2Create = await _dataset.Put("entity2", TestEntity.ToByteArray(), null, null);
+        var entity3Create = await _dataset.Put("entity3", TestEntity.ToByteArray(), null, null);
 
-        var entity1Update = await _dataset.Put("entity1", UpdatedEntity.ToByteArray());
-        var entity2Delete = await _dataset.Delete("entity2");
-        var entity3Delete = await _dataset.Delete("entity3");
+        var entity1Update = await _dataset.Put("entity1", UpdatedEntity.ToByteArray(), null, null);
+        var entity2Delete = await _dataset.Delete("entity2", null, null);
+        var entity3Delete = await _dataset.Delete("entity3", null, null);
 
         // When: Get current state
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -108,8 +108,8 @@ public class HistoryDeduplicationTests
     public async Task CreateListChangesMultipleTimes_ShouldBeDeterministic()
     {
         // Given: Create and delete an entity
-        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray());
-        var deleteResult = await _dataset.Delete(EntityName);
+        var createResult = await _dataset.Put(EntityName, TestEntity.ToByteArray(), null, null);
+        var deleteResult = await _dataset.Delete(EntityName, null, null);
 
         // When: Call ListChanges multiple times
         var changes1 = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -126,7 +126,7 @@ public class HistoryDeduplicationTests
     public async Task DeleteNotCreatedEntity_ShouldHandleGracefully()
     {
         // When: Try to delete a non-existent entity
-        var deleteResult = await _dataset.Delete("nonExistent");
+        var deleteResult = await _dataset.Delete("nonExistent", null, null);
 
         // Then: Should not add to dataset (nothing to delete)
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
@@ -139,9 +139,9 @@ public class HistoryDeduplicationTests
     public async Task CreateDeleteCreate_ShouldShowAsNew()
     {
         // Given: Create, delete, then create again
-        var create1 = await _dataset.Put(EntityName, TestEntity.ToByteArray());
-        var delete = await _dataset.Delete(EntityName);
-        var create2 = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray());
+        var create1 = await _dataset.Put(EntityName, TestEntity.ToByteArray(), null, null);
+        var delete = await _dataset.Delete(EntityName, null, null);
+        var create2 = await _dataset.Put(EntityName, UpdatedEntity.ToByteArray(), null, null);
 
         // When: Get current state
         var changes = await _sut.ListChanges(new() { FromDatasetVersion = 0 }, default);
