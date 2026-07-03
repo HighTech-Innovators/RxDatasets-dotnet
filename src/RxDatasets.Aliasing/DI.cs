@@ -101,12 +101,12 @@ public static class DI
     /// <typeparam name="TEntity"></typeparam>
     /// <param name="services"></param>
     /// <param name="protoParser">The MessageParser for the protobuf message type (e.g., Link.Parser)</param>
-    /// <param name="idPattern"></param>
+    /// <param name="idPatterns">One or more ID patterns (e.g. "t/{tenantid}/fonts/{fontid}"). Each entity ID is matched to the first pattern whose segment count equals the ID's segment count.</param>
     /// <param name="aliasConfigs"></param>
     public static void AddDatasetAliases<TEntity>(
     this IServiceCollection services,
     MessageParser<TEntity> protoParser,
-    string idPattern,
+    string[] idPatterns,
     params (string AliasName, string AliasPattern)[] aliasConfigs)
     where TEntity : class, IMessage<TEntity>, new()
     {
@@ -115,8 +115,7 @@ public static class DI
             var aliasName = aliasNameValues.Key;
             var aliasPatterns = aliasNameValues.Select(av => av.AliasPattern).ToList();
 
-            // Create alias factory
-            var aliasFactory = PatternsAndExpressions.CreateAliasFactoryDelegate(idPattern, aliasPatterns, protoParser);
+            var aliasFactory = PatternsAndExpressions.CreateAliasFactoryDelegate(idPatterns, aliasPatterns, protoParser);
             services.AddDatasetAlias<TEntity>(aliasName, aliasFactory);
         }
     }
@@ -127,35 +126,37 @@ public static class PatternsAndExpressions
     private static readonly Regex PlaceholderRegex = new(@"\{([^}]+)\}", RegexOptions.Compiled);
 
     public static Func<ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
-        string idPattern,
+        string[] idPatterns,
         List<string> aliasPatterns,
         MessageParser<TEntity> protoParser)
     where TEntity : class, IMessage<TEntity>, new()
     {
-        // Extract variables from the ID pattern: e.g., "t/{tenantid}/s/{storeid}/links/{linkid}"
-        // This produces: [("tenantid", 0), ("storeid", 1), ("linkid", 2)] with their positions in the split result
-        var idVariables = ExtractPatternVariables(idPattern);
+        // Pre-compute (segmentCount, variables) for each pattern so we can pick the right one per entity at runtime.
+        var patternInfos = idPatterns
+            .Select(p => (segmentCount: p.Split('/').Length, variables: ExtractPatternVariables(p)))
+            .ToArray();
 
         return (ReadOnlyMemory<byte> entityBytes) =>
         {
             try
             {
-                // Parse the proto message using the typed parser
                 var entity = protoParser.ParseFrom(entityBytes.Span);
                 if (entity == null)
                     return Enumerable.Empty<string>();
 
-                // Generate aliases from each alias pattern and flatten, then deduplicate
-                var allAliases = aliasPatterns
+                // Pick the first pattern whose segment count matches the entity's ID segment count.
+                var entityId = entity.GetType().GetProperty("Id")?.GetValue(entity) as string ?? string.Empty;
+                var idSegmentCount = entityId.Split('/').Length;
+                var matched = Array.Find(patternInfos, p => p.segmentCount == idSegmentCount);
+                var idVariables = matched.variables ?? new Dictionary<string, int>();
+
+                return aliasPatterns
                     .SelectMany(aliasPattern => EvaluateAliasPattern(aliasPattern, idVariables, entity))
                     .Distinct()
                     .ToList();
-
-                return allAliases;
             }
             catch
             {
-                // Silently fail and return empty aliases
                 return Enumerable.Empty<string>();
             }
         };
