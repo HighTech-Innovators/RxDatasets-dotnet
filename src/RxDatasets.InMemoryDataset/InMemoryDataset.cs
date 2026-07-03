@@ -15,7 +15,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private readonly List<Delta> _deltas = [];
     private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         if (!_currentSnapshot.ContainsKey(name))
@@ -25,12 +25,12 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<string> names, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<(string name, string? trackingId, DateTimeOffset? slaTimestamp)> names, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
 
-        await foreach (var name in names.WithCancellation(ct))
+        await foreach (var (name, _, _) in names.WithCancellation(ct))
         {
             if (_currentSnapshot.TryGetValue(name, out _))
                 changes[name] = (name, null, ChangeType.Deleted);
@@ -48,7 +48,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(theDelta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
@@ -80,7 +80,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
         using var slot = await Lock(ct);
         Delta delta;
@@ -100,38 +100,38 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         return WriteResponseFor(delta);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAll(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
     {
         // implicit deletes across whole dataset
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: true, ct);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutAllChildren(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
     {
         // implicit deletes scoped to provided parents
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: true, performImplicitDeletes: true, ct);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes)> entities, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutMany(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities, CancellationToken ct = default)
     {
         // no implicit deletes
         return await PutEntitiesAsync(WrapNonNull(entities), includeParents: false, performImplicitDeletes: false, ct);
     }
 
-    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes)> changes, CancellationToken ct = default)
+    public async Task<IDatasetWriter<T>.WriteResponse> PutOrDeleteMany(IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> changes, CancellationToken ct = default)
     {
         // mixed explicit puts and deletes, no implicit deletes
         return await PutEntitiesAsync(changes, includeParents: false, performImplicitDeletes: false, ct);
     }
 
-    private static async IAsyncEnumerable<(string name, byte[]? entityBytes)> WrapNonNull(IAsyncEnumerable<(string name, byte[] entityBytes)> source)
+    private static async IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> WrapNonNull(IAsyncEnumerable<(string name, byte[] entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> source)
     {
-        await foreach (var (name, bytes) in source)
-            yield return (name, (byte[]?)bytes);
+        await foreach (var (name, bytes, trackingId, slaTimestamp) in source)
+            yield return (name, (byte[]?)bytes, trackingId, slaTimestamp);
     }
 
     private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
-        IAsyncEnumerable<(string name, byte[]? entityBytes)> entities,
+        IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities,
         bool includeParents,
         bool performImplicitDeletes,
         CancellationToken ct)
@@ -144,7 +144,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         // Track final state per entity - last operation wins
         var entityFinalStates = new Dictionary<string, (uint crc32, byte[] bytes)?>();
 
-        await foreach (var (name, entityBytes) in entities.WithCancellation(ct))
+        await foreach (var (name, entityBytes, trackingId, slaTimestamp) in entities.WithCancellation(ct))
         {
             if (includeParents)
             {
@@ -543,3 +543,5 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     private record Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion);
 }
+
+

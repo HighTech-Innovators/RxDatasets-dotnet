@@ -125,7 +125,7 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => googleCloudStorageDatasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_GoogleCloud_Storage_After_Initialization", bytes);
+        var putAction = () => googleCloudStorageDatasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_GoogleCloud_Storage_After_Initialization", bytes, null, null);
         await putAction.Should().ThrowAsync<InvalidOperationException>();
     }
 
@@ -136,7 +136,7 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => googleCloudStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_GoogleCloud_Storage", bytes);
+        var putAction = () => googleCloudStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_GoogleCloud_Storage", bytes, null, null);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
 }

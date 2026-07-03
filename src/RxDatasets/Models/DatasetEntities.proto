@@ -23,11 +23,15 @@ message DeltaEntity {
 	int32 length = 3;
 	uint32 crc32 = 5;
 	uint64 previous_version = 6;
+	string tracking_id = 7;
+	google.protobuf.Timestamp sla_timestamp = 8;
 }
 
 message DeletedEntity {
 	string name = 1;
 	uint64 previous_version = 2;
+	string tracking_id = 3;
+	google.protobuf.Timestamp sla_timestamp = 4;
 }
 
 message DeltaIndex {
