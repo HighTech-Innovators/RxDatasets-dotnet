@@ -142,7 +142,7 @@ public class WriteCoalescingTests
             Task.Run(async () =>
             {
                 var entities = Enumerable.Range(0, 3)
-                    .Select(i => ($"batch{batchId}/entity_{i}", (byte[]?)TestData(batchId * 100 + i), (string?)null, (DateTimeOffset?)null));
+                    .Select(i => ($"batch{batchId}/entity_{i}", TestData(batchId * 100 + i), (string?)null, (DateTimeOffset?)null));
                 return await writer.PutMany(entities.ToAsyncEnumerable());
             })).ToArray();
 
@@ -222,7 +222,7 @@ public class WriteCoalescingTests
         var putAllTask = Task.Run(async () =>
         {
             var entities = Enumerable.Range(10, 3)
-                .Select(i => ($"entity_{i}", (byte[]?)TestData(i), (string?)null, (DateTimeOffset?)null));
+                .Select(i => ($"entity_{i}", TestData(i), (string?)null, (DateTimeOffset?)null));
             return await writer.PutAll(entities.ToAsyncEnumerable());
         });
 

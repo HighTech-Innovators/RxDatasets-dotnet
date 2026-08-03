@@ -17,7 +17,7 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
     public class DispatcherCleanupTests : IAsyncLifetime
     {
         private readonly ILogger<GoogleCloudStorage<byte[]>> _logger;
-        private GoogleCloudStorage<byte[]> _storage;
+        private GoogleCloudStorage<byte[]> _storage = null!;
 
         public DispatcherCleanupTests()
         {
@@ -117,7 +117,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task DisposalCompletesWithinTimeLimit()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data = Encoding.UTF8.GetBytes("test data");
             var sw = Stopwatch.StartNew();
 
@@ -156,7 +155,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task SyncAndAsyncDisposalTogether()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data = Encoding.UTF8.GetBytes("test data");
 
             // Act

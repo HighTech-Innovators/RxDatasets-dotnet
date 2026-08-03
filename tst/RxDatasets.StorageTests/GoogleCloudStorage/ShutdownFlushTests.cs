@@ -16,7 +16,7 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
     public class ShutdownFlushTests : IAsyncLifetime
     {
         private readonly ILogger<GoogleCloudStorage<byte[]>> _logger;
-        private GoogleCloudStorage<byte[]> _storage;
+        private GoogleCloudStorage<byte[]> _storage = null!;
 
         public ShutdownFlushTests()
         {
@@ -49,7 +49,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task DisposalFlushesQueuedWrites()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2 - pending");
 
@@ -71,7 +70,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task DisposalWaitsForInFlightFlush()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2");
 
@@ -93,8 +91,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task DisposalFlushesPendingWritesFromMultipleFiles()
         {
             // Arrange
-            var objectKeyA = "delta.pb";
-            var objectKeyB = "ProcessedVersions.pb";
             var dataA1 = Encoding.UTF8.GetBytes("A version 1");
             var dataA2 = Encoding.UTF8.GetBytes("A version 2 - pending");
             var dataB1 = Encoding.UTF8.GetBytes("B version 1");
@@ -123,7 +119,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task DisposalTimingExceedsFlushWindow()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2");
 

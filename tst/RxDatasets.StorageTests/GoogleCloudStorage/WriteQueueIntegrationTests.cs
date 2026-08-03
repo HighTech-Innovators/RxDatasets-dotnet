@@ -14,11 +14,11 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
     public class WriteQueueIntegrationTests : IClassFixture<GoogleCloudContainerInstanceFixture>, IAsyncLifetime
     {
         private readonly GoogleCloudContainerInstanceFixture _fixture;
-        private GoogleCloudStorage<object> _storage;
-        private string _bucketName;
+        private GoogleCloudStorage<object> _storage = null!;
+        private string _bucketName = null!;
         private const string ProjectId = "test-project";
 
-        private Mock<ILogger<GoogleCloudStorage<object>>> _loggerMock;
+        private Mock<ILogger<GoogleCloudStorage<object>>> _loggerMock = null!;
 
         public WriteQueueIntegrationTests(GoogleCloudContainerInstanceFixture fixture)
         {
@@ -121,10 +121,10 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
                     LogLevel.Information,
                     It.IsAny<EventId>(),
                     It.Is<It.IsAnyType>((v, t) =>
-                        (v.ToString().Contains("Waiting for") && v.ToString().Contains("in-flight flush(es)")) ||
-                        v.ToString().Contains($"Flushing remaining write for {objectKey}")),
+                        (v!.ToString()!.Contains("Waiting for") && v.ToString()!.Contains("in-flight flush(es)")) ||
+                        v.ToString()!.Contains($"Flushing remaining write for {objectKey}")),
                     It.IsAny<Exception>(),
-                    It.IsAny<Func<It.IsAnyType, Exception, string>>()),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.AtLeastOnce);
 
             // Verify that the write was actually flushed (logged by ExecuteFlush)
@@ -132,9 +132,9 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
                 x => x.Log(
                     LogLevel.Debug,
                     It.IsAny<EventId>(),
-                    It.Is<It.IsAnyType>((v, t) => v.ToString().Contains($"Flushed queued write for {objectKey}")),
+                    It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains($"Flushed queued write for {objectKey}")),
                     It.IsAny<Exception>(),
-                    It.IsAny<Func<It.IsAnyType, Exception, string>>()),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.AtLeastOnce);
         }
     }

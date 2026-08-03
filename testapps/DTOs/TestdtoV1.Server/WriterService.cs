@@ -12,7 +12,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Delete(request.Name, ct: context.CancellationToken));
+            return Map(await dataset.Delete(request.Name, null, null, context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {
@@ -24,7 +24,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), ct: context.CancellationToken));
+            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), null, null, context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {

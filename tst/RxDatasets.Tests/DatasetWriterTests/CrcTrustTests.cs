@@ -26,11 +26,11 @@ public class CrcTrustTests
         var originalData = GenerateTestData(entityName, 1);
 
         // First put the entity (with CRC32 calculated)
-        await _writer.Put(entityName, originalData);
+        await _writer.Put(entityName, originalData, null, null);
 
         // Act: Put the exact same data again
         // When CRC32 matches, the implementation should trust it and not read the bytes from storage
-        var result = await _writer.Put(entityName, originalData);
+        var result = await _writer.Put(entityName, originalData, null, null);
 
         // Assert: Should report no change
         // If the optimization is working, no byte comparison would have occurred
@@ -48,11 +48,11 @@ public class CrcTrustTests
         var changedData = GenerateTestData(entityName, 2);
 
         // First put the entity
-        await _writer.Put(entityName, originalData);
+        await _writer.Put(entityName, originalData, null, null);
 
         // Act: Put different data with same length but different content
         // CRC32 will differ, so bytes will be read and compared
-        var result = await _writer.Put(entityName, changedData);
+        var result = await _writer.Put(entityName, changedData, null, null);
 
         // Assert: Should report the change
         result.NumUpdatedEntities.Should().Be(1, "Data changed, CRC32 differed");
@@ -68,11 +68,11 @@ public class CrcTrustTests
         Array.Copy(shortData, longData, shortData.Length);
 
         // First put the entity
-        await _writer.Put(entityName, shortData);
+        await _writer.Put(entityName, shortData, null, null);
 
         // Act: Put data with different length
         // Length check happens before CRC check, so change is detected immediately
-        var result = await _writer.Put(entityName, longData);
+        var result = await _writer.Put(entityName, longData, null, null);
 
         // Assert: Should report the change
         result.NumUpdatedEntities.Should().Be(1, "Data length changed");
@@ -86,9 +86,9 @@ public class CrcTrustTests
         var data = GenerateTestData(entityName, 1);
 
         // Act: Put the same data multiple times
-        var result1 = await _writer.Put(entityName, data);
-        var result2 = await _writer.Put(entityName, data);
-        var result3 = await _writer.Put(entityName, data);
+        var result1 = await _writer.Put(entityName, data, null, null);
+        var result2 = await _writer.Put(entityName, data, null, null);
+        var result3 = await _writer.Put(entityName, data, null, null);
 
         // Assert: First put adds, subsequent puts should not report changes
         result1.NumAddedEntities.Should().Be(1, "First put adds the entity");

@@ -35,7 +35,7 @@ public class ReaderServiceImpl(GrpcReaderServiceImpl<Demodto> grpcReaderServiceI
     {
         try
         {
-            var (batch, npt) = await grpcReaderServiceImpl.List(request.Parent, request.PageSize, request.PageToken, context.CancellationToken);
+            var (batch, npt) = await grpcReaderServiceImpl.GetChildren(request.Parent, request.PageSize, request.PageToken, context.CancellationToken);
             var response = new ListDemodtosResponse
             {
                 Demodtos = { batch }
