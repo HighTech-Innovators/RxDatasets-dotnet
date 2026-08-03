@@ -18,7 +18,7 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
     public class WriteQueueTests : IAsyncLifetime
     {
         private readonly ILogger<GoogleCloudStorage<byte[]>> _logger;
-        private GoogleCloudStorage<byte[]> _storage;
+        private GoogleCloudStorage<byte[]> _storage = null!;
 
         public WriteQueueTests()
         {
@@ -54,7 +54,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task RapidWritesToSameFileAreQueued()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2");
 
@@ -84,7 +83,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task WriteQueueBypassesWhenLastWriteOldEnough()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2");
 
@@ -106,7 +104,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task QueuedWritesFlushAfterTwoSeconds()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("version 1");
             var data2 = Encoding.UTF8.GetBytes("version 2");
 
@@ -128,8 +125,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task MultipleFilesHaveIndependentQueues()
         {
             // Arrange
-            var objectKeyA = "delta.pb";
-            var objectKeyB = "ProcessedVersions.pb";
             var dataA1 = Encoding.UTF8.GetBytes("A version 1");
             var dataA2 = Encoding.UTF8.GetBytes("A version 2");
             var dataB1 = Encoding.UTF8.GetBytes("B version 1");
@@ -153,7 +148,6 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
         public async Task QueuedWritesPreserveOrder()
         {
             // Arrange
-            var objectKey = "delta.pb";
             var data1 = Encoding.UTF8.GetBytes("sequence 1");
             var data2 = Encoding.UTF8.GetBytes("sequence 2");
             var data3 = Encoding.UTF8.GetBytes("sequence 3");
@@ -176,9 +170,9 @@ namespace RxDatasets.StorageTests.GoogleCloudStorage
     /// </summary>
     internal class TestLogger<T> : ILogger<T>
     {
-        public IDisposable BeginScope<TState>(TState state) => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             // In real tests, capture these for assertions
         }

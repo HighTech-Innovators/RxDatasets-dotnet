@@ -1,5 +1,6 @@
 ﻿using Azure;
 using Azure.Core.Pipeline;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.Logging;
@@ -21,16 +22,30 @@ public class AzStorage<T> : IDiskStorage<T>
     public AzStorage(ILogger<AzStorage<T>> logger, IOptions<AzStorageConfig> azStorageConfig, bool retryInitialization = true)
     {
         _logger = logger;
-        _containerClient = new BlobServiceClient(
-            azStorageConfig.Value.ConnectionString,
-            new BlobClientOptions
-            {
-                RetryPolicy = new RetryPolicy(2)
-            }).GetBlobContainerClient(azStorageConfig.Value.ContainerName);
+        var config = azStorageConfig.Value;
+        var blobClientOptions = new BlobClientOptions
+        {
+            RetryPolicy = new RetryPolicy(2)
+        };
+
+        var blobServiceClient = string.IsNullOrEmpty(config.AccountUrl)
+            ? new BlobServiceClient(config.ConnectionString, blobClientOptions)
+            : new BlobServiceClient(new Uri(config.AccountUrl), CreateCredential(config), blobClientOptions);
+
+        _containerClient = blobServiceClient.GetBlobContainerClient(config.ContainerName);
         if (retryInitialization)
             InitializationLoop();
         else
             Initialize();
+    }
+
+    private static DefaultAzureCredential CreateCredential(AzStorageConfig config)
+    {
+        var options = new DefaultAzureCredentialOptions();
+        if (!string.IsNullOrEmpty(config.ManagedIdentityClientId))
+            options.ManagedIdentityClientId = config.ManagedIdentityClientId;
+
+        return new DefaultAzureCredential(options);
     }
 
     public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
