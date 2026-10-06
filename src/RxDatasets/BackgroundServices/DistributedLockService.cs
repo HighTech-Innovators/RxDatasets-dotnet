@@ -162,6 +162,13 @@ namespace RxDatasets.BackgroundServices
                 logger.LogError(ex, "Error flushing storage write queue during shutdown.");
             }
 
+            if (!HasLock)
+            {
+                // Normal when another instance holds the lock or this instance yielded it during a handover
+                logger.LogInformation("Lock not held by this instance (state: {State}); nothing to release.", _state);
+                return;
+            }
+
             try
             {
                 // Ensure the lock is released before the application exits
