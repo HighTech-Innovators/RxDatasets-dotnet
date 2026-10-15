@@ -115,8 +115,8 @@ public record ImmutableDatasetState
 
     /// <summary>
     /// Converts to a Protobuf SnapshotIndex.
-    /// If IndexNode is available, it's serialized to the root field.
-    /// Legacy flat entities are always populated for backward compatibility.
+    /// Only the hierarchical root field is written; the legacy flat entities are left empty,
+    /// so readers that predate the hierarchical index cannot read the result.
     /// </summary>
     public SnapshotIndex ToProto()
     {

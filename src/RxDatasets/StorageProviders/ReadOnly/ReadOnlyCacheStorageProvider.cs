@@ -122,11 +122,21 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     {
         var index = await ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
-        var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => entity.Length);
+        var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => (long)entity.Length)
+                          + SumEntityLengths(mutableSnapshotIndex.Root);
         if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
         {
             _ = await ReadSnapshotData(snapshotVersion); // This triggers a cache set
         }
+    }
+
+    private static long SumEntityLengths(SnapshotNode? node)
+    {
+        if (node == null)
+            return 0;
+
+        return node.Entities.Values.Sum(entity => (long)entity.Length)
+               + node.Children.Values.Sum(SumEntityLengths);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)

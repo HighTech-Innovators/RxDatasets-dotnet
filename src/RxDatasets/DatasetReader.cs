@@ -348,7 +348,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             }
         }
 
-        var prefix = string.IsNullOrEmpty(parent) || parent == "/" ? "" : parent;
+        // Build the prefix from the navigated segments, so a leading/trailing slash in parent doesn't leak into names
+        var prefix = string.Join('/', pathParts);
         var names = new List<string>();
         CollectEntitiesRecursive(currentNode, prefix, names);
 
@@ -515,7 +516,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             ulong previousVersion = 0;
 
             // Try hierarchical format first (new format with DeltaNode root)
-            if (deltaIndex.Root != null)
+            if (deltaIndex.HasHierarchicalEntries())
             {
                 var entry = FindEntityInHierarchicalDelta(deltaIndex.Root, name);
                 if (entry != null)
@@ -668,27 +669,27 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             switch (changeType)
             {
                 case ChangeType.New:
-                    foreach (var (_, entity) in root.NewEntities)
+                    foreach (var (key, entity) in root.NewEntities)
                     {
-                        var fullPath = string.IsNullOrEmpty(currentPath) ? entity.Name : currentPath + "/" + entity.Name;
+                        var fullPath = string.IsNullOrEmpty(currentPath) ? key : currentPath + "/" + key;
                         yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = fullPath };
                     }
                     break;
 
                 case ChangeType.Changed:
-                    foreach (var (_, entity) in root.ChangedEntities)
+                    foreach (var (key, entity) in root.ChangedEntities)
                     {
-                        var fullPath = string.IsNullOrEmpty(currentPath) ? entity.Name : currentPath + "/" + entity.Name;
+                        var fullPath = string.IsNullOrEmpty(currentPath) ? key : currentPath + "/" + key;
                         yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = fullPath };
                     }
                     break;
 
                 case ChangeType.Deleted:
-                    foreach (var (_, deletedEntity) in root.DeletedEntities)
+                    foreach (var (key, deletedEntity) in root.DeletedEntities)
                     {
-                        if (!deletedEntityNames.Contains(deletedEntity.Name))
+                        var fullPath = string.IsNullOrEmpty(currentPath) ? key : currentPath + "/" + key;
+                        if (!deletedEntityNames.Contains(fullPath))
                         {
-                            var fullPath = string.IsNullOrEmpty(currentPath) ? deletedEntity.Name : currentPath + "/" + deletedEntity.Name;
                             yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = fullPath };
                         }
                     }
@@ -764,10 +765,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
 
             // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
-            if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
-                    deltaIndex.Root.ChangedEntities.Count > 0 ||
-                    deltaIndex.Root.DeletedEntities.Count > 0 ||
-                    deltaIndex.Root.Children.Count > 0))
+            if (deltaIndex.HasHierarchicalEntries())
             {
                 // Hierarchical root available - use tree traversal
                 foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.New, currentVersion, timestamp))
@@ -880,10 +878,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
 
             // Prefer hierarchical root if available (O(depth) queries), else fallback to flat with StartsWith
-            if (deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
-                    deltaIndex.Root.ChangedEntities.Count > 0 ||
-                    deltaIndex.Root.DeletedEntities.Count > 0 ||
-                    deltaIndex.Root.Children.Count > 0))
+            if (deltaIndex.HasHierarchicalEntries())
             {
                 // Hierarchical root available - use tree traversal
                 foreach (var entry in EnumerateHierarchicalDeltaEntries(deltaIndex.Root, parentParts, 0, "", ChangeType.New, nextVersion, timestamp))
@@ -959,7 +954,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             throw new ArgumentException("Delta not found", nameof(version));
         }
 
-        if (deltaIndex.Root != null)
+        if (deltaIndex.HasHierarchicalEntries())
         {
             var (entity, isDeleted) = FindEntityDataInHierarchicalDelta(deltaIndex.Root, name);
             if (isDeleted)

@@ -51,7 +51,7 @@ public static class DatasetExtensions
         var tempIndexNode = index.IndexNode;
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
 
-        if (delta.Root != null && (delta.Root.NewEntities.Count > 0 || delta.Root.ChangedEntities.Count > 0 || delta.Root.DeletedEntities.Count > 0 || delta.Root.Children.Count > 0))
+        if (delta.HasHierarchicalEntries())
         {
             tempIndexNode = ApplyHierarchicalDeltaRecursive(tempIndexNode, delta.Root, deltaVersion);
         }
@@ -309,6 +309,65 @@ public static class DatasetExtensions
 
         return current;
     }
+
+    /// <summary>
+    /// Whether the delta stores its changes in the hierarchical <see cref="DeltaIndex.Root"/>
+    /// (as opposed to the legacy flat lists).
+    /// </summary>
+    public static bool HasHierarchicalEntries(this DeltaIndex deltaIndex)
+        => deltaIndex.Root != null && (deltaIndex.Root.NewEntities.Count > 0 ||
+                                       deltaIndex.Root.ChangedEntities.Count > 0 ||
+                                       deltaIndex.Root.DeletedEntities.Count > 0 ||
+                                       deltaIndex.Root.Children.Count > 0);
+
+    /// <summary>
+    /// Enumerates the new entities of a delta with their full names, from both the hierarchical
+    /// <see cref="DeltaIndex.Root"/> and the legacy flat <see cref="DeltaIndex.NewEntities"/>.
+    /// </summary>
+    public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateNewEntities(this DeltaIndex deltaIndex)
+        => EnumerateDeltaNode(deltaIndex.Root, "", node => node.NewEntities)
+            .Concat(deltaIndex.NewEntities.Select(e => (e.Name, e)));
+
+    /// <summary>
+    /// Enumerates the changed entities of a delta with their full names, from both the hierarchical
+    /// <see cref="DeltaIndex.Root"/> and the legacy flat <see cref="DeltaIndex.ChangedEntities"/>.
+    /// </summary>
+    public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateChangedEntities(this DeltaIndex deltaIndex)
+        => EnumerateDeltaNode(deltaIndex.Root, "", node => node.ChangedEntities)
+            .Concat(deltaIndex.ChangedEntities.Select(e => (e.Name, e)));
+
+    /// <summary>
+    /// Enumerates the deleted entities of a delta with their full names, from both the hierarchical
+    /// <see cref="DeltaIndex.Root"/> and the legacy flat <see cref="DeltaIndex.DeletedEntities"/>.
+    /// The legacy <see cref="DeltaIndex.DeletedNames"/> are not included.
+    /// </summary>
+    public static IEnumerable<(string Name, DeletedEntity Entity)> EnumerateDeletedEntities(this DeltaIndex deltaIndex)
+        => EnumerateDeltaNode(deltaIndex.Root, "", node => node.DeletedEntities)
+            .Concat(deltaIndex.DeletedEntities.Select(e => (e.Name, e)));
+
+    /// <summary>
+    /// Walks a delta node tree. Full names are built from the map keys, since the entity's own
+    /// Name field may hold either the leaf name (migrated deltas) or the full name.
+    /// </summary>
+    private static IEnumerable<(string Name, TEntity Entity)> EnumerateDeltaNode<TEntity>(
+        DeltaNode? node,
+        string prefix,
+        Func<DeltaNode, IDictionary<string, TEntity>> selectEntities)
+    {
+        if (node == null)
+            yield break;
+
+        foreach (var (key, entity) in selectEntities(node))
+            yield return (JoinPath(prefix, key), entity);
+
+        foreach (var (key, child) in node.Children)
+        {
+            foreach (var descendant in EnumerateDeltaNode(child, JoinPath(prefix, key), selectEntities))
+                yield return descendant;
+        }
+    }
+
+    private static string JoinPath(string prefix, string key) => string.IsNullOrEmpty(prefix) ? key : $"{prefix}/{key}";
 
     /// <summary>
     /// Converts a DeltaIndex to a hierarchical DeltaNode.
