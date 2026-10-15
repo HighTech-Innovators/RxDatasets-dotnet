@@ -26,6 +26,11 @@ public class DatasetWatcher<T>(
         deltaIndexParsed.ValidateAgainstVersion(nextToReportedVersion);
 
         var deltaVersion = deltaIndexParsed.DeltaVersion > 0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
+        if (deltaIndexParsed.Root != null)
+        {
+            await TraverseAndReportDelta(deltaIndexParsed.Root, "", deltaVersion, datasetObserver);
+        }
+
         foreach (var entity in deltaIndexParsed.NewEntities)
         {
             var data = await storageReader.ReadDataFromSources(
@@ -59,8 +64,36 @@ public class DatasetWatcher<T>(
         }
 
         await datasetObserver.OnDatasetVersionEnd(nextToReportedVersion);
-
     }
+
+    private async Task TraverseAndReportDelta(DeltaNode node, string prefix, ulong deltaVersion, IDatasetObserver<T> datasetObserver)
+    {
+        foreach (var (key, entity) in node.NewEntities)
+        {
+            var data = await storageReader.ReadDataFromSources(
+                [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
+            await datasetObserver.OnCreate(JoinPath(prefix, key), data);
+        }
+
+        foreach (var (key, entity) in node.ChangedEntities)
+        {
+            var data = await storageReader.ReadDataFromSources(
+                [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
+            await datasetObserver.OnChange(JoinPath(prefix, key), data);
+        }
+
+        foreach (var key in node.DeletedEntities.Keys)
+        {
+            await datasetObserver.OnDelete(JoinPath(prefix, key));
+        }
+
+        foreach (var (key, childNode) in node.Children)
+        {
+            await TraverseAndReportDelta(childNode, JoinPath(prefix, key), deltaVersion, datasetObserver);
+        }
+    }
+
+    private static string JoinPath(string prefix, string key) => string.IsNullOrEmpty(prefix) ? key : $"{prefix}/{key}";
 
     private static async Task ReportAllDataToTheObserver(IDatasetObserver<T> datasetObserver, SnapshotIndex snapshotIndex,
         ReadOnlyMemory<byte> data)

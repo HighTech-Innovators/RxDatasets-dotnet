@@ -399,6 +399,17 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
         }
 
+        var numAdded = (uint)deltaIndex.NewEntities.Count;
+        var numChanged = (uint)deltaIndex.ChangedEntities.Count;
+        var numDeleted = (uint)deltaIndex.DeletedEntities.Count;
+
+        // Convert to hierarchical format
+        deltaIndex.Root = deltaIndex.ToDeltaNode();
+        deltaIndex.NewEntities.Clear();
+        deltaIndex.ChangedEntities.Clear();
+        deltaIndex.DeletedEntities.Clear();
+        deltaIndex.DeletedNames.Clear();
+
         // Apply the delta and store it
         _index = _index!.ApplyDelta(deltaIndex);
         using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
@@ -407,14 +418,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
-        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
+        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, numAdded, numChanged, numDeleted);
 
         return new IDatasetWriter<T>.WriteResponse
         {
             NewDatasetVersion = _index.LatestVersion,
-            NumAddedEntities = (uint)deltaIndex.NewEntities.Count,
-            NumUpdatedEntities = (uint)deltaIndex.ChangedEntities.Count,
-            NumDeletedEntities = (uint)deltaIndex.DeletedEntities.Count
+            NumAddedEntities = numAdded,
+            NumUpdatedEntities = numChanged,
+            NumDeletedEntities = numDeleted
         };
     }
 
@@ -551,13 +562,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 deltaIndex.ChangedEntities.Add(deltaEntity);
         }
 
-        // Convert to hierarchical format
-        deltaIndex.Root = deltaIndex.ToDeltaNode();
-        deltaIndex.NewEntities.Clear();
-        deltaIndex.ChangedEntities.Clear();
-        deltaIndex.DeletedEntities.Clear();
-        deltaIndex.DeletedNames.Clear();
-
+        // The caller may still add implicit deletes, so it converts to the hierarchical format
         return (deltaIndex, receivedNames, allParents);
     }
 
