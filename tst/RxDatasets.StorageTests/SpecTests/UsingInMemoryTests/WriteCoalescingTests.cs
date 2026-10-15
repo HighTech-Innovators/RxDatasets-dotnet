@@ -377,7 +377,7 @@ public class WriteCoalescingTests
                 Position: 0,
                 Length: dataA.Length,
                 Crc32: crcA));
-        var index = new ImmutableDatasetState(entities, SnapshotVersion: 0, LatestVersion: 1);
+        var index = new ImmutableDatasetState(entities, snapshotVersion: 0, latestVersion: 1);
 
         var intents = new List<DatasetWriter<object>.WriteIntent>
         {
