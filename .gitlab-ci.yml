@@ -18,6 +18,14 @@ stages:
   - sonarqube-check
   - sonarqube-vulnerability-report
 
+# Jobs run in branch and tag pipelines by default; also run them in merge request pipelines,
+# so tests gate merges without depending on the sonarqube-check job.
+.branches_and_merge_requests:
+  only:
+    - branches
+    - tags
+    - merge_requests
+
 .only_tagged:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
@@ -89,6 +97,7 @@ stages:
 
 dotnet restore:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: restore
@@ -96,6 +105,7 @@ dotnet restore:
 
 dotnet build:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: build
@@ -105,6 +115,7 @@ dotnet build:
 
 dotnet test:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: test
@@ -114,6 +125,8 @@ dotnet test:
 
 
 e2e test:
+  extends:
+    - .branches_and_merge_requests
   stage: test
   needs:
     - dotnet build
@@ -164,7 +177,9 @@ sonarqube-check:
   stage: sonarqube-check
   dependencies:
     - dotnet test
-  allow_failure: false
+  # The SonarQube host (sonar.developer.htiprojects.nl) is gone; don't block merges on it.
+  # Set back to false once SonarQube is available again.
+  allow_failure: true
   only:
     - merge_requests
     - master
