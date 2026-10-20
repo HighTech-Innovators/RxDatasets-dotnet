@@ -32,7 +32,8 @@ public class TreeDeltaConsumerTests
 
     public TreeDeltaConsumerTests()
     {
-        _storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), _storageConfig, _storage);
+        _storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), _storageConfig,
+            _storage);
         _storageProvider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), _storageConfig,
             _storage, _notificationsHub, _storageReader, false);
         _writer = new DatasetWriter<object>(_notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), _storageProvider,

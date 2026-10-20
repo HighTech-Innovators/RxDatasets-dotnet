@@ -199,7 +199,8 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         {
             long sourceStreamPosition = 0;
 
-            foreach (var entity in currentIndex.EnumerateAll(where: x => x.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
+            foreach (var entity in currentIndex.EnumerateAll(
+                         where: x => x.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)

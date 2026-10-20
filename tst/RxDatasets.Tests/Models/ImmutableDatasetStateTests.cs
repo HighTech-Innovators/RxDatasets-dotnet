@@ -11,7 +11,8 @@ public class ImmutableDatasetStateTests
         "t/T/s/S/esls/B/pages/1/studioimage",
     ];
 
-    private static SnapshotEntity Entity(int i) => new() { LastInsertedVersion = { 1 }, Position = i * 10, Length = 10, Crc32 = (uint)i + 1 };
+    private static SnapshotEntity Entity(int i) =>
+        new() { LastInsertedVersion = { 1 }, Position = i * 10, Length = 10, Crc32 = (uint)i + 1 };
 
     private static SnapshotIndex FlatSnapshot()
     {
@@ -64,8 +65,10 @@ public class ImmutableDatasetStateTests
     private static DeltaIndex FlatDelta()
     {
         var delta = new DeltaIndex { DeltaVersion = 2 };
-        delta.NewEntities.Add(new DeltaEntity { Name = "t/T/s/S/items/I3/values", Position = 1, Length = 5, Crc32 = 7, PreviousVersion = 0 });
-        delta.ChangedEntities.Add(new DeltaEntity { Name = "t/T/s/S/items/I1/values", Position = 6, Length = 5, Crc32 = 8, PreviousVersion = 1 });
+        delta.NewEntities.Add(
+            new DeltaEntity { Name = "t/T/s/S/items/I3/values", Position = 1, Length = 5, Crc32 = 7, PreviousVersion = 0 });
+        delta.ChangedEntities.Add(
+            new DeltaEntity { Name = "t/T/s/S/items/I1/values", Position = 6, Length = 5, Crc32 = 8, PreviousVersion = 1 });
         delta.DeletedEntities.Add(new DeletedEntity { Name = "t/T/tenant", PreviousVersion = 1 });
         delta.DeletedNames.Add("esltypes/E");
         return delta;
@@ -146,7 +149,8 @@ public class ImmutableDatasetStateTests
         delta.ConvertToTree();
 
         delta.HasFlatEntries().Should().BeFalse();
-        delta.EnumerateNewEntities().Concat(delta.EnumerateChangedEntities()).Should().AllSatisfy(e => e.Entity.Name.Should().BeEmpty());
+        delta.EnumerateNewEntities().Concat(delta.EnumerateChangedEntities())
+            .Should().AllSatisfy(e => e.Entity.Name.Should().BeEmpty());
         delta.EnumerateDeletedEntities().Should().AllSatisfy(e => e.Entity.Name.Should().BeEmpty());
     }
 }

@@ -361,7 +361,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 }
             }
         }
-        int added = deltaIndex.NewEntities.Count, changed = deltaIndex.ChangedEntities.Count, deleted = deltaIndex.DeletedEntities.Count;
+        int added = deltaIndex.NewEntities.Count, changed = deltaIndex.ChangedEntities.Count,
+            deleted = deltaIndex.DeletedEntities.Count;
         var hasEntityData = added > 0 || changed > 0;
         if (hasEntityData)
         {
@@ -391,7 +392,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _index = newIndex;
         await OnDeltaApplied(deltaIndex);
 
-        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, added, changed, deleted);
+        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}",
+            _index.LatestVersion, added, changed, deleted);
 
         return new IDatasetWriter<T>.WriteResponse
         {

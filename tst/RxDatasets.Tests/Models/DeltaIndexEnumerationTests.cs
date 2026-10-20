@@ -8,8 +8,10 @@ public class DeltaIndexEnumerationTests
     private static DeltaIndex FlatDelta()
     {
         var delta = new DeltaIndex { DeltaVersion = 5, Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UnixEpoch) };
-        delta.NewEntities.Add(new DeltaEntity { Name = "t/T/s/S/items/I1/values", PreviousVersion = 0, TrackingId = "new", Position = 1 });
-        delta.ChangedEntities.Add(new DeltaEntity { Name = "t/T/s/S/eccparameters", PreviousVersion = 3, TrackingId = "changed" });
+        delta.NewEntities.Add(
+            new DeltaEntity { Name = "t/T/s/S/items/I1/values", PreviousVersion = 0, TrackingId = "new", Position = 1 });
+        delta.ChangedEntities.Add(
+            new DeltaEntity { Name = "t/T/s/S/eccparameters", PreviousVersion = 3, TrackingId = "changed" });
         delta.DeletedEntities.Add(new DeletedEntity { Name = "esltypes/E", PreviousVersion = 4, TrackingId = "deleted" });
         delta.DeletedNames.Add("esltypes/E");
         delta.DeletedNames.Add("t/T/s/S/items/I2/values");
@@ -33,8 +35,10 @@ public class DeltaIndexEnumerationTests
     {
         var delta = Delta(tree);
 
-        delta.EnumerateNewEntities().Select(e => (e.Name, e.Entity.TrackingId)).Should().Equal(("t/T/s/S/items/I1/values", "new"));
-        delta.EnumerateChangedEntities().Select(e => (e.Name, e.Entity.TrackingId)).Should().Equal(("t/T/s/S/eccparameters", "changed"));
+        delta.EnumerateNewEntities().Select(e => (e.Name, e.Entity.TrackingId))
+            .Should().Equal(("t/T/s/S/items/I1/values", "new"));
+        delta.EnumerateChangedEntities().Select(e => (e.Name, e.Entity.TrackingId))
+            .Should().Equal(("t/T/s/S/eccparameters", "changed"));
         var expectedDeleted = tree
             ? [("esltypes/E", "deleted"), ("t/T/s/S/items/I2/values", "")] // a legacy deleted name becomes a deleted entity
             : new[] { ("esltypes/E", "deleted") };
@@ -56,7 +60,8 @@ public class DeltaIndexEnumerationTests
     {
         var delta = Delta(tree);
 
-        delta.FindChange("t/T/s/S/items/I1/values").Should().Be((ChangeType.New, 0UL, delta.EnumerateNewEntities().Single().Entity));
+        delta.FindChange("t/T/s/S/items/I1/values")
+            .Should().Be((ChangeType.New, 0UL, delta.EnumerateNewEntities().Single().Entity));
         delta.FindChange("t/T/s/S/eccparameters").Change.Should().Be(ChangeType.Changed);
         delta.FindChange("t/T/s/S/eccparameters").PreviousVersion.Should().Be(3);
         delta.FindChange("esltypes/E").Should().Be((ChangeType.Deleted, 4UL, (DeltaEntity?)null));
