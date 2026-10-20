@@ -41,7 +41,7 @@ public class DatasetWatcher<T>(
         }
 
         // The names of the deleted entities, which have the richer info (with previous version)
-        var deletedEntityNames = deltaIndexParsed.EnumerateDeletedEntities().Select(e => e.Name).ToList();
+        var deletedEntityNames = deltaIndexParsed.EnumerateDeletedEntities().Select(e => e.Name).ToHashSet();
 
         // Only delete via DeletedNames if there's no corresponding DeletedEntity
         // Prefer DeletedEntities as they contain previous version info
