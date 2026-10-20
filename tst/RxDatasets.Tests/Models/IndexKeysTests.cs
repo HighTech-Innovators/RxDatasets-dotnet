@@ -61,6 +61,7 @@ public class IndexKeysTests
         "t/{tenantid}/s/{storeid}/links/{linkid}/designer",
         "t/{tenantid}/s/{storeid}/links/{linkid}/ecc",
         "t/{tenantid}/s/{storeid}/links/{linkid}/studio",
+        "t/{tenantid}/s/{storeid}/studioconfig",
         "t/{tenantid}/tasks/{taskid}",
         "t/{tenantid}/tenant",
     ];
