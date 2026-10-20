@@ -294,10 +294,12 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
                 group = index >= 0
                     ? _original.Leaves[index].Value.ToBuilder()
                     : ImmutableDictionary.CreateBuilder<ReadOnlyMemory<char>, TValue>(MemoryKeyComparer.Instance);
-                _leaves[template] = group;
+                _leaves[index >= 0 ? _original.Leaves[index].Key : IndexKeys.ShareTemplate(template)] = group;
             }
 
-            if (group.TryGetValue(variable, out var previous) && previous.IsLive)
+            if (!group.TryGetValue(variable, out var previous))
+                variable = IndexKeys.ShareVariable(variable);
+            else if (previous.IsLive)
                 _leafLiveCountChange--;
             if (value.IsLive)
                 _leafLiveCountChange++;

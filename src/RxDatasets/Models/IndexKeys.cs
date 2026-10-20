@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace RxDatasets.Models;
 
 /// <summary>
@@ -16,6 +18,43 @@ namespace RxDatasets.Models;
 public static class IndexKeys
 {
     public const string Placeholder = "{}";
+
+    // ponytail: one process-wide pool, capped so that unusual names can't grow it without bound; past the cap,
+    // nothing new is shared. A per-dataset pool if datasets with odd names ever crowd out the real templates.
+    private const int MaxShared = 10_000;
+    private const int MaxSharedVariableLength = 3;
+    private static readonly ConcurrentDictionary<string, string> Shared = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> SharedBySpan =
+        Shared.GetAlternateLookup<ReadOnlySpan<char>>();
+    private static int _sharedCount; // ConcurrentDictionary.Count takes all its locks
+
+    /// <summary>The shared instance of a template, so the nodes that use it don't each hold a copy.</summary>
+    public static string ShareTemplate(string template) =>
+        Shared.TryGetValue(template, out var shared) ? shared : AddShared(template);
+
+    /// <summary>
+    /// The shared instance of a short variable, like a page number, which repeats under many nodes. Longer variables
+    /// are ids, mostly unique, and are returned as they are.
+    /// </summary>
+    public static ReadOnlyMemory<char> ShareVariable(ReadOnlyMemory<char> variable)
+    {
+        if (variable.Length > MaxSharedVariableLength)
+            return variable;
+        if (SharedBySpan.TryGetValue(variable.Span, out var shared))
+            return shared.AsMemory();
+        return Volatile.Read(ref _sharedCount) < MaxShared ? AddShared(variable.ToString()).AsMemory() : variable;
+    }
+
+    private static string AddShared(string text)
+    {
+        if (Volatile.Read(ref _sharedCount) >= MaxShared)
+            return text;
+        if (!Shared.TryAdd(text, text))
+            return Shared[text];
+
+        Interlocked.Increment(ref _sharedCount);
+        return text;
+    }
 
     /// <summary>A name split into its node path (collection, id, collection, id, ...), template and variable.</summary>
     public readonly record struct Key(string[] Path, string Template, string Variable);

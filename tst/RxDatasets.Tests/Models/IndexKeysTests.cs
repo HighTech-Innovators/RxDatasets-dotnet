@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using RxDatasets.Models;
 
 namespace RxDatasets.Tests.Models;
@@ -130,5 +131,18 @@ public class IndexKeysTests
         key.Template.Should().Be(template);
         key.Variable.Should().Be(variable);
         ToName(key).Should().Be(name);
+    }
+
+    [Fact]
+    public void Share_ReturnsOneInstancePerTemplateAndShortVariable()
+    {
+        IndexKeys.ShareTemplate(new string("pages/{}/studioimage"))
+            .Should().BeSameAs(IndexKeys.ShareTemplate(new string("pages/{}/studioimage")));
+        var page = IndexKeys.ShareVariable("t/T/s/S/esls/B/pages/1".AsMemory(21, 1));
+        MemoryMarshal.TryGetString(page, out var pageText, out _, out _).Should().BeTrue();
+        MemoryMarshal.TryGetString(IndexKeys.ShareVariable(new string("1").AsMemory()), out var samePageText, out _, out _);
+        samePageText.Should().BeSameAs(pageText);
+        var id = "7e463c73".AsMemory();
+        IndexKeys.ShareVariable(id).Equals(id).Should().BeTrue("ids are not shared");
     }
 }
