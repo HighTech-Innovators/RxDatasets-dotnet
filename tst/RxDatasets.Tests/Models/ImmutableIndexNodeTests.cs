@@ -76,6 +76,7 @@ public class ImmutableIndexNodeTests
             root.TryGetValue(name, out _);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
+        // Tiered compilation or runtime diagnostics could allocate on this thread; loosen this if that ever shows up.
         allocated.Should().Be(0);
     }
 
