@@ -15,7 +15,6 @@ namespace RxDatasets;
 /// </summary>
 public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
 {
-    private readonly ParentsIndex _parentsIndex = new();
     private TaskCompletionSource _indexChangedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public DatasetReaderWriter(
@@ -27,20 +26,14 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     {
     }
 
-    protected override async Task OnDeltaApplied(DeltaIndex deltaIndex)
+    protected override Task OnDeltaApplied(DeltaIndex deltaIndex)
     {
-        foreach (var entity in deltaIndex.NewEntities)
-            await _parentsIndex.OnNew(entity.Name);
-        foreach (var entity in deltaIndex.DeletedEntities)
-            await _parentsIndex.OnDelete(entity.Name);
-        foreach (var name in deltaIndex.DeletedNames)
-            await _parentsIndex.OnDelete(name);
-
         // Wake reactive waiters (WaitChangedNames, StreamHistory, TailHistory) here, after the index swap,
         // not on DatasetUpdatedNotification: that one is sent from StoreDelta, before the swap, so a waiter
         // woken by it would still see the old LatestVersion, re-arm, and sleep through this write.
         Interlocked.Exchange(ref _indexChangedTcs, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
             .TrySetResult();
+        return Task.CompletedTask;
     }
 
     private ImmutableDatasetState GetInitializedIndex()
@@ -70,14 +63,14 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     {
         var index = CurrentIndex!;
         var snapshotIndex = MostRecentSnapshotIndex;
-        var entityInMainIndex = index.Entities[name];
+        var entityInMainIndex = index.GetEntity(name);
         var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
         if (snapshotIndex != null && entityVersion <= snapshotIndex.SnapshotVersion)
         {
-            var entityFromSnapshot = snapshotIndex.Entities[name];
+            var entityFromSnapshot = snapshotIndex.GetEntity(name);
             sources.Add((ObjectNameTypeEnum.Snapshot, snapshotIndex.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
@@ -99,7 +92,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     {
         var indexRef = GetInitializedIndex();
 
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        if (!indexRef.TryGetEntity(name, out var entity))
             return null;
 
         if (entity.GetLatestChangeType() == ChangeType.Deleted)
@@ -114,7 +107,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         var indexRef = GetInitializedIndex();
         var tasks = names.Select(async name =>
         {
-            if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+            if (!indexRef.TryGetEntity(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
             }
@@ -125,40 +118,18 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         return await Task.WhenAll(tasks);
     }
 
-    public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = GetInitializedIndex();
-
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        if (string.IsNullOrEmpty(parent) || parent is "/")
-        {
-            return (allNamesGetter.ToList(), indexRef.LatestVersion);
-        }
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (childrenIndex.ToList(), indexRef.LatestVersion);
+        var names = indexRef.EnumerateAll(parent, entity => entity.IsLive).Select(entity => entity.Key).ToList();
+        return Task.FromResult((names, indexRef.LatestVersion));
     }
 
-    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var indexRef = GetInitializedIndex();
-
-        if (string.IsNullOrEmpty(parent) || parent is "/")
-        {
-            return (uint)indexRef.Entities
-                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
-        }
-
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (uint)childrenIndex.Count();
+        return Task.FromResult((uint)indexRef.Root.CountLive(parent));
     }
 
     public Task<ChangeSet> GetChangedNames(ulong fromVersion)
@@ -202,7 +173,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         var indexRef = GetInitializedIndex();
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        if (!indexRef.TryGetEntity(name, out var entity))
         {
             return [];
         }
@@ -227,40 +198,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
                 break;
             }
 
-            ChangeType changeType = ChangeType.None;
-            ulong previousVersion = 0;
-
-            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-            if (newEntity != null)
-            {
-                changeType = ChangeType.New;
-                previousVersion = newEntity.PreviousVersion;
-            }
-
-            if (changeType == ChangeType.None)
-            {
-                var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
-                if (changedEntity != null)
-                {
-                    changeType = ChangeType.Changed;
-                    previousVersion = changedEntity.PreviousVersion;
-                }
-            }
-
-            if (changeType == ChangeType.None)
-            {
-                var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-                if (deletedEntity != null)
-                {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = deletedEntity.PreviousVersion;
-                }
-                else if (deltaIndex.DeletedNames.Contains(name))
-                {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = 0;
-                }
-            }
+            var (changeType, previousVersion, _) = deltaIndex.FindChange(name);
 
             if (changeType != ChangeType.None)
             {
@@ -313,33 +251,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
                 break;
             }
 
-            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
-
-            foreach (var newEntity in deltaIndex.NewEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
-            }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
-            }
-
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-            }
-
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
-            }
+            foreach (var entry in deltaIndex.EnumerateHistoryEntries(currentVersion, parent))
+                yield return entry;
 
             currentVersion--;
         }
@@ -383,33 +296,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
                 continue;
             }
 
-            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
-
-            foreach (var newEntity in deltaIndex.NewEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(nextVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
-            }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(nextVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
-            }
-
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-            }
-
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
-            }
+            foreach (var entry in deltaIndex.EnumerateHistoryEntries(nextVersion, parent))
+                yield return entry;
 
             nextVersion++;
         }
@@ -434,20 +322,12 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
             throw new ArgumentException("Delta not found", nameof(version));
         }
 
-        var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-        if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+        var (changeType, _, changedEntity) = deltaIndex.FindChange(name);
+        if (changeType == ChangeType.Deleted)
         {
             return null;
         }
 
-        var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-        if (newEntity != null)
-        {
-            var data = await ReadOnlyStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
-            return (name, data);
-        }
-
-        var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
         if (changedEntity != null)
         {
             var data = await ReadOnlyStorageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);
@@ -479,8 +359,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
     {
         List<(string key, ChangeType change)> changedNames = [];
 
-        indexRef.Entities
-            .Where(x => x.Value.GetLatestEntityVersion() > fromVersion && x.Value.GetLatestEntityVersion() <= toVersion)
+        indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
             .ToList()
             .ForEach(x =>
             {

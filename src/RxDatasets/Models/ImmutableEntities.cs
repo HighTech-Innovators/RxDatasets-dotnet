@@ -1,9 +1,13 @@
 ﻿using System.Collections.Immutable;
+using RxDatasets.Abstractions;
 
 namespace RxDatasets.Models;
 
 public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, ImmutableArray<ulong> LastInsertedVersion, ulong LastUpdatedVersion, long Position, int Length, uint Crc32 = 0)
+    : IIndexValue
 {
+    public bool IsLive => this.GetLatestChangeType() != ChangeType.Deleted;
+
     public SnapshotEntity ToProto()
     {
         return new SnapshotEntity

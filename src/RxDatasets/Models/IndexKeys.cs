@@ -1,0 +1,117 @@
+namespace RxDatasets.Models;
+
+/// <summary>
+/// The one place that knows how an entity name maps onto the index tree, and back.
+/// </summary>
+/// <remarks>
+/// A name is split on '/' into n segments. The last segments form the leaf: all n when n &lt;= 3, otherwise the
+/// last 2 when n is even and the last 3 when n is odd. The leading segments are <c>collection/id</c> pairs, one tree
+/// node each. A leaf is <c>V</c> (only n = 1), <c>C/V</c> or <c>C/V/L</c>; it is stored under its template
+/// (<c>{}</c>, <c>C/{}</c> or <c>C/{}/L</c>) and its variable <c>V</c>, so the fixed parts are stored once per node.
+/// <example>
+/// <c>t/T/s/S/items/I/values</c> → nodes <c>(t, T)</c>, <c>(s, S)</c>; template <c>items/{}/values</c>; variable <c>I</c>.
+/// </example>
+/// No id patterns are registered: the rule is pattern-agnostic, and the template is opaque to everything else.
+/// </remarks>
+public static class IndexKeys
+{
+    public const string Placeholder = "{}";
+
+    /// <summary>A name split into its node path (collection, id, collection, id, ...), template and variable.</summary>
+    public readonly record struct Key(string[] Path, string Template, string Variable)
+    {
+        public string ToName() => Path.Length == 0
+            ? LeafName(Template, Variable)
+            : string.Join('/', Path) + "/" + LeafName(Template, Variable);
+    }
+
+    public static Key Split(string name)
+    {
+        var segments = name.Split('/');
+        int leafSegments = LeafSegmentCount(segments.Length);
+        int nodeSegments = segments.Length - leafSegments;
+        string template = leafSegments switch
+        {
+            1 => Placeholder,
+            2 => segments[nodeSegments] + "/" + Placeholder,
+            _ => segments[nodeSegments] + "/" + Placeholder + "/" + segments[^1]
+        };
+        string variable = leafSegments == 1 ? segments[0] : segments[nodeSegments + 1];
+        return new Key(segments[..nodeSegments], template, variable);
+    }
+
+    /// <summary>The number of trailing segments that form the leaf of a name with <paramref name="segmentCount"/> segments.</summary>
+    public static int LeafSegmentCount(int segmentCount) =>
+        segmentCount <= 3 ? segmentCount : segmentCount % 2 == 0 ? 2 : 3;
+
+    /// <summary>The leaf part of a name: the template with its placeholder replaced by <paramref name="variable"/>.</summary>
+    public static string LeafName(string template, ReadOnlySpan<char> variable)
+    {
+        int slash = template.IndexOf('/');
+        return slash < 0
+            ? variable.ToString()
+            : string.Concat(template.AsSpan(0, slash + 1), variable, template.AsSpan(slash + 1 + Placeholder.Length));
+    }
+
+    /// <summary>
+    /// Splits a template into its collection and trailing literal, and returns its segment count: 1 for <c>{}</c>,
+    /// 2 for <c>C/{}</c>, 3 for <c>C/{}/L</c>. A collection never contains '/', so the first '/' ends it.
+    /// </summary>
+    public static int ParseTemplate(string template, out ReadOnlySpan<char> collection, out ReadOnlySpan<char> literal)
+    {
+        int slash = template.IndexOf('/');
+        if (slash < 0)
+        {
+            collection = literal = default;
+            return 1;
+        }
+
+        collection = template.AsSpan(0, slash);
+        int literalStart = slash + 1 + Placeholder.Length + 1;
+        if (literalStart > template.Length)
+        {
+            literal = default;
+            return 2;
+        }
+
+        literal = template.AsSpan(literalStart);
+        return 3;
+    }
+
+    /// <summary>Whether <paramref name="template"/> is the template of a leaf with these parts, without building it.</summary>
+    public static bool TemplateMatches(string template, int leafSegments, ReadOnlySpan<char> collection, ReadOnlySpan<char> literal)
+    {
+        int segments = ParseTemplate(template, out var templateCollection, out var templateLiteral);
+        return segments == leafSegments
+               && templateCollection.SequenceEqual(collection)
+               && templateLiteral.SequenceEqual(literal);
+    }
+
+    /// <summary>Joins a node path and a key part, without the leading '/' at the root.</summary>
+    public static string Join(string path, string part) => path.Length == 0 ? part : string.Concat(path, "/", part);
+
+    /// <summary>Counts the '/'-separated segments of <paramref name="name"/>.</summary>
+    public static int CountSegments(ReadOnlySpan<char> name) => name.Count('/') + 1;
+
+    /// <summary>Returns the segment that starts at <paramref name="position"/>, and moves the position past it and its '/'.</summary>
+    public static ReadOnlyMemory<char> NextSegment(ReadOnlyMemory<char> name, ref int position)
+    {
+        int length = name.Span[position..].IndexOf('/');
+        if (length < 0)
+            length = name.Length - position;
+
+        var segment = name.Slice(position, length);
+        position += length + 1;
+        return segment;
+    }
+}
+
+/// <summary>Compares <see cref="ReadOnlyMemory{T}"/> keys by content, so a slice of a name finds a stored key.</summary>
+public sealed class MemoryKeyComparer : IEqualityComparer<ReadOnlyMemory<char>>
+{
+    public static readonly MemoryKeyComparer Instance = new();
+
+    public bool Equals(ReadOnlyMemory<char> x, ReadOnlyMemory<char> y) => x.Span.SequenceEqual(y.Span);
+
+    public int GetHashCode(ReadOnlyMemory<char> obj) => string.GetHashCode(obj.Span);
+}

@@ -116,7 +116,7 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
     {
         var index = await ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(index.Span);
-        var totalLength = mutableSnapshotIndex.Entities.Values.Sum(entity => entity.Length);
+        var totalLength = mutableSnapshotIndex.EnumerateEntities().Sum(entity => entity.Entity.Length);
         if (totalLength <= cacheConfig.Value.CacheSizeMB * MB_BYTES)
         {
             _ = await ReadSnapshotData(snapshotVersion); // This triggers a cache set
