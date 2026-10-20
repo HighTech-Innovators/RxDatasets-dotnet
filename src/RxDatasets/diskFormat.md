@@ -156,7 +156,24 @@ is reserved: an earlier, unreleased tree format used it.
 - Readers accept both formats, for snapshots and deltas, and a file holding both. Flat files are never rewritten;
   old deltas age out through cleanup, and the next snapshot is written in the tree format.
 - Writers write only the tree format.
-- A reader from before the tree format sees a tree-format file as empty. **Update all readers first**, then the writers.
+- A process from before the tree format parses a tree-format file without error, but sees it as empty.
+
+**Every process that opens the dataset must run the tree-aware version before the first tree-format write.** That is
+not only readers and writers, but also every host of a `SnapshotCreationPlugin`, `StorageCleaningService`,
+`DatasetUpdateReportingPlugin` or `DatasetWatcher`. Until then, an old process silently loses data:
+- An old `SnapshotCreationPlugin` builds its snapshot from an index in which the tree deltas are empty. That snapshot
+  lacks every entity created since the upgrade, and has the older version of every entity changed or deleted since; readers
+  that start from it see that state. Once cleaning removes the deltas behind it (with `Cleanup:KeepAllDeltas` set to
+  `false`), the lost writes are gone for good.
+- An old `DatasetUpdateReportingPlugin` reports nothing for a tree delta and still stores it as processed, so those
+  changes are never reported.
+- An old reader or `DatasetWatcher` misses the entities in tree deltas.
+
+So update the processes that only read first, and the writers last, in a stop-then-start deployment rather than a
+rolling one, so no old writer replica (with its snapshot plugin) runs next to a new one. Snapshot creation has no
+configuration switch: it runs wherever `WithSnapshot()` is called. Cleaning does: set `Cleanup:IsEnabled` to `false`
+for the mixed-version window, so the older snapshots and the deltas behind a bad snapshot are kept, and that snapshot
+can still be removed and rebuilt from them.
 
 ### Possible later refinement
 Templates and variables are opaque strings to everything except `IndexKeys`. Registered id patterns could map a name
