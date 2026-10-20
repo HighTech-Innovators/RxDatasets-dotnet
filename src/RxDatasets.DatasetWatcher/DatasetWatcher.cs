@@ -26,22 +26,22 @@ public class DatasetWatcher<T>(
         deltaIndexParsed.ValidateAgainstVersion(nextToReportedVersion);
 
         var deltaVersion = deltaIndexParsed.DeltaVersion > 0 ? deltaIndexParsed.DeltaVersion : deltaIndexParsed.DeltaVersionLegacy;
-        foreach (var entity in deltaIndexParsed.NewEntities)
+        foreach (var (name, entity) in deltaIndexParsed.EnumerateNewEntities())
         {
             var data = await storageReader.ReadDataFromSources(
                 [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
-            await datasetObserver.OnCreate(entity.Name, data);
+            await datasetObserver.OnCreate(name, data);
         }
 
-        foreach (var entity in deltaIndexParsed.ChangedEntities)
+        foreach (var (name, entity) in deltaIndexParsed.EnumerateChangedEntities())
         {
             var data = await storageReader.ReadDataFromSources(
                 [(ObjectNameTypeEnum.Delta, deltaVersion, entity.Position)], entity.Length);
-            await datasetObserver.OnChange(entity.Name, data);
+            await datasetObserver.OnChange(name, data);
         }
 
         // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
-        var deletedEntityNames = new HashSet<string>(deltaIndexParsed.DeletedEntities.Select(e => e.Name));
+        var deletedEntityNames = deltaIndexParsed.EnumerateDeletedEntities().Select(e => e.Name).ToList();
 
         // Only delete via DeletedNames if there's no corresponding DeletedEntity
         // Prefer DeletedEntities as they contain previous version info
@@ -53,9 +53,9 @@ public class DatasetWatcher<T>(
             }
         }
 
-        foreach (var entity in deltaIndexParsed.DeletedEntities)
+        foreach (var name in deletedEntityNames)
         {
-            await datasetObserver.OnDelete(entity.Name);
+            await datasetObserver.OnDelete(name);
         }
 
         await datasetObserver.OnDatasetVersionEnd(nextToReportedVersion);
@@ -68,7 +68,7 @@ public class DatasetWatcher<T>(
         var snapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         await datasetObserver.OnDatasetVersionStart(snapshotVersion);
 
-        foreach (var (name, snapshotEntity) in snapshotIndex.Entities)
+        foreach (var (name, snapshotEntity) in snapshotIndex.EnumerateEntities())
         {
             var entityData = data.Slice((int)snapshotEntity.Position, snapshotEntity.Length);
             var latestChangeType = snapshotEntity.GetLatestChangeType();

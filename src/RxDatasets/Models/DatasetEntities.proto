@@ -11,10 +11,26 @@ message SnapshotEntity {
 	uint32 crc32 = 7;
 }
 
+// Hierarchical index: see IndexKeys for how a name maps onto nodes, templates and variables.
+message SnapshotNode {
+	map<string, SnapshotChildGroup> children = 1; // by collection
+	map<string, SnapshotLeafGroup> leaves = 2; // by template
+}
+
+message SnapshotChildGroup {
+	map<string, SnapshotNode> nodes = 1; // by id
+}
+
+message SnapshotLeafGroup {
+	map<string, SnapshotEntity> entities = 1; // by variable
+}
+
 message SnapshotIndex {
 	uint64 snapshot_version_legacy = 1;
-	map<string, SnapshotEntity> entities = 2;
+	map<string, SnapshotEntity> entities = 2; // Legacy flat index: read, never written
 	uint64 snapshot_version = 32;
+	reserved 33; // root of an unreleased earlier tree format
+	SnapshotNode root = 34;
 }
 
 message DeltaEntity {
@@ -34,6 +50,23 @@ message DeletedEntity {
 	google.protobuf.Timestamp sla_timestamp = 4;
 }
 
+message DeltaNode {
+	map<string, DeltaChildGroup> children = 1; // by collection
+	map<string, DeltaLeafGroup> leaves = 2; // by template
+}
+
+message DeltaChildGroup {
+	map<string, DeltaNode> nodes = 1; // by id
+}
+
+// Entities in a tree leave their name empty: the tree position is the name
+message DeltaLeafGroup {
+	map<string, DeltaEntity> new_entities = 1; // by variable
+	map<string, DeltaEntity> changed_entities = 2;
+	map<string, DeletedEntity> deleted_entities = 3;
+}
+
+// The flat lists are the legacy format: read, never written
 message DeltaIndex {
 	uint64 delta_version_legacy = 1;
 	repeated string deleted_names = 2; // Obsolete - no previous version
@@ -42,6 +75,8 @@ message DeltaIndex {
   google.protobuf.Timestamp timestamp = 5;
   repeated DeletedEntity deleted_entities = 6;
 	uint64 delta_version = 32;
+	reserved 33; // root of an unreleased earlier tree format
+	DeltaNode root = 34;
 }
 
 message ProcessedVersionsInfo {
