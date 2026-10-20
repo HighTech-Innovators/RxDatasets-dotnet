@@ -20,7 +20,9 @@ public interface IIndexValue
 /// </remarks>
 public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 {
-    private static readonly ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>> EmptyChildren =
+    private static readonly
+        ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>>
+        EmptyChildren =
         ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>>.Empty
             .WithComparers(MemoryKeyComparer.Instance);
 
@@ -37,7 +39,8 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     }
 
     /// <summary>Child nodes, by collection and then by id.</summary>
-    public ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>> Children { get; }
+    public ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>>
+        Children { get; }
 
     /// <summary>
     /// Values stored at this node, by template and then by variable. An array, not a dictionary: a node has a handful
@@ -120,7 +123,10 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
             if (match.Node == null)
             {
                 if (where == null || where(match.Value!))
-                    yield return new(IndexKeys.Join(match.Path, IndexKeys.LeafName(match.Template!, match.Variable.Span)), match.Value!);
+                {
+                    string leafName = IndexKeys.LeafName(match.Template!, match.Variable.Span);
+                    yield return new(IndexKeys.Join(match.Path, leafName), match.Value!);
+                }
                 continue;
             }
 
@@ -347,7 +353,8 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
                 {
                     var groupBuilder = childrenBuilder.TryGetValue(collection, out var originalGroup)
                         ? originalGroup.ToBuilder()
-                        : ImmutableDictionary.CreateBuilder<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>(MemoryKeyComparer.Instance);
+                        : ImmutableDictionary.CreateBuilder<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>(
+                            MemoryKeyComparer.Instance);
                     foreach (var (id, childBuilder) in group)
                     {
                         var child = childBuilder.ToImmutable();

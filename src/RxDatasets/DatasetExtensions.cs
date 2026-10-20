@@ -59,7 +59,8 @@ public static class DatasetExtensions
         return new ImmutableDatasetState(builder.ToImmutable(), index.SnapshotVersion, deltaVersion);
     }
 
-    private static void ApplyDeltaNode(ImmutableIndexNode<ImmutableSnapshotEntity>.Builder node, DeltaNode delta, ulong deltaVersion)
+    private static void ApplyDeltaNode(ImmutableIndexNode<ImmutableSnapshotEntity>.Builder node, DeltaNode delta,
+        ulong deltaVersion)
     {
         foreach (var (template, group) in delta.Leaves)
         {
@@ -127,7 +128,8 @@ public static class DatasetExtensions
 
     /// <summary>Whether the delta has entries in the legacy flat lists.</summary>
     public static bool HasFlatEntries(this DeltaIndex delta) =>
-        delta.NewEntities.Count > 0 || delta.ChangedEntities.Count > 0 || delta.DeletedNames.Count > 0 || delta.DeletedEntities.Count > 0;
+        delta.NewEntities.Count > 0 || delta.ChangedEntities.Count > 0
+                                    || delta.DeletedNames.Count > 0 || delta.DeletedEntities.Count > 0;
 
     /// <summary>
     /// Moves the entries of the flat lists into the tree, with their names emptied: in the tree the position is
@@ -189,7 +191,8 @@ public static class DatasetExtensions
         var node = root;
         for (int i = 0; node != null && i < key.Path.Length; i += 2)
         {
-            node = node.Children.TryGetValue(key.Path[i], out var children) && children.Nodes.TryGetValue(key.Path[i + 1], out var child)
+            node = node.Children.TryGetValue(key.Path[i], out var children)
+                   && children.Nodes.TryGetValue(key.Path[i + 1], out var child)
                 ? child
                 : null;
         }

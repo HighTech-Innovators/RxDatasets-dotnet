@@ -74,7 +74,9 @@ public static class IndexKeys
         return new Key(segments[..nodeSegments], template, variable);
     }
 
-    /// <summary>The number of trailing segments that form the leaf of a name with <paramref name="segmentCount"/> segments.</summary>
+    /// <summary>
+    /// The number of trailing segments that form the leaf of a name with <paramref name="segmentCount"/> segments.
+    /// </summary>
     public static int LeafSegmentCount(int segmentCount) =>
         segmentCount <= 3 ? segmentCount : segmentCount % 2 == 0 ? 2 : 3;
 
@@ -113,7 +115,8 @@ public static class IndexKeys
     }
 
     /// <summary>Whether <paramref name="template"/> is the template of a leaf with these parts, without building it.</summary>
-    public static bool TemplateMatches(string template, int leafSegments, ReadOnlySpan<char> collection, ReadOnlySpan<char> literal)
+    public static bool TemplateMatches(string template, int leafSegments, ReadOnlySpan<char> collection,
+        ReadOnlySpan<char> literal)
     {
         int segments = ParseTemplate(template, out var templateCollection, out var templateLiteral);
         return segments == leafSegments
@@ -132,7 +135,9 @@ public static class IndexKeys
     /// <summary>Counts the '/'-separated segments of <paramref name="name"/>.</summary>
     public static int CountSegments(ReadOnlySpan<char> name) => name.Count('/') + 1;
 
-    /// <summary>Returns the segment that starts at <paramref name="position"/>, and moves the position past it and its '/'.</summary>
+    /// <summary>
+    /// Returns the segment that starts at <paramref name="position"/>, and moves the position past it and its '/'.
+    /// </summary>
     public static ReadOnlyMemory<char> NextSegment(ReadOnlyMemory<char> name, ref int position)
     {
         int length = name.Span[position..].IndexOf('/');

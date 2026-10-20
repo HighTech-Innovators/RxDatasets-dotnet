@@ -37,7 +37,10 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
             $"t/{tenant}/s/{stores[5]}", $"t/{tenant}");
     }
 
-    /// <summary>studioeslimage: <c>t/{tenantid}/s/{storeid}/esls/{barcode}/pages/{pagenum}/studioimage</c>, 100 stores × 1000 ESLs × 3 pages.</summary>
+    /// <summary>
+    /// studioeslimage: <c>t/{tenantid}/s/{storeid}/esls/{barcode}/pages/{pagenum}/studioimage</c>, 100 stores × 1000
+    /// ESLs × 3 pages.
+    /// </summary>
     private static Dataset StudioEslImage()
     {
         var random = new Random(42);
@@ -70,13 +73,17 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         output.WriteLine($"{count:N0} entities, e.g. {dataset.Name(0)}");
         SnapshotIndex? flatProto = new SnapshotIndex { SnapshotVersion = 1 };
         for (int i = 0; i < count; i++)
-            flatProto.Entities.Add(dataset.Name(i), new SnapshotEntity { LastInsertedVersion = { 1 }, Position = i * 100L, Length = 100, Crc32 = (uint)i });
+        {
+            flatProto.Entities.Add(dataset.Name(i),
+                new SnapshotEntity { LastInsertedVersion = { 1 }, Position = i * 100L, Length = 100, Crc32 = (uint)i });
+        }
         var flatBytes = flatProto.ToByteArray();
         flatProto = null;
 
         // Memory, excluding the entity records both indexes hold
         long before = Memory();
-        ImmutableSnapshotEntity[]? records = SnapshotIndex.Parser.ParseFrom(flatBytes).Entities.Values.Select(ImmutableSnapshotEntity.FromProto).ToArray();
+        ImmutableSnapshotEntity[]? records = SnapshotIndex.Parser.ParseFrom(flatBytes).Entities.Values
+            .Select(ImmutableSnapshotEntity.FromProto).ToArray();
         double recordBytes = (Memory() - before) / (double)count;
         GC.KeepAlive(records);
         records = null;
@@ -88,7 +95,8 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         before = Memory();
         var state = ImmutableDatasetState.FromProto(SnapshotIndex.Parser.ParseFrom(flatBytes));
         double treeBytesPerEntity = (Memory() - before) / (double)count - recordBytes;
-        Row("index memory per entity, excl. entity record", $"flat {flatBytesPerEntity:N0} B, tree {treeBytesPerEntity:N0} B (record {recordBytes:N0} B)");
+        Row("index memory per entity, excl. entity record",
+            $"flat {flatBytesPerEntity:N0} B, tree {treeBytesPerEntity:N0} B (record {recordBytes:N0} B)");
 
         // Snapshot index.pb, and loading it
         var treeBytes = state.ToProto().ToByteArray();
@@ -123,7 +131,8 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         int hits = lookups.Count(name => state.TryGetEntity(name, out _));
         watch.Stop();
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        Row("Get, tree", $"{watch.Elapsed.TotalMicroseconds / lookups.Length:N2} µs/op, {allocated / lookups.Length} B/op, {hits:N0} hits");
+        Row("Get, tree",
+            $"{watch.Elapsed.TotalMicroseconds / lookups.Length:N2} µs/op, {allocated / lookups.Length} B/op, {hits:N0} hits");
         watch.Restart();
         hits = lookups.Count(name => flat.ContainsKey(name));
         Row("Get, flat", $"{watch.Elapsed.TotalMicroseconds / lookups.Length:N2} µs/op, {hits:N0} hits");
@@ -131,12 +140,18 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         // ApplyDelta of 100k random entities
         var delta = new DeltaIndex { DeltaVersion = 2 };
         foreach (var i in Enumerable.Range(0, 100_000).Select(_ => random.Next(count)).Distinct())
-            delta.ChangedEntities.Add(new DeltaEntity { Name = dataset.Name(i), Position = i, Length = 100, Crc32 = 1, PreviousVersion = 1 });
+        {
+            delta.ChangedEntities.Add(
+                new DeltaEntity { Name = dataset.Name(i), Position = i, Length = 100, Crc32 = 1, PreviousVersion = 1 });
+        }
         int flatDeltaSize = delta.CalculateSize();
         watch.Restart();
         var flatAfter = flat;
         foreach (var change in delta.ChangedEntities)
-            flatAfter = flatAfter.SetItem(change.Name, flatAfter[change.Name] with { LastUpdatedVersion = 2, Position = change.Position });
+        {
+            flatAfter = flatAfter.SetItem(change.Name,
+                flatAfter[change.Name] with { LastUpdatedVersion = 2, Position = change.Position });
+        }
         Row($"ApplyDelta {delta.ChangedEntities.Count:N0}, flat (develop SetItem loop)", Ms(watch.Elapsed));
         GC.KeepAlive(flatAfter);
         delta.ConvertToTree();

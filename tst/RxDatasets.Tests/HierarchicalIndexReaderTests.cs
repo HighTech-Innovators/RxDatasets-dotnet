@@ -37,7 +37,10 @@ public class HierarchicalIndexReaderTests : IDisposable
         {
             var bytes = Encoding.UTF8.GetBytes(value);
             data.WriteByte((byte)bytes.Length);
-            var entity = new DeltaEntity { Name = name, Position = data.Position, Length = bytes.Length, PreviousVersion = previousVersion };
+            var entity = new DeltaEntity
+            {
+                Name = name, Position = data.Position, Length = bytes.Length, PreviousVersion = previousVersion
+            };
             data.Write(bytes);
             return entity;
         }
@@ -107,7 +110,8 @@ public class HierarchicalIndexReaderTests : IDisposable
         await foreach (var entry in reader.StreamHistory("t/T/s/S"))
             history.Add(entry);
         history.Select(h => (h.Id, h.Version, h.ChangeType)).Should().Equal(
-            (Item1, 4UL, ChangeType.Deleted), (Item2, 3UL, ChangeType.New), (Item1, 2UL, ChangeType.Changed), (Item1, 1UL, ChangeType.New));
+            (Item1, 4UL, ChangeType.Deleted), (Item2, 3UL, ChangeType.New), (Item1, 2UL, ChangeType.Changed),
+            (Item1, 1UL, ChangeType.New));
         var tail = new List<HistoryEntry>();
         await foreach (var entry in reader.TailHistory(""))
             tail.Add(entry);

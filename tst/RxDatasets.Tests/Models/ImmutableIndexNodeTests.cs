@@ -8,7 +8,8 @@ public class ImmutableIndexNodeTests
 
     private static ImmutableSnapshotEntity Deleted() => new([2], [1], 0, 0, 0);
 
-    private static ImmutableIndexNode<ImmutableSnapshotEntity> Build(params (string Name, ImmutableSnapshotEntity Entity)[] entities)
+    private static ImmutableIndexNode<ImmutableSnapshotEntity> Build(
+        params (string Name, ImmutableSnapshotEntity Entity)[] entities)
     {
         var builder = ImmutableIndexNode<ImmutableSnapshotEntity>.Empty.ToBuilder();
         foreach (var (name, entity) in entities)
@@ -44,7 +45,10 @@ public class ImmutableIndexNodeTests
     [Fact]
     public void TryGetValue_FindsEveryName_AndNothingElse()
     {
-        var names = new[] { "single", "esltypes/E", "esltypes/E/driver", "t/T/s/S", "t/T/s/S/eccparameters", "t/T/s/S/items/I/values" };
+        var names = new[]
+        {
+            "single", "esltypes/E", "esltypes/E/driver", "t/T/s/S", "t/T/s/S/eccparameters", "t/T/s/S/items/I/values"
+        };
         var root = Build(names.Select((n, i) => (n, Live(i))).ToArray());
 
         for (int i = 0; i < names.Length; i++)
@@ -53,7 +57,10 @@ public class ImmutableIndexNodeTests
             entity.Position.Should().Be(i);
         }
 
-        foreach (var missing in new[] { "", "t", "t/T", "t/T/s", "t/T/s/S/items", "t/T/s/S/items/I", "t/T/s/S/items/I/curated", "esltypes/X" })
+        foreach (var missing in new[]
+                 {
+                     "", "t", "t/T", "t/T/s", "t/T/s/S/items", "t/T/s/S/items/I", "t/T/s/S/items/I/curated", "esltypes/X"
+                 })
             root.TryGetValue(missing, out _).Should().BeFalse(missing);
     }
 
