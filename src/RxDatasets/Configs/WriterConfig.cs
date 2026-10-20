@@ -23,8 +23,8 @@ public class WriterConfig
     /// When true, concurrent write operations (Put, Delete, PutMany, DeleteMany, PutOrDeleteMany, DeleteChildren)
     /// are coalesced into single delta transactions to reduce storage round-trips.
     /// PutAll and PutAllChildren are excluded because their implicit-delete semantics make merging unsafe.
-    /// Disable via <c>DtoServerBuilder.WithoutWriteCoalescing()</c>.
+    /// Opt in via <c>DtoServerBuilder.WithWriteCoalescing()</c>.
     /// </summary>
-    public bool EnableWriteCoalescing { get; set; } = true;
+    public bool EnableWriteCoalescing { get; set; } = false;
 }
 

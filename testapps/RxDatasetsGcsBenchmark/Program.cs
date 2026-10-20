@@ -57,7 +57,7 @@ try
     var provider = new ObjectStorageProvider<BenchmarkDto>(providerLogger, storageConfig, storage, notificationsHub, reader, startIfInitFails: false);
 
     // Setup Writer
-    var writerConfig = Options.Create(new WriterConfig());
+    var writerConfig = Options.Create(new WriterConfig { EnableWriteCoalescing = true });
     var writerLogger = loggerFactory.CreateLogger<DatasetWriter<BenchmarkDto>>();
     using var writer = new DatasetWriter<BenchmarkDto>(notificationsHub, writerLogger, provider, writerConfig, retryInitialization: false);
 

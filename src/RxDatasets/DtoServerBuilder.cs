@@ -1,4 +1,4 @@
-﻿using System.Reactive.Concurrency;
+using System.Reactive.Concurrency;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
@@ -121,13 +121,13 @@ namespace RxDatasets
         }
 
         /// <summary>
-        /// Disables write coalescing. By default, concurrent write operations are batched into single
-        /// delta transactions to reduce storage round-trips on high-latency backends.
-        /// Call this method to revert to serial one-at-a-time write behavior.
+        /// Enables write coalescing. Concurrent write operations are batched into single
+        /// delta transactions to reduce storage round-trips on high-latency backends, instead
+        /// of the default serial one-at-a-time write behavior.
         /// </summary>
-        public DtoServerBuilder<TEntity> WithoutWriteCoalescing()
+        public DtoServerBuilder<TEntity> WithWriteCoalescing()
         {
-            services.PostConfigure<WriterConfig>(c => c.EnableWriteCoalescing = false);
+            services.PostConfigure<WriterConfig>(c => c.EnableWriteCoalescing = true);
             return this;
         }
 
