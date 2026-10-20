@@ -24,14 +24,11 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
         ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>>.Empty
             .WithComparers(MemoryKeyComparer.Instance);
 
-    private static readonly ImmutableDictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>> EmptyLeaves =
-        ImmutableDictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>>.Empty.WithComparers(StringComparer.Ordinal);
-
-    public static readonly ImmutableIndexNode<TValue> Empty = new(EmptyChildren, EmptyLeaves, 0);
+    public static readonly ImmutableIndexNode<TValue> Empty = new(EmptyChildren, [], 0);
 
     private ImmutableIndexNode(
         ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>> children,
-        ImmutableDictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>> leaves,
+        ImmutableArray<KeyValuePair<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>>> leaves,
         int liveCount)
     {
         Children = children;
@@ -42,8 +39,11 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     /// <summary>Child nodes, by collection and then by id.</summary>
     public ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>> Children { get; }
 
-    /// <summary>Values stored at this node, by template and then by variable.</summary>
-    public ImmutableDictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>> Leaves { get; }
+    /// <summary>
+    /// Values stored at this node, by template and then by variable. An array, not a dictionary: a node has a handful
+    /// of templates, and most nodes hold only a few values, so a dictionary per node would cost more than it saves.
+    /// </summary>
+    public ImmutableArray<KeyValuePair<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>>> Leaves { get; }
 
     /// <summary>The number of live values in this node and all its descendants.</summary>
     public int LiveCount { get; }
@@ -87,6 +87,17 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     public TValue? GetValueOrDefault(string name) => TryGetValue(name, out var value) ? value : null;
 
     // ponytail: linear scan over this node's templates; real id patterns give a handful per node.
+    private int IndexOfTemplate(string template)
+    {
+        for (int i = 0; i < Leaves.Length; i++)
+        {
+            if (Leaves[i].Key == template)
+                return i;
+        }
+
+        return -1;
+    }
+
     private ImmutableDictionary<ReadOnlyMemory<char>, TValue>? FindLeafGroup(int leafSegments, ReadOnlySpan<char> collection,
         ReadOnlySpan<char> literal)
     {
@@ -245,8 +256,8 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     public sealed class Builder
     {
         private readonly ImmutableIndexNode<TValue> _original;
-        private readonly Dictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>.Builder> _leaves = new(StringComparer.Ordinal);
-        private readonly Dictionary<ReadOnlyMemory<char>, Dictionary<ReadOnlyMemory<char>, Builder>> _children = new(MemoryKeyComparer.Instance);
+        private Dictionary<string, ImmutableDictionary<ReadOnlyMemory<char>, TValue>.Builder>? _leaves;
+        private Dictionary<ReadOnlyMemory<char>, Dictionary<ReadOnlyMemory<char>, Builder>>? _children;
         private int _leafLiveCountChange;
 
         internal Builder(ImmutableIndexNode<TValue> original)
@@ -256,7 +267,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 
         public Builder Child(ReadOnlyMemory<char> collection, ReadOnlyMemory<char> id)
         {
-            if (!_children.TryGetValue(collection, out var group))
+            if (!(_children ??= new(MemoryKeyComparer.Instance)).TryGetValue(collection, out var group))
                 _children[collection] = group = new Dictionary<ReadOnlyMemory<char>, Builder>(MemoryKeyComparer.Instance);
 
             if (!group.TryGetValue(id, out var child))
@@ -273,18 +284,20 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 
         public TValue? GetLeaf(string template, ReadOnlyMemory<char> variable)
         {
-            if (_leaves.TryGetValue(template, out var group))
+            if (_leaves != null && _leaves.TryGetValue(template, out var group))
                 return group.GetValueOrDefault(variable);
 
-            return _original.Leaves.TryGetValue(template, out var originalGroup) ? originalGroup.GetValueOrDefault(variable) : null;
+            int index = _original.IndexOfTemplate(template);
+            return index < 0 ? null : _original.Leaves[index].Value.GetValueOrDefault(variable);
         }
 
         public void SetLeaf(string template, ReadOnlyMemory<char> variable, TValue value)
         {
-            if (!_leaves.TryGetValue(template, out var group))
+            if (!(_leaves ??= new(StringComparer.Ordinal)).TryGetValue(template, out var group))
             {
-                group = _original.Leaves.TryGetValue(template, out var originalGroup)
-                    ? originalGroup.ToBuilder()
+                int index = _original.IndexOfTemplate(template);
+                group = index >= 0
+                    ? _original.Leaves[index].Value.ToBuilder()
                     : ImmutableDictionary.CreateBuilder<ReadOnlyMemory<char>, TValue>(MemoryKeyComparer.Instance);
                 _leaves[template] = group;
             }
@@ -308,22 +321,29 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 
         public ImmutableIndexNode<TValue> ToImmutable()
         {
-            if (_leaves.Count == 0 && _children.Count == 0)
+            if (_leaves == null && _children == null)
                 return _original;
 
             int liveCount = _original.LiveCount + _leafLiveCountChange;
 
             var leaves = _original.Leaves;
-            if (_leaves.Count > 0)
+            if (_leaves != null)
             {
                 var leavesBuilder = leaves.ToBuilder();
                 foreach (var (template, group) in _leaves)
-                    leavesBuilder[template] = group.ToImmutable();
+                {
+                    int index = _original.IndexOfTemplate(template);
+                    if (index >= 0)
+                        leavesBuilder[index] = new(template, group.ToImmutable());
+                    else
+                        leavesBuilder.Add(new(template, group.ToImmutable()));
+                }
+
                 leaves = leavesBuilder.ToImmutable();
             }
 
             var children = _original.Children;
-            if (_children.Count > 0)
+            if (_children != null)
             {
                 var childrenBuilder = children.ToBuilder();
                 foreach (var (collection, group) in _children)
