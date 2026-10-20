@@ -82,8 +82,8 @@ public class ImmutableIndexNodeTests
         builder.Set("t/T1/s/S/items/I/values", Live(3));
         var updated = builder.ToImmutable();
 
-        original.GetValueOrDefault("t/T1/s/S/items/I/values")!.Position.Should().Be(1, "readers keep the old root");
-        updated.GetValueOrDefault("t/T1/s/S/items/I/values")!.Position.Should().Be(3);
+        original.EnumerateAll("t/T1/s/S/items/I/values").Single().Value.Position.Should().Be(1, "readers keep the old root");
+        updated.EnumerateAll("t/T1/s/S/items/I/values").Single().Value.Position.Should().Be(3);
         updated.Children["t".AsMemory()]["T2".AsMemory()].Should().BeSameAs(otherTenant);
         original.ToBuilder().ToImmutable().Should().BeSameAs(original);
     }
@@ -173,6 +173,6 @@ public class ImmutableIndexNodeTests
 
         builder.Child("t".AsMemory(), "T".AsMemory()).Child("s".AsMemory(), "S".AsMemory())
             .GetLeaf("items/{}/values", "I1".AsMemory())!.Position.Should().Be(1);
-        builder.ToImmutable().GetValueOrDefault("t/T/s/S/items/I1/values")!.Position.Should().Be(1);
+        builder.ToImmutable().EnumerateAll("t/T/s/S/items/I1/values").Single().Value.Position.Should().Be(1);
     }
 }
