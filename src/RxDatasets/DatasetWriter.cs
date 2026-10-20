@@ -151,7 +151,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         if (_writerConfig.Value.EnableWriteCoalescing)
             return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
-        using var slot = await Lock(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
@@ -178,7 +178,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return await EnqueueAndAwait(new WriteIntent { Operations = materializedNames.ToArray(), Completion = new(), CancellationToken = ct });
         }
 
-        using var slot = await Lock(ct);
+        using var slot = await _semaphore.LockAsync(ct);
 
         var deletedNames = new List<(string Name, string? TrackingId, DateTimeOffset? SlaTimestamp)>(_index!.Entities.Count);
 
@@ -221,7 +221,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         if (_writerConfig.Value.EnableWriteCoalescing)
             return await EnqueueAndAwait(new WriteIntent { DeleteChildrenAncestor = prefix, TrackingId = trackingId, SlaTimestamp = slaTimestamp, Completion = new(), CancellationToken = ct });
 
-        using var slot = await Lock(ct);
+        using var slot = await _semaphore.LockAsync(ct);
 
         var deletedNames = new List<string>(_index!.Entities.Count);
 
@@ -275,7 +275,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         if (_writerConfig.Value.EnableWriteCoalescing)
             return await EnqueueAndAwait(new WriteIntent { Operations = [(name, entityBytes, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
-        using var slot = await Lock(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         Delta delta;
 
         if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
@@ -341,7 +341,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         bool performImplicitDeletes,
         CancellationToken ct)
     {
-        using var slot = await Lock(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         ThrowIfNotInitialized();
 
         var tempDataFilePath = DatasetHelper.GetTempFilePath();
@@ -757,7 +757,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 return;
             }
 
-            await _semaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
+            using var slot = await _semaphore.LockAsync();
             try
             {
                 var (mergedChanges, perIntentResponses) = MergeIntents(batch, _index!);
@@ -787,10 +787,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             {
                 foreach (var intent in batch)
                     intent.Completion.TrySetException(ex);
-            }
-            finally
-            {
-                _semaphore.Release();
             }
         }
     }
@@ -1003,11 +999,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     #endregion
 
-    private async Task<IDisposable> Lock(CancellationToken cancellationToken)
-    {
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
-    }
 
     private static IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta)
     {

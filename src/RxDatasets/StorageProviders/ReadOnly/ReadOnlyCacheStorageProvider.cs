@@ -69,18 +69,12 @@ public class ReadOnlyCacheStorageProvider<T, TStorageProvider>(
             }
         }
     }
-    private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
-    {
-        await semaphore.WaitAsync();
-        return new ActionDisposable(() => semaphore.Release());
-    }
-
     private readonly SemaphoreSlim _initSemaphore = new(1);
     private readonly TStorageProvider _readOnlyStorageProvider = readOnlyStorageProvider;
 
     private async Task InitCache(CancellationToken ct)
     {
-        using var initLock = await Lock(_initSemaphore);
+        using var initLock = await _initSemaphore.LockAsync();
 
         var (_, _, snapshots) = await ListVersions();
         foreach (var version in snapshots.Select(s => s.Version).Where(v => v > _currentlyCachedSnapshot).OrderDescending())
