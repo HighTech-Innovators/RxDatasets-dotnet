@@ -1,6 +1,7 @@
+using FluentAssertions;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using FluentAssertions;
 using Moq;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
@@ -22,17 +23,18 @@ public class TreeDeltaConsumerTests
     private const string NewRoot = "esltypes/E";
 
     private readonly NotificationsHubSync<object> _notificationsHub = new();
+    private readonly LowLevelInMemoryStorage<object> _storage =
+        new(Mock.Of<ILogger<LowLevelInMemoryStorage<object>>>());
+    private readonly IOptions<StorageConfig> _storageConfig = Options.Create(new StorageConfig());
     private readonly IStorageReader<object> _storageReader;
     private readonly ObjectStorageProvider<object> _storageProvider;
     private readonly DatasetWriter<object> _writer;
 
     public TreeDeltaConsumerTests()
     {
-        var storage = new LowLevelInMemoryStorage<object>(Mock.Of<ILogger<LowLevelInMemoryStorage<object>>>());
-        var storageConfig = Options.Create(new StorageConfig());
-        _storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), storageConfig, storage);
-        _storageProvider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), storageConfig,
-            storage, _notificationsHub, _storageReader, false);
+        _storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), _storageConfig, _storage);
+        _storageProvider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), _storageConfig,
+            _storage, _notificationsHub, _storageReader, false);
         _writer = new DatasetWriter<object>(_notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), _storageProvider,
             Options.Create(new WriterConfig()), false);
     }
@@ -108,5 +110,27 @@ public class TreeDeltaConsumerTests
         newNames.Should().BeEquivalentTo(Changed, Deleted, NewPage, NewRoot);
         changedNames.Should().Equal(Changed);
         deletedNames.Should().Equal(Deleted);
+    }
+
+    [Fact]
+    public async Task DataMigrator_FillsInThePreviousVersionsOfTreeDeltaEntries()
+    {
+        await _storageProvider.StartAsync(CancellationToken.None);
+        await _writer.Put(Changed, [1], null, null);
+        await WriteNewChangedAndDeleted();
+        // Forget the previous versions, as in a delta written before they were recorded
+        string key = DatasetHelper.GetObjectName<object>(3, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
+            _storageConfig.Value);
+        var delta = DeltaIndex.Parser.ParseFrom((await _storage.DownloadBytes(key)).Span);
+        delta.EnumerateChangedEntities().Single().Entity.PreviousVersion = 0;
+        await _storage.UploadBytes(key, delta.ToByteArray());
+
+        await new DataMigrator<object>(_storage, Mock.Of<ILogger<DataMigrator<object>>>(), _storageConfig)
+            .MigrateDataset("historysupport");
+
+        delta = DeltaIndex.Parser.ParseFrom((await _storage.DownloadBytes(key)).Span);
+        delta.HasFlatEntries().Should().BeFalse();
+        delta.EnumerateChangedEntities().Should().ContainSingle()
+            .Which.Should().Match<(string Name, DeltaEntity Entity)>(e => e.Name == Changed && e.Entity.PreviousVersion == 1);
     }
 }
