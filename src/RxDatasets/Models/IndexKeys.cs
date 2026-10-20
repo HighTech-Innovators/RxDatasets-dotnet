@@ -19,40 +19,46 @@ public static class IndexKeys
 {
     public const string Placeholder = "{}";
 
-    // ponytail: one process-wide pool, capped so that unusual names can't grow it without bound; past the cap,
-    // nothing new is shared. A per-dataset pool if datasets with odd names ever crowd out the real templates.
-    private const int MaxShared = 10_000;
+    // ponytail: one process-wide pool, capped so that unusual names can't grow it without bound; past a cap, nothing
+    // new of that kind is shared. Templates and variables have their own caps, so names with a unique trailing literal
+    // can't fill the pool with templates and stop the page numbers being shared. A per-dataset pool if datasets with
+    // odd names ever crowd out the real templates.
+    private const int MaxSharedTemplates = 1_000;
+    private const int MaxSharedVariables = 10_000;
     private const int MaxSharedVariableLength = 3;
     private static readonly ConcurrentDictionary<string, string> Shared = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> SharedBySpan =
         Shared.GetAlternateLookup<ReadOnlySpan<char>>();
-    private static int _sharedCount; // ConcurrentDictionary.Count takes all its locks
+    private static int _sharedTemplates; // ConcurrentDictionary.Count takes all its locks
+    private static int _sharedVariables;
 
     /// <summary>The shared instance of a template, so the nodes that use it don't each hold a copy.</summary>
-    public static string ShareTemplate(string template) =>
-        Shared.TryGetValue(template, out var shared) ? shared : AddShared(template);
+    internal static string ShareTemplate(string template) =>
+        Shared.TryGetValue(template, out var shared) ? shared : AddShared(template, ref _sharedTemplates, MaxSharedTemplates);
 
     /// <summary>
     /// The shared instance of a short variable, like a page number, which repeats under many nodes. Longer variables
     /// are ids, mostly unique, and are returned as they are.
     /// </summary>
-    public static ReadOnlyMemory<char> ShareVariable(ReadOnlyMemory<char> variable)
+    internal static ReadOnlyMemory<char> ShareVariable(ReadOnlyMemory<char> variable)
     {
         if (variable.Length > MaxSharedVariableLength)
             return variable;
         if (SharedBySpan.TryGetValue(variable.Span, out var shared))
             return shared.AsMemory();
-        return Volatile.Read(ref _sharedCount) < MaxShared ? AddShared(variable.ToString()).AsMemory() : variable;
+        return Volatile.Read(ref _sharedVariables) < MaxSharedVariables
+            ? AddShared(variable.ToString(), ref _sharedVariables, MaxSharedVariables).AsMemory()
+            : variable;
     }
 
-    private static string AddShared(string text)
+    private static string AddShared(string text, ref int count, int max)
     {
-        if (Volatile.Read(ref _sharedCount) >= MaxShared)
+        if (Volatile.Read(ref count) >= max)
             return text;
         if (!Shared.TryAdd(text, text))
             return Shared[text];
 
-        Interlocked.Increment(ref _sharedCount);
+        Interlocked.Increment(ref count);
         return text;
     }
 
@@ -115,7 +121,7 @@ public static class IndexKeys
     }
 
     /// <summary>Whether <paramref name="template"/> is the template of a leaf with these parts, without building it.</summary>
-    public static bool TemplateMatches(string template, int leafSegments, ReadOnlySpan<char> collection,
+    internal static bool TemplateMatches(string template, int leafSegments, ReadOnlySpan<char> collection,
         ReadOnlySpan<char> literal)
     {
         int segments = ParseTemplate(template, out var templateCollection, out var templateLiteral);
@@ -133,7 +139,7 @@ public static class IndexKeys
         path.Length == 0 ? string.Concat(collection, "/", id) : $"{path}/{collection}/{id}";
 
     /// <summary>Counts the '/'-separated segments of <paramref name="name"/>.</summary>
-    public static int CountSegments(ReadOnlySpan<char> name) => name.Count('/') + 1;
+    internal static int CountSegments(ReadOnlySpan<char> name) => name.Count('/') + 1;
 
     /// <summary>
     /// Returns the segment that starts at <paramref name="position"/>, and moves the position past it and its '/'.
