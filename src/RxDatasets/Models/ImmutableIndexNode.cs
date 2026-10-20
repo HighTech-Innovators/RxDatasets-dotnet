@@ -84,8 +84,6 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
         return leafGroup != null && leafGroup.TryGetValue(variable, out value!);
     }
 
-    public TValue? GetValueOrDefault(string name) => TryGetValue(name, out var value) ? value : null;
-
     // ponytail: linear scan over this node's templates; real id patterns give a handful per node.
     private int IndexOfTemplate(string template)
     {

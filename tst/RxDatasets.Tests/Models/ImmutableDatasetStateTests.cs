@@ -111,6 +111,22 @@ public class ImmutableDatasetStateTests
     }
 
     [Fact]
+    public void ApplyDelta_RecreatesADeletedEntity()
+    {
+        var recreate = new DeltaIndex { DeltaVersion = 3 };
+        recreate.NewEntities.Add(new DeltaEntity { Name = "t/T/tenant", Position = 11, Length = 4, Crc32 = 9 });
+        recreate.ConvertToTree();
+
+        var state = ImmutableDatasetState.FromProto(FlatSnapshot()).ApplyDelta(FlatDelta()).ApplyDelta(recreate);
+
+        state.Root.LiveCount.Should().Be(Names.Length + 1 - 2 + 1);
+        state.Root.CountLive("t/T").Should().Be(6);
+        state.TryGetEntity("t/T/tenant", out var entity).Should().BeTrue();
+        entity.Should().BeEquivalentTo(new ImmutableSnapshotEntity([2], [1, 3], 0, 11, 4, 9));
+        entity.GetLatestChangeType().Should().Be(ChangeType.New);
+    }
+
+    [Fact]
     public void ApplyDelta_Throws_WhenAChangedEntityIsUnknown()
     {
         var delta = new DeltaIndex { DeltaVersion = 2 };
