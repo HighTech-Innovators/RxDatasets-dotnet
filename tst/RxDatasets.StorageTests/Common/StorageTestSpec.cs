@@ -632,6 +632,38 @@ public abstract class StorageTestSpec
     }
 
     [Fact]
+    public async Task Should_List_Real_Names_When_Parent_Has_A_Trailing_Slash()
+    {
+        var (reader, writer) = await SetupStorageAsync(CancellationToken.None);
+
+        await writer.Put("ListSlash/p1/child/c1", GenerateRandomData(UNIT_KB), null, null);
+
+        var (names, _) = await reader.List("ListSlash/p1/", CancellationToken.None);
+
+        names.Should().BeEquivalentTo(["ListSlash/p1/child/c1"]);
+    }
+
+    [Fact]
+    public async Task Should_Stream_History_With_Full_Names_For_Nested_Entities()
+    {
+        var (reader, writer) = await SetupStorageAsync(CancellationToken.None);
+
+        await writer.Put("HistoryNested/p1/child/c1", GenerateRandomData(UNIT_KB, 1), null, null);
+        await writer.Put("HistoryNested/p1/child/c1", GenerateRandomData(UNIT_KB, 2), null, null);
+        await writer.Delete("HistoryNested/p1/child/c1", null, null);
+
+        var history = new List<HistoryEntry>();
+        await foreach (var entry in reader.StreamHistory("HistoryNested/p1"))
+            history.Add(entry);
+
+        // StreamHistory returns the newest change first
+        history.Select(h => (h.Id, h.ChangeType)).Should().Equal(
+            ("HistoryNested/p1/child/c1", ChangeType.Deleted),
+            ("HistoryNested/p1/child/c1", ChangeType.Changed),
+            ("HistoryNested/p1/child/c1", ChangeType.New));
+    }
+
+    [Fact]
     public async Task Should_Not_List_Deleted_Entities()
     {
         var (azBlobStorageDatasetReader, azBlobStorageDatasetWriter) = await SetupStorageAsync(CancellationToken.None);
