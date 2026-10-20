@@ -64,9 +64,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false);
                     try
                     {
-                        _initializationTask = Initialize();
-                        await _initializationTask;
-
+                        await Refresh(_cts.Token);
                     }
                     catch (Exception)
                     {
@@ -139,6 +137,68 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 _logger.LogError(ex, "Failed to initialize Reader for {EntityType} Dataset", typeof(T).Name);
                 await Task.Delay(5 * 1000);
             }
+        }
+    }
+
+    /// <summary>
+    /// Reads the index from storage again, every five seconds in read-only mode: for an update whose notification
+    /// never came, and for a dataset that was rebuilt, whose version really went back.
+    /// </summary>
+    /// <remarks>
+    /// A reader that is ready keeps answering from the index it has while the new one is read. Assigned to the
+    /// initialisation task instead, the re-read made every request fail as not initialised while it ran, and failed
+    /// them all when it failed; and racing an update, it put back the older index it had read, so the version went
+    /// backwards until the next update. A reader that is not ready yet, or whose last attempt failed, is initialised
+    /// as at the start.
+    /// <para>
+    /// The index is read outside the lock <see cref="OnDatasetUpdated"/> holds, and only taken over under it: held
+    /// during the read, a slow storage read would hold up every update notification, and with it the writer that
+    /// sends them.
+    /// </para>
+    /// </remarks>
+    private async Task Refresh(CancellationToken cancellationToken)
+    {
+        if (_initializationTask is not { IsCompletedSuccessfully: true })
+        {
+            _initializationTask = Initialize();
+            await _initializationTask;
+            return;
+        }
+
+        var latestIndex = await _datasetHelper.GetLatestIndex();
+        ImmutableDatasetState? latestSnapshotIndex = null;
+        try
+        {
+            latestSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
+        }
+        catch (FileNotFoundException)
+        {
+            //ignored as we dont have a snapshot yet
+        }
+
+        using var updateSlot = await Lock(_writerSemaphore, cancellationToken);
+        var before = _index?.LatestVersion;
+        if (latestIndex.LatestVersion < before)
+        {
+            // Either an update arrived while the index was read, and the read is stale, or the dataset was rebuilt
+            // and its version really went back. Storage tells which.
+            var (_, newestDelta, _) = await _storageProvider.ListVersions();
+            if (newestDelta >= before)
+                return;
+
+            _logger.LogWarning("Dataset {EntityType} went back from version {Before} to {Version}; taking it over",
+                typeof(T).Name, before, latestIndex.LatestVersion);
+        }
+
+        _index = latestIndex;
+        if (latestSnapshotIndex != null)
+            _mostRecentSnapshotIndex = latestSnapshotIndex;
+
+        if (_index.LatestVersion != before)
+        {
+            var tcs = IndexChangedTaskCompletionSource;
+            IndexChangedTaskCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            tcs.SetResult();
         }
     }
 
@@ -460,9 +520,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return await GetHealthCheckResult();
     }
 
-    private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
+    private async Task<IDisposable> Lock(SemaphoreSlim semaphore, CancellationToken cancellationToken = default)
     {
-        await semaphore.WaitAsync();
+        await semaphore.WaitAsync(cancellationToken);
         return new ActionDisposable(() => semaphore.Release());
     }
 
