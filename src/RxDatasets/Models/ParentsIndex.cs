@@ -29,7 +29,7 @@ namespace RxDatasets.Models
         /// </returns>
         public async Task<ImmutableHashSet<string>> GetOrCreateChildrenIndex(string parent, IEnumerable<string> theWholeIndex)
         {
-            using var slot = await Lock(_lock);
+            using var slot = await _lock.LockAsync();
 
             parent = parent.TrimEnd('/');
             int requestLevel = parent.Count(c => c == '/') + 1;
@@ -111,7 +111,7 @@ namespace RxDatasets.Models
                 return _index.Count > 0;
 
             // Only acquire the lock if there's cleanup to do
-            using var slot = await Lock(_lock);
+            using var slot = await _lock.LockAsync();
 
             // Remove expired entries
             foreach (var key in keysToRemove)
@@ -141,7 +141,7 @@ namespace RxDatasets.Models
         /// <returns>A task that represents the asynchronous operation.</returns>
         public async Task OnNew(string child)
         {
-            using var slot = await Lock(_lock);
+            using var slot = await _lock.LockAsync();
 
             foreach (var level in _index.Keys.ToList())
             {
@@ -174,7 +174,7 @@ namespace RxDatasets.Models
         /// <returns>A task that represents the asynchronous operation.</returns>
         public async Task OnDelete(string child)
         {
-            using var slot = await Lock(_lock);
+            using var slot = await _lock.LockAsync();
 
             foreach (var level in _index.Keys.ToList())
             {
@@ -191,12 +191,6 @@ namespace RxDatasets.Models
                     _index[level] = (entry.LastRequest, parentsWithChildren);
                 }
             }
-        }
-
-        private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
-        {
-            await semaphore.WaitAsync();
-            return new ActionDisposable(() => semaphore.Release());
         }
     }
 

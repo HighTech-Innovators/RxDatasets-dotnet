@@ -17,7 +17,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
-        using var slot = await LockAsync(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         if (!_currentSnapshot.ContainsKey(name))
             return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
         var delta = new Delta(new[] { (name, (byte[]?)null, ChangeType.Deleted) }, LatestVersion + 1);
@@ -27,7 +27,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<IDatasetWriter<T>.WriteResponse> DeleteMany(IAsyncEnumerable<(string name, string? trackingId, DateTimeOffset? slaTimestamp)> names, CancellationToken ct = default)
     {
-        using var slot = await LockAsync(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
 
         await foreach (var (name, _, _) in names.WithCancellation(ct))
@@ -50,7 +50,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<IDatasetWriter<T>.WriteResponse> DeleteChildren(string ancestor, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
-        using var slot = await LockAsync(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         var prefix = ancestor.EndsWith("/", StringComparison.Ordinal) ? ancestor : ancestor + "/";
         var splitAncestor = prefix.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (splitAncestor.Length == 0 || splitAncestor.Length % 2 != 0)
@@ -82,7 +82,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<IDatasetWriter<T>.WriteResponse> Put(string name, byte[] newEntity, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
-        using var slot = await LockAsync(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         Delta delta;
         if (!_currentSnapshot.TryGetValue(name, out var oldEntity))
         {
@@ -136,7 +136,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         bool performImplicitDeletes,
         CancellationToken ct)
     {
-        using var slot = await LockAsync(ct);
+        using var slot = await _semaphore.LockAsync(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
         var receivedNames = new HashSet<string>();
         var allParents = new HashSet<string>();
@@ -249,7 +249,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<ulong> GetLatestVersion()
     {
-        using var slot = await LockAsync();
+        using var slot = await _semaphore.LockAsync();
         return LatestVersion;
     }
 
@@ -257,7 +257,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     {
         Delta delta;
         var toVersion = await GetLatestVersion();
-        using (await LockAsync())
+        using (await _semaphore.LockAsync())
         {
             delta = MergeDeltas(_deltas.Where(d => d.DatasetVersion > fromVersion && d.DatasetVersion <= toVersion));
         }
@@ -272,7 +272,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         // between completes the completion source that was there and puts a new one in its place, and the
         // wait would miss the write it should have seen (VLOW-30).
         Task changed;
-        using (await LockAsync(cancellationToken))
+        using (await _semaphore.LockAsync(cancellationToken))
         {
             changed = fromVersion == LatestVersion ? _waitForChangesTaskCompletionSource.Task : Task.CompletedTask;
         }
@@ -338,7 +338,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         (string name, ReadOnlyMemory<byte> entityBytes)[] snapshot;
 
         // A synchronous lock: this is an iterator and cannot await.
-        using (Lock(cancellationToken))
+        using (_semaphore.Lock(cancellationToken))
         {
             // NOTE: doesn't check version
             snapshot = _currentSnapshot.Select(x => (x.Key, new ReadOnlyMemory<byte>(x.Value))).ToArray();
@@ -352,7 +352,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public IObservable<DatasetVersionUpdate> ObserveDatasetChanges(ulong fromVersion)
     {
-        using (Lock())
+        using (_semaphore.Lock())
         {
             return LatestVersion > fromVersion
                 ? _versionUpdates.Prepend(
@@ -363,7 +363,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string name)
     {
-        using (await LockAsync())
+        using (await _semaphore.LockAsync())
         {
             return _currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : null;
         }
@@ -371,7 +371,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> GetHistoric(string name, ulong version, CancellationToken ct = default)
     {
-        using (await LockAsync(ct))
+        using (await _semaphore.LockAsync(ct))
         {
             if (version > LatestVersion)
             {
@@ -408,7 +408,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     public async Task<ICollection<(string, ReadOnlyMemory<byte>?)>> BatchGet(IEnumerable<string> names, string? parent)
     {
         (string name, ReadOnlyMemory<byte>? entityBytes)[] entities;
-        using (await LockAsync())
+        using (await _semaphore.LockAsync())
         {
             entities = names.Select(name => ((string name, ReadOnlyMemory<byte>? entityBytes))(_currentSnapshot.TryGetValue(name, out var entity) ? (name, new ReadOnlyMemory<byte>(entity)) : (name, null))).ToArray();
         }
@@ -445,7 +445,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
         // Always count all descendants under parent, regardless of nesting level
         // (different from List() which has backwards-compatibility asymmetric behavior)
-        using var _ = await LockAsync(cancellationToken);
+        using var _ = await _semaphore.LockAsync(cancellationToken);
 
         if (string.IsNullOrEmpty(parent) || parent is "/")
         {
@@ -459,36 +459,8 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
     }
 
-    private async Task<IDisposable> LockAsync(CancellationToken cancellationToken = default)
-    {
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
-    }
 
-    /// <summary>
-    /// Synchronous counterpart of <see cref="LockAsync"/>, for methods that cannot await. Blocking on
-    /// <c>LockAsync().Result</c> instead can deadlock on a single-threaded synchronization context.
-    /// </summary>
-    private IDisposable Lock(CancellationToken cancellationToken = default)
-    {
-        _semaphore.Wait(cancellationToken);
-        return new ActionDisposable(() => _semaphore.Release());
-    }
 
-    private class ActionDisposable : IDisposable
-    {
-        private readonly Action _action;
-
-        public ActionDisposable(Action action)
-        {
-            _action = action ?? throw new ArgumentNullException(nameof(action));
-        }
-
-        public void Dispose()
-        {
-            _action();
-        }
-    }
 
     private IDatasetWriter<T>.WriteResponse WriteResponseFor(Delta delta) =>
         new()

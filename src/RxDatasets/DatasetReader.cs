@@ -76,7 +76,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
     {
-        using var updateSlot = await Lock(_writerSemaphore);
+        using var updateSlot = await _writerSemaphore.LockAsync();
         try
         {
             ThrowIfNotInitialized();
@@ -176,7 +176,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             //ignored as we dont have a snapshot yet
         }
 
-        using var updateSlot = await Lock(_writerSemaphore, cancellationToken);
+        using var updateSlot = await _writerSemaphore.LockAsync(cancellationToken);
         var before = _index?.LatestVersion;
         if (latestIndex.LatestVersion < before)
         {
@@ -520,11 +520,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return await GetHealthCheckResult();
     }
 
-    private async Task<IDisposable> Lock(SemaphoreSlim semaphore, CancellationToken cancellationToken = default)
-    {
-        await semaphore.WaitAsync(cancellationToken);
-        return new ActionDisposable(() => semaphore.Release());
-    }
 
     public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
