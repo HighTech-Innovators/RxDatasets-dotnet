@@ -56,6 +56,18 @@ namespace RxDatasets.BackgroundServices
             var optionalState = await _reportingImplementation.OpenDeltaTransaction(deltaVersion);
             try
             {
+                int newCount = deltaIndexParsed.EnumerateNewEntities().Count();
+                if (newCount > 0)
+                    logger.LogDebug("Processing {NewCount} new entities", newCount);
+
+                int changeCount = deltaIndexParsed.EnumerateChangedEntities().Count();
+                if (changeCount > 0)
+                    logger.LogDebug("Processing {ChangeCount} changed entities", changeCount);
+
+                int deleteCount = deltaIndexParsed.DeletedNames.Count + deltaIndexParsed.EnumerateDeletedEntities().Count();
+                if (deleteCount > 0)
+                    logger.LogDebug("Processing {DeleteCount} deleted entities", deleteCount);
+
                 foreach (var (name, newEntity) in deltaIndexParsed.EnumerateNewEntities())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
