@@ -112,10 +112,10 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 
     /// <summary>
     /// Enumerates every value whose name equals <paramref name="prefix"/> or starts with <paramref name="prefix"/>
-    /// followed by '/', with its full name. An empty prefix, or "/", enumerates everything. Only the names of values
+    /// followed by '/', with its full name. A null or empty prefix, or "/", enumerates everything. Only the names of values
     /// that pass <paramref name="where"/> (default: all, deleted ones included) are built.
     /// </summary>
-    public IEnumerable<KeyValuePair<string, TValue>> EnumerateAll(string prefix = "", Func<TValue, bool>? where = null)
+    public IEnumerable<KeyValuePair<string, TValue>> EnumerateAll(string? prefix = "", Func<TValue, bool>? where = null)
     {
         foreach (var match in Match(prefix))
         {
@@ -132,7 +132,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     }
 
     /// <summary>Counts the live values that <see cref="EnumerateAll"/> would return for <paramref name="prefix"/>.</summary>
-    public int CountLive(string prefix = "")
+    public int CountLive(string? prefix = "")
     {
         int count = 0;
         foreach (var match in Match(prefix))
@@ -172,9 +172,9 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
         ReadOnlyMemory<char> Variable,
         TValue? Value);
 
-    private IEnumerable<PrefixMatch> Match(string prefix)
+    private IEnumerable<PrefixMatch> Match(string? prefix)
     {
-        prefix = prefix.TrimEnd('/');
+        prefix = prefix?.TrimEnd('/') ?? "";
         return prefix.Length == 0
             ? [new PrefixMatch("", this, null, default, null)]
             : Match("", prefix.AsMemory());

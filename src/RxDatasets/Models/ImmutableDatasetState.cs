@@ -20,7 +20,7 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
         Root.TryGetValue(name, out var entity) ? entity : throw new KeyNotFoundException($"Entity {name} is not in the index");
 
     /// <summary>All entities, deleted ones included, with their full names; see <see cref="ImmutableIndexNode{TValue}.EnumerateAll"/>.</summary>
-    public IEnumerable<KeyValuePair<string, ImmutableSnapshotEntity>> EnumerateAll(string prefix = "",
+    public IEnumerable<KeyValuePair<string, ImmutableSnapshotEntity>> EnumerateAll(string? prefix = "",
         Func<ImmutableSnapshotEntity, bool>? where = null) => Root.EnumerateAll(prefix, where);
 
     /// <summary>Reads a snapshot index in the tree format, the legacy flat format, or (in theory) both.</summary>

@@ -115,4 +115,18 @@ public class HierarchicalIndexReaderTests : IDisposable
             (Item1, 1UL), (Tenant, 1UL), (Item1, 2UL), (Tenant, 2UL), (Item2, 3UL), (Item1, 4UL));
         await reader.StopAsync(CancellationToken.None);
     }
+
+    [Fact]
+    public async Task ListAndCountChildren_TreatNullAsEverything()
+    {
+        var readerWriter = await ContinueWithTreeDeltas();
+        var reader = new DatasetReader<object>(NullLogger<DatasetReader<object>>.Instance, _storage, null);
+        await reader.StartAsync(CancellationToken.None);
+
+        (await readerWriter.List(null!)).Names.Should().Equal(Item2);
+        (await readerWriter.CountChildren(null!)).Should().Be(1);
+        (await reader.List(null!)).Names.Should().Equal(Item2);
+        (await reader.CountChildren(null!)).Should().Be(1);
+        await reader.StopAsync(CancellationToken.None);
+    }
 }
