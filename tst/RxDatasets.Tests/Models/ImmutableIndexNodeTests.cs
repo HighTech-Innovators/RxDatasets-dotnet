@@ -35,10 +35,10 @@ public class ImmutableIndexNodeTests
             ("t/T/s/S/items/I2/values", Live()),
             ("t/T/tenant", Live()));
 
-        root.Leaves.Keys.Should().Equal("t/{}/tenant");
+        root.Leaves.Select(l => l.Key).Should().Equal("t/{}/tenant");
         var store = root.Children["t".AsMemory()]["T".AsMemory()].Children["s".AsMemory()]["S".AsMemory()];
-        store.Leaves.Keys.Should().Equal("items/{}/values");
-        store.Leaves["items/{}/values"].Keys.Select(k => k.ToString()).Should().BeEquivalentTo("I1", "I2");
+        store.Leaves.Select(l => l.Key).Should().Equal("items/{}/values");
+        store.Leaves.Single().Value.Keys.Select(k => k.ToString()).Should().BeEquivalentTo("I1", "I2");
     }
 
     [Fact]
