@@ -100,6 +100,69 @@ message SnapshotEntity {
 }
 ```
 
+## Hierarchical index (tree format)
+The `index.pb` of a snapshot or delta stores its entities in a tree, in the `root` field, instead of in the flat
+`entities` map or `*_entities` lists shown above. Entity names repeat their leading path (`t/{tenant}/s/{store}/...`) and
+their fixed literals (`items`, `values`) for every entity; the tree stores each of those once.
+
+### How a name maps onto the tree
+Split the name on `/` into n segments (see `IndexKeys`):
+- The **leaf** is the whole name when n <= 3, otherwise the last 2 segments when n is even, and the last 3 when n is odd.
+- The leading segments are `collection/id` pairs, one tree **node** each.
+- A leaf is `C/V`, `C/V/L` or (only for n = 1) `V`. It is stored under its **template** `C/{}`, `C/{}/L` or `{}`,
+  and its **variable** `V`.
+
+| Name | Nodes | Template | Variable |
+|---|---|---|---|
+| `t/T/s/S/items/I/values` | `t/T`, `s/S` | `items/{}/values` | `I` |
+| `t/T/s/S/esls/B/pages/P/studioimage` | `t/T`, `s/S`, `esls/B` | `pages/{}/studioimage` | `P` |
+| `t/T/s/S/eccparameters` | `t/T` | `s/{}/eccparameters` | `S` |
+| `t/T/tenant` | (root) | `t/{}/tenant` | `T` |
+| `esltypes/E` | (root) | `esltypes/{}` | `E` |
+
+The rule needs no knowledge of id patterns, so a dataset with several patterns needs no configuration, and the fixed
+parts of every pattern are stored once per node. To rebuild a name, join the node path, the template up to its `{}`,
+the variable, and the rest of the template.
+
+### Messages
+Children are grouped by collection and then by id; leaves by template and then by variable:
+
+```protobuf
+message SnapshotNode {
+	map<string, SnapshotChildGroup> children = 1; // by collection
+	map<string, SnapshotLeafGroup> leaves = 2; // by template
+}
+message SnapshotChildGroup { map<string, SnapshotNode> nodes = 1; } // by id
+message SnapshotLeafGroup { map<string, SnapshotEntity> entities = 1; } // by variable
+
+message DeltaNode {
+	map<string, DeltaChildGroup> children = 1;
+	map<string, DeltaLeafGroup> leaves = 2;
+}
+message DeltaChildGroup { map<string, DeltaNode> nodes = 1; }
+message DeltaLeafGroup {
+	map<string, DeltaEntity> new_entities = 1;
+	map<string, DeltaEntity> changed_entities = 2;
+	map<string, DeletedEntity> deleted_entities = 3;
+}
+
+// SnapshotIndex: SnapshotNode root = 34;   DeltaIndex: DeltaNode root = 34;
+```
+
+In the tree, `DeltaEntity.name` and `DeletedEntity.name` are left empty: the position in the tree is the name. Field 33
+is reserved: an earlier, unreleased tree format used it.
+
+### Compatibility and rollout
+- Readers accept both formats, for snapshots and deltas, and a file holding both. Flat files are never rewritten;
+  old deltas age out through cleanup, and the next snapshot is written in the tree format.
+- Writers write only the tree format.
+- A reader from before the tree format sees a tree-format file as empty. **Update all readers first**, then the writers.
+
+### Possible later refinement
+Templates and variables are opaque strings to everything except `IndexKeys`. Registered id patterns could map a name
+onto the tree differently later (for example to also share a literal that the pair rule takes as a variable, like
+`studio` in `t/T/s/S/esls/B/link/studio`) without changing these messages.
+
 ## DeltaInfo
 - `DeltaInfo.pb`: Storing the metadata about the delta files that are available.
 
