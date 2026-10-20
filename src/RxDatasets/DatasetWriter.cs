@@ -22,6 +22,19 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly IOptions<WriterConfig> _writerConfig;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
+
+    protected ILogger Logger => _logger;
+    protected IReadOnlyStorageProvider<T> ReadOnlyStorageProvider => _storageProvider;
+    protected ImmutableDatasetState? CurrentIndex => _index;
+    protected ImmutableDatasetState? MostRecentSnapshotIndex => _indexBasedOnMostRecentSnapshot;
+
+    /// <summary>
+    /// Called after a delta has been persisted and <c>_index</c> swapped to the new state, while the
+    /// write lock is still held and before the write returns. Override to react to changes (e.g. update
+    /// caches, wake waiters). The delta is on storage first, so readers never see an index entry whose
+    /// data is missing.
+    /// </summary>
+    protected virtual Task OnDeltaApplied(DeltaIndex deltaIndex) => Task.CompletedTask;
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly CompositeDisposable _subscriptions = new();
@@ -57,7 +70,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _indexBasedOnMostRecentSnapshot = null;
     }
 
-    public void Dispose()
+    public virtual void Dispose()
     {
         _subscriptions.Dispose();
     }
@@ -374,12 +387,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         // Apply the delta and store it
-        _index = _index!.ApplyDelta(deltaIndex);
+        var newIndex = _index!.ApplyDelta(deltaIndex);
         using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
         {
-            await _storageProvider.StoreDelta(_index.LatestVersion, deltaIndex.ToByteArray(), deltaDataStream);
+            await _storageProvider.StoreDelta(newIndex.LatestVersion, deltaIndex.ToByteArray(), deltaDataStream);
         }
         File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
+
+        _index = newIndex;
+        await OnDeltaApplied(deltaIndex);
 
         _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
 
@@ -658,6 +674,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
 
         _index = _index!.ApplyDelta(deltaIndex);
+        await OnDeltaApplied(deltaIndex);
 
         return _index;
     }

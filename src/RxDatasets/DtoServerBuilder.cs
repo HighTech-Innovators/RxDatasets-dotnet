@@ -36,6 +36,7 @@ namespace RxDatasets
         private bool _withDistributedLock;
         private bool _withSnapshot;
         private bool _withCleanup;
+        private bool _withSharedReaderWriter;
 
         public IServiceCollection Services => services;
 
@@ -108,6 +109,18 @@ namespace RxDatasets
         }
 
         /// <summary>
+        /// Uses a single combined reader/writer instance that shares one index and one
+        /// initialization path, halving storage round-trips at startup.
+        /// Best for datasets with infrequent writes; high-write workloads should use the
+        /// default separate reader/writer to preserve incremental parent-index updates.
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithSharedReaderWriter()
+        {
+            _withSharedReaderWriter = true;
+            return this;
+        }
+
+        /// <summary>
         /// Disables write coalescing. By default, concurrent write operations are batched into single
         /// delta transactions to reduce storage round-trips on high-latency backends.
         /// Call this method to revert to serial one-at-a-time write behavior.
@@ -145,18 +158,13 @@ namespace RxDatasets
 
             services.AddSingleton<INotificationsHub<TEntity>, NotificationsHub<TEntity>>();
 
-            if (!readOnlyMode)
-                services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
-            else
-                services.AddSingletonAsHostedService<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
-
             if (readOnlyMode)
             {
+                services.AddSingletonAsHostedService<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
                 services.AddHealthChecks()
                     .AddCheck<ReadOnlyDatasetReadinessCheck<TEntity>>($"DatasetReadinessCheck-{VersionedEntityName(typeof(TEntity))}", null, readinessTags)
                     .AddCheck<ReadOnlyDatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{VersionedEntityName(typeof(TEntity))}");
                 return;
-
             }
 
             services.AddHealthChecks()
@@ -164,7 +172,18 @@ namespace RxDatasets
                 .AddCheck<DatasetHealthCheck<TEntity>>($"DatasetHealthCheck-{VersionedEntityName(typeof(TEntity))}");
 
             services.AddValidatedConfigSection<WriterConfig>();
-            services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+
+            if (_withSharedReaderWriter)
+            {
+                services.AddSingleton<DatasetReaderWriter<TEntity>>();
+                services.AddSingletonAlias<IDatasetReader<TEntity>, DatasetReaderWriter<TEntity>>();
+                services.AddSingletonAlias<IDatasetWriter<TEntity>, DatasetReaderWriter<TEntity>>();
+            }
+            else
+            {
+                services.AddSingleton<IDatasetReader<TEntity>, DatasetReader<TEntity>>();
+                services.AddSingleton<IDatasetWriter<TEntity>, DatasetWriter<TEntity>>();
+            }
 
             if (!_isInMemoryDataset)
             {
