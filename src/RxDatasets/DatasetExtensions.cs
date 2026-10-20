@@ -231,36 +231,46 @@ public static class DatasetExtensions
 
     /// <summary>The new entities of a delta with their full names, from the tree and the legacy flat list.</summary>
     public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateNewEntities(this DeltaIndex delta) =>
-        EnumerateDeltaNode(delta.Root, "", group => group.NewEntities).Concat(delta.NewEntities.Select(e => (e.Name, e)));
+        EnumerateDeltaNode(delta.Root, group => group.NewEntities).Concat(delta.NewEntities.Select(e => (e.Name, e)));
 
     /// <summary>The changed entities of a delta with their full names, from the tree and the legacy flat list.</summary>
     public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateChangedEntities(this DeltaIndex delta) =>
-        EnumerateDeltaNode(delta.Root, "", group => group.ChangedEntities).Concat(delta.ChangedEntities.Select(e => (e.Name, e)));
+        EnumerateDeltaNode(delta.Root, group => group.ChangedEntities)
+            .Concat(delta.ChangedEntities.Select(e => (e.Name, e)));
 
     /// <summary>
     /// The deleted entities of a delta with their full names, from the tree and the legacy flat list. The legacy
     /// <see cref="DeltaIndex.DeletedNames"/> are not included.
     /// </summary>
     public static IEnumerable<(string Name, DeletedEntity Entity)> EnumerateDeletedEntities(this DeltaIndex delta) =>
-        EnumerateDeltaNode(delta.Root, "", group => group.DeletedEntities).Concat(delta.DeletedEntities.Select(e => (e.Name, e)));
+        EnumerateDeltaNode(delta.Root, group => group.DeletedEntities)
+            .Concat(delta.DeletedEntities.Select(e => (e.Name, e)));
 
-    private static IEnumerable<(string Name, TEntity Entity)> EnumerateDeltaNode<TEntity>(DeltaNode? node, string path,
-        Func<DeltaLeafGroup, IDictionary<string, TEntity>> selectEntities)
+    private static IEnumerable<(string Name, TEntity Entity)> EnumerateDeltaNode<TEntity>(DeltaNode? root,
+        Func<DeltaLeafGroup, IDictionary<string, TEntity>> selectEntities) =>
+        EnumerateTree(root, node => node.Leaves.Select(leaf => (leaf.Key, selectEntities(leaf.Value))),
+            node => node.Children.Select(child => (child.Key, (IDictionary<string, DeltaNode>)child.Value.Nodes)));
+
+    /// <summary>The entities of a snapshot or delta tree with their full names.</summary>
+    private static IEnumerable<(string Name, TEntity Entity)> EnumerateTree<TNode, TEntity>(TNode? node,
+        Func<TNode, IEnumerable<(string Template, IDictionary<string, TEntity> Entities)>> leafGroups,
+        Func<TNode, IEnumerable<(string Collection, IDictionary<string, TNode> Nodes)>> childGroups,
+        string path = "") where TNode : class
     {
         if (node == null)
             yield break;
 
-        foreach (var (template, group) in node.Leaves)
+        foreach (var (template, entities) in leafGroups(node))
         {
-            foreach (var (variable, entity) in selectEntities(group))
+            foreach (var (variable, entity) in entities)
                 yield return (IndexKeys.Join(path, IndexKeys.LeafName(template, variable)), entity);
         }
 
-        foreach (var (collection, group) in node.Children)
+        foreach (var (collection, nodes) in childGroups(node))
         {
-            foreach (var (id, child) in group.Nodes)
+            foreach (var (id, child) in nodes)
             {
-                foreach (var entry in EnumerateDeltaNode(child, IndexKeys.Join(path, collection + "/" + id), selectEntities))
+                foreach (var entry in EnumerateTree(child, leafGroups, childGroups, IndexKeys.Join(path, collection, id)))
                     yield return entry;
             }
         }
@@ -295,26 +305,8 @@ public static class DatasetExtensions
 
     /// <summary>The entities of a snapshot index with their full names, from the tree and the legacy flat map.</summary>
     public static IEnumerable<(string Name, SnapshotEntity Entity)> EnumerateEntities(this SnapshotIndex index) =>
-        EnumerateSnapshotNode(index.Root, "").Concat(index.Entities.Select(e => (e.Key, e.Value)));
-
-    private static IEnumerable<(string Name, SnapshotEntity Entity)> EnumerateSnapshotNode(SnapshotNode? node, string path)
-    {
-        if (node == null)
-            yield break;
-
-        foreach (var (template, group) in node.Leaves)
-        {
-            foreach (var (variable, entity) in group.Entities)
-                yield return (IndexKeys.Join(path, IndexKeys.LeafName(template, variable)), entity);
-        }
-
-        foreach (var (collection, group) in node.Children)
-        {
-            foreach (var (id, child) in group.Nodes)
-            {
-                foreach (var entry in EnumerateSnapshotNode(child, IndexKeys.Join(path, collection + "/" + id)))
-                    yield return entry;
-            }
-        }
-    }
+        EnumerateTree(index.Root,
+                node => node.Leaves.Select(leaf => (leaf.Key, (IDictionary<string, SnapshotEntity>)leaf.Value.Entities)),
+                node => node.Children.Select(child => (child.Key, (IDictionary<string, SnapshotNode>)child.Value.Nodes)))
+            .Concat(index.Entities.Select(e => (e.Key, e.Value)));
 }

@@ -18,12 +18,7 @@ public static class IndexKeys
     public const string Placeholder = "{}";
 
     /// <summary>A name split into its node path (collection, id, collection, id, ...), template and variable.</summary>
-    public readonly record struct Key(string[] Path, string Template, string Variable)
-    {
-        public string ToName() => Path.Length == 0
-            ? LeafName(Template, Variable)
-            : string.Join('/', Path) + "/" + LeafName(Template, Variable);
-    }
+    public readonly record struct Key(string[] Path, string Template, string Variable);
 
     public static Key Split(string name)
     {
@@ -87,8 +82,13 @@ public static class IndexKeys
                && templateLiteral.SequenceEqual(literal);
     }
 
-    /// <summary>Joins a node path and a key part, without the leading '/' at the root.</summary>
-    public static string Join(string path, string part) => path.Length == 0 ? part : string.Concat(path, "/", part);
+    /// <summary>Joins a node path and a leaf name, without a leading '/' at the root.</summary>
+    public static string Join(string path, string leafName) =>
+        path.Length == 0 ? leafName : string.Concat(path, "/", leafName);
+
+    /// <summary>Joins a node path and a child's collection and id, without a leading '/' at the root.</summary>
+    public static string Join(string path, ReadOnlySpan<char> collection, ReadOnlySpan<char> id) =>
+        path.Length == 0 ? string.Concat(collection, "/", id) : $"{path}/{collection}/{id}";
 
     /// <summary>Counts the '/'-separated segments of <paramref name="name"/>.</summary>
     public static int CountSegments(ReadOnlySpan<char> name) => name.Count('/') + 1;
