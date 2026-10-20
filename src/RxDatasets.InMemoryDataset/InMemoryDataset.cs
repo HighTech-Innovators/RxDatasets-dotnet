@@ -13,7 +13,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private ulong LatestVersion => _deltas.LastOrDefault()?.DatasetVersion ?? 0;
     private readonly Dictionary<string, byte[]> _currentSnapshot = [];
     private readonly List<Delta> _deltas = [];
-    private TaskCompletionSource _waitForChangesTaskCompletionSource = new();
+    private TaskCompletionSource _waitForChangesTaskCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public async Task<IDatasetWriter<T>.WriteResponse> Delete(string name, string? trackingId, DateTimeOffset? slaTimestamp, CancellationToken ct = default)
     {
@@ -268,13 +268,16 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
     {
-        var toVersion = await GetLatestVersion();
-
-        if (fromVersion == toVersion)
+        // The version and the completion source to wait on are read under one lock. Read apart, a write in
+        // between completes the completion source that was there and puts a new one in its place, and the
+        // wait would miss the write it should have seen (VLOW-30).
+        Task changed;
+        using (await LockAsync(cancellationToken))
         {
-            await _waitForChangesTaskCompletionSource.Task.WaitAsync(cancellationToken);
+            changed = fromVersion == LatestVersion ? _waitForChangesTaskCompletionSource.Task : Task.CompletedTask;
         }
 
+        await changed.WaitAsync(cancellationToken);
         return await GetChangedNames(fromVersion);
     }
 
@@ -282,7 +285,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     private void NotifyDeltaUpdate()
     {
         var tcs = _waitForChangesTaskCompletionSource;
-        _waitForChangesTaskCompletionSource = new TaskCompletionSource();
+        _waitForChangesTaskCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         tcs.SetResult();
     }
 

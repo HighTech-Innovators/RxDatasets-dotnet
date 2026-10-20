@@ -84,7 +84,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             ThrowIfNotInitialized();
             _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
             var tcs = IndexChangedTaskCompletionSource;
-            IndexChangedTaskCompletionSource = new TaskCompletionSource();
+            IndexChangedTaskCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             tcs.SetResult();
         }
         catch (InvalidOperationException)
@@ -109,7 +109,20 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         _subscriptions.Dispose();
     }
 
-    private TaskCompletionSource IndexChangedTaskCompletionSource { get; set; } = new();
+    /// <summary>
+    /// Completed, and replaced, after every update of <see cref="_index"/>. A waiter reads it before it checks the
+    /// version: the update moves the index first and swaps this second, so a waiter that still sees the old version
+    /// holds the completion source that is about to complete. Checked first and read second, a swap in between would
+    /// leave the waiter on the next one, and the update unseen (VLOW-30). Volatile, so the order holds on every CPU.
+    /// </summary>
+    private TaskCompletionSource IndexChangedTaskCompletionSource
+    {
+        get => _indexChangedTaskCompletionSource;
+        set => _indexChangedTaskCompletionSource = value;
+    }
+
+    private volatile TaskCompletionSource _indexChangedTaskCompletionSource =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 
     private async Task InitializationLoop()
@@ -238,9 +251,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         if (!_initializationTask!.IsCompleted)
             await _initializationTask;
 
-        while (fromVersion == ThrowIfNotInitialized().LatestVersion)
+        while (true)
         {
-            await IndexChangedTaskCompletionSource.Task.WaitAsync(cancellationToken);
+            var changed = IndexChangedTaskCompletionSource.Task;
+            if (fromVersion != ThrowIfNotInitialized().LatestVersion)
+            {
+                break;
+            }
+
+            await changed.WaitAsync(cancellationToken);
         }
 
         return await GetChangedNames(fromVersion);
@@ -540,9 +559,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         // Wait for version to advance beyond sinceVersion if requested
         if (waitIfNone)
         {
-            while (sinceVersion >= ThrowIfNotInitialized().LatestVersion)
+            while (true)
             {
-                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+                var changed = IndexChangedTaskCompletionSource.Task;
+                if (sinceVersion < ThrowIfNotInitialized().LatestVersion)
+                {
+                    break;
+                }
+
+                await changed.WaitAsync(ct);
             }
         }
 
@@ -645,6 +670,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             ct.ThrowIfCancellationRequested();
 
+            var changed = IndexChangedTaskCompletionSource.Task;
             var currentLatest = ThrowIfNotInitialized().LatestVersion;
 
             if (nextVersion > currentLatest)
@@ -653,7 +679,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     yield break;
 
                 // Wait for the dataset to advance
-                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+                await changed.WaitAsync(ct);
                 continue;
             }
 
