@@ -155,14 +155,11 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
         {
             foreach (var (id, child) in group)
             {
-                foreach (var entry in child.EnumerateSubtree(ChildPath(path, collection, id), where))
+                foreach (var entry in child.EnumerateSubtree(IndexKeys.Join(path, collection.Span, id.Span), where))
                     yield return entry;
             }
         }
     }
-
-    private static string ChildPath(string path, ReadOnlyMemory<char> collection, ReadOnlyMemory<char> id) =>
-        path.Length == 0 ? $"{collection.Span}/{id.Span}" : $"{path}/{collection.Span}/{id.Span}";
 
     /// <summary>A whole subtree (<see cref="Node"/> set), or a single value, under a prefix.</summary>
     private readonly record struct PrefixMatch(
@@ -230,14 +227,14 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
         if (segments == 1)
         {
             foreach (var (id, child) in children)
-                yield return new PrefixMatch(ChildPath(path, first, id), child, null, default, null);
+                yield return new PrefixMatch(IndexKeys.Join(path, first.Span, id.Span), child, null, default, null);
             yield break;
         }
 
         if (!children.TryGetValue(second, out var node))
             yield break;
 
-        string childPath = ChildPath(path, first, second);
+        string childPath = IndexKeys.Join(path, first.Span, second.Span);
         if (segments == 2)
         {
             yield return new PrefixMatch(childPath, node, null, default, null);

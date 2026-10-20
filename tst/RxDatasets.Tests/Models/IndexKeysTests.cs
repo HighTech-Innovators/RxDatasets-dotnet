@@ -71,6 +71,15 @@ public class IndexKeysTests
 
     private static bool IsVariable(string segment) => segment.StartsWith('{');
 
+    /// <summary>Rebuilds a name from its key the way the index enumerators do.</summary>
+    private static string ToName(IndexKeys.Key key)
+    {
+        string path = "";
+        for (int i = 0; i < key.Path.Length; i += 2)
+            path = IndexKeys.Join(path, key.Path[i], key.Path[i + 1]);
+        return IndexKeys.Join(path, IndexKeys.LeafName(key.Template, key.Variable));
+    }
+
     [Theory]
     [MemberData(nameof(RealPatterns))]
     public void Split_RoundTrips_ForEveryRealPattern(string pattern)
@@ -79,7 +88,7 @@ public class IndexKeysTests
 
         var key = IndexKeys.Split(name);
 
-        key.ToName().Should().Be(name);
+        ToName(key).Should().Be(name);
         // Node path plus leaf key, joined again, is the name
         var nodeKeys = key.Path.Chunk(2).Select(pair => string.Join('/', pair));
         string.Join('/', nodeKeys.Append(IndexKeys.LeafName(key.Template, key.Variable))).Should().Be(name);
@@ -120,6 +129,6 @@ public class IndexKeysTests
         key.Path.Should().Equal(path);
         key.Template.Should().Be(template);
         key.Variable.Should().Be(variable);
-        key.ToName().Should().Be(name);
+        ToName(key).Should().Be(name);
     }
 }
