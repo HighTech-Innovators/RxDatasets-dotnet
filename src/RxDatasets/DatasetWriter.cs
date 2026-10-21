@@ -124,7 +124,17 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
 
             if (_index.AliasDefinitionsHash != _aliasDefinitionsHash)
+            {
+                // A rebuild without definitions would drop every alias; keep failing until the host registers them
+                if (_aliasDefinitions.Count == 0)
+                {
+                    throw new InvalidOperationException($"Dataset {typeof(T).Name} stores aliases (hash "
+                        + $"{_index.AliasDefinitionsHash}) but this host registers no alias definitions; register them "
+                        + "(AddDatasetAliases) before writing");
+                }
+
                 await RebuildAliases(_index);
+            }
 
             _logger.LogInformation($"Initialized DatasetWriter {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }

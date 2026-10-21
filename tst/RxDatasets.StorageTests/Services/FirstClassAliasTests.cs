@@ -65,8 +65,10 @@ public class FirstClassAliasTests
     /// once it is ready; with the synchronous hub it is ready only after the writer, so such a start uses the
     /// asynchronous hub of a real host.
     /// </param>
+    /// <param name="logger">The writer's logger.</param>
+    /// <param name="initializes">Whether to wait for the writer to initialize.</param>
     private async Task<DatasetReaderWriter<object>> StartWriter(AliasDefinition[]? definitions = null, bool coalescing = false,
-        bool rebuilds = false)
+        bool rebuilds = false, ILogger<DatasetWriter<object>>? logger = null, bool initializes = true)
     {
         _hub = rebuilds ? new NotificationsHub<object>() : new NotificationsHubSync<object>();
         var storageReader =
@@ -75,13 +77,14 @@ public class FirstClassAliasTests
             _storage, _hub, storageReader, false);
         var aliasOptions = new AliasOptions<object>();
         aliasOptions.Definitions.AddRange(definitions ?? Definitions);
-        var writer = new DatasetReaderWriter<object>(_hub, Mock.Of<ILogger<DatasetWriter<object>>>(), _provider,
+        var writer = new DatasetReaderWriter<object>(_hub, logger ?? Mock.Of<ILogger<DatasetWriter<object>>>(), _provider,
             Options.Create(new WriterConfig { EnableWriteCoalescing = coalescing }), Options.Create(aliasOptions));
 
         await _provider.StartAsync(CancellationToken.None);
         while (writer.InitializationTask == null)
             await Task.Delay(10);
-        await writer.InitializationTask.WaitAsync(TimeSpan.FromSeconds(10));
+        if (initializes)
+            await writer.InitializationTask.WaitAsync(TimeSpan.FromSeconds(10));
         return writer;
     }
 
@@ -346,6 +349,39 @@ public class FirstClassAliasTests
         _storage.DataReads.Should().Be(0);
         restartedAgain.GetLatestVersion().Should().Be(version + 1);
         restartedAgain.ResolveAlias(ExternalId, "E2").Should().Be(L2);
+    }
+
+    [Fact]
+    public async Task AHostWithoutDefinitions_DoesNotStart_OnADatasetWithAliases()
+    {
+        var writer = await StartWriter();
+        await writer.Put(L1, Payload(Esl(B1)), null, null);
+        var version = writer.GetLatestVersion();
+        var logger = new Mock<ILogger<DatasetWriter<object>>>();
+
+        var withoutDefinitions = await StartWriter([], rebuilds: true, logger: logger.Object, initializes: false);
+        await Task.Delay(200);
+
+        withoutDefinitions.InitializationTask!.IsCompleted.Should().BeFalse("it keeps retrying");
+        logger.Verify(l => l.Log(LogLevel.Critical, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(),
+            It.Is<InvalidOperationException>(e => e.Message.Contains("registers no alias definitions")),
+            It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.AtLeastOnce);
+        (await _provider.ListVersions()).NewestDelta.Should().Be(version, "the aliases aren't dropped");
+        (await StartWriter()).ResolveAlias(StoreEsl, B1).Should().Be(L1);
+    }
+
+    [Fact]
+    public async Task ADatasetWithoutAliases_NeedsNoDefinitions_AndNoRebuild()
+    {
+        var writer = await StartWriter([]);
+        await writer.Put(L1, Payload(Esl(B1)), null, null);
+        var version = writer.GetLatestVersion();
+
+        var restarted = await StartWriter([]);
+
+        restarted.GetLatestVersion().Should().Be(version);
+        (await _provider.ListVersions()).NewestDelta.Should().Be(version);
+        (await ReadDelta(version)).AliasDefinitionsHash.Should().BeEmpty();
     }
 
     [Fact]
