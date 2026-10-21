@@ -891,9 +891,8 @@ public abstract class StorageTestSpec
         waitChangedListTask.Status.Should().Be(TaskStatus.WaitingForActivation);
         await cancellationTokenSource.CancelAsync();
 
-        await Task.Delay(TimeSpan.FromSeconds(0.2)); //wait to return from listTask
-
-        waitChangedListTask.Status.Should().Be(TaskStatus.Canceled);
+        Func<Task> waitForCancellation = () => waitChangedListTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await waitForCancellation.Should().ThrowAsync<OperationCanceledException>();
     }
 
     [Fact]

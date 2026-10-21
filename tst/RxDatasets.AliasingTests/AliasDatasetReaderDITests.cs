@@ -62,9 +62,6 @@ public class AliasDatasetReaderDITests
         aliasReader.Should().NotBeNull("alias reader should be registered with name 'prod-aliases'");
         aliasReader.Should().BeOfType<AliasDatasetReader<TestEntity>>();
 
-        // Wait a bit for initialization
-        await Task.Delay(100);
-
         // Verify the alias reader works
         var result = await aliasReader!.Get("prod-product-1");
         result.Should().NotBeNull("alias should resolve");
@@ -106,9 +103,6 @@ public class AliasDatasetReaderDITests
         stagingReader.Should().NotBeNull("staging alias reader should be registered");
         prodReader.Should().NotBeNull("production alias reader should be registered");
         stagingReader.Should().NotBeSameAs(prodReader, "each alias reader should be a separate instance");
-
-        // Wait for initialization
-        await Task.Delay(100);
 
         // Both should work independently
         var stagingResult = await stagingReader!.Get("shared-product");
@@ -188,9 +182,6 @@ public class AliasDatasetReaderDITests
         aliasReader.Should().NotBeNull("alias reader should be available");
         directReader.Should().Be(dataset, "direct reader should be the dataset itself");
 
-        // Wait for alias reader initialization
-        await Task.Delay(100);
-
         // Both should work, but in different ways
         // Direct reader requires knowing the primary ID
         var directResult = await directReader!.Get("relation/3");
@@ -250,9 +241,6 @@ public class AliasDatasetReaderDITests
         reader1.Should().NotBeSameAs(reader2, "different readers should be different instances");
         reader2.Should().NotBeSameAs(reader3, "different readers should be different instances");
         reader1.Should().NotBeSameAs(reader3, "different readers should be different instances");
-
-        // Wait for all readers to initialize
-        await Task.Delay(100);
 
         // All should work
         var result1 = await reader1!.Get("test-alias");

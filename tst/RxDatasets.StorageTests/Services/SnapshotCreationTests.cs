@@ -73,28 +73,12 @@ public class SnapshotCreationPluginTests
         const ulong howManyDeltasToCreate = 4ul;
         await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
 
-        // Wait for the time-based snapshot to be created
-        for (var i = 0; i < 50; i++)
-        {
-            var (_, _, s) = await storageProvider.ListVersions();
-            if (s.Count >= 1) break;
-            await Task.Delay(100);
-        }
-
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
         snapshots.Count.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
         // Taken right after the first delta, so the next one is scheduled an hour later; taken later, nothing is
         snapshots.Single().Version.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
         scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4, currently nothing happens
-
-        // The snapshot is created by the background service, which may not have run yet: wait for it
-        for (var i = 0; i < 50; i++)
-        {
-            var (_, _, s) = await storageProvider.ListVersions();
-            if (s.Count >= 2) break;
-            await Task.Delay(100);
-        }
 
         (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
         snapshots.Count.Should().Be(2, Describe(scheduler, newestDelta, snapshots));

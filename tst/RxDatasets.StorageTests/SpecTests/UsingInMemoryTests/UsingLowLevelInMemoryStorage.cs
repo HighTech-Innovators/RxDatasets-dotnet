@@ -70,9 +70,9 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         // Act
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
         var latestSnapshot = snapshotVersions[^1];
 
         // Assert
@@ -89,14 +89,14 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Act — write enough deltas to guarantee at least 2 snapshots, then PutAll to delete everything
         // and trigger one more snapshot that captures the all-deleted state
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        var preDeleteSnapshots = await WaitForSnapshotVersionsAtLeast(2);
+        var preDeleteSnapshots = await AssertSnapshotVersionsAtLeast(2);
 
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
         // Write more deltas to guarantee another snapshot that includes the PutAll delete state
         await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
-        var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
+        var allSnapshots = await AssertSnapshotVersionsAtLeast(3);
         var deleteAllSnapshot = allSnapshots[^1];
 
         // Assert — the latest snapshot should only contain deleted entities for the original
@@ -114,13 +114,13 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
 
         // Act — write enough deltas to guarantee snapshots, then PutAll + more deltas to trigger a snapshot
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        await WaitForSnapshotVersionsAtLeast(2);
+        await AssertSnapshotVersionsAtLeast(2);
 
         await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
         await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
-        var allSnapshots = await WaitForSnapshotVersionsAtLeast(3);
+        var allSnapshots = await AssertSnapshotVersionsAtLeast(3);
         var latestSnapshot = allSnapshots[^1];
         var previousSnapshot = allSnapshots[^2];
 
@@ -138,10 +138,10 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
         var latestSnapshotVersion = snapshotVersions[^1];
         var previousSnapshotVersion = snapshotVersions[^2];
 
@@ -167,34 +167,20 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
             await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version), null, null);
         }
     }
-    private async Task<List<ulong>> WaitForSnapshotVersionsAtLeast(int minimumSnapshots)
+    // With the synchronous notifications hub a write returns only after the snapshot service has handled it
+    private async Task<List<ulong>> AssertSnapshotVersionsAtLeast(int minimumSnapshots)
     {
         var snapshotPrefix = DatasetHelper.GetObjectNamePrefix<object>(new StorageConfig()) + FolderNames.SnapshotsFolderNameWithSlash;
-
-        for (var i = 0; i < 50; i++)
-        {
-            var snapshotVersions = (await _storage.ListObjects(snapshotPrefix))
-                .Select(s => (ulong)SharedMethods.ExtractNumber(s.ObjectKey))
-                .Where(v => v > 0)
-                .Distinct()
-                .OrderBy(v => v)
-                .ToList();
-
-            if (snapshotVersions.Count >= minimumSnapshots)
-                return snapshotVersions;
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
-        }
-
-        var latestSnapshotVersions = (await _storage.ListObjects(snapshotPrefix))
+        var snapshotVersions = (await _storage.ListObjects(snapshotPrefix))
             .Select(s => (ulong)SharedMethods.ExtractNumber(s.ObjectKey))
             .Where(v => v > 0)
             .Distinct()
             .OrderBy(v => v)
             .ToList();
 
-        Assert.Fail($"Expected at least {minimumSnapshots} snapshots, got {latestSnapshotVersions.Count}");
-        return latestSnapshotVersions;
+        snapshotVersions.Count.Should().BeGreaterThanOrEqualTo(minimumSnapshots,
+            $"snapshots [{string.Join(", ", snapshotVersions)}]");
+        return snapshotVersions;
     }
 
     [Fact]
@@ -204,10 +190,10 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
         var latestSnapshotVersion = snapshotVersions[^1];
         var previousSnapshotVersion = snapshotVersions[^2];
 
@@ -232,10 +218,10 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
-        await WaitForSnapshotVersionsAtLeast(1);
+        await AssertSnapshotVersionsAtLeast(1);
 
         await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
-        var snapshotVersions = await WaitForSnapshotVersionsAtLeast(2);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
         var latestSnapshotVersion = snapshotVersions[^1];
         var previousSnapshotVersion = snapshotVersions[^2];
 

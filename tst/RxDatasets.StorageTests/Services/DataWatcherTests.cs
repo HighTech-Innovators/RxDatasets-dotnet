@@ -1,3 +1,4 @@
+using FluentAssertions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,7 +37,7 @@ public class DataWatcherTests : IAsyncLifetime
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
-        await WaitForSnapshot(1);
+        await AssertSnapshot(1);
 
         using CancellationTokenSource cts = new(TestTimeout);
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
@@ -61,7 +62,7 @@ public class DataWatcherTests : IAsyncLifetime
 
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
-        await WaitForSnapshot(1);
+        await AssertSnapshot(1);
         using CancellationTokenSource cts = new(TestTimeout);
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
 
@@ -89,12 +90,11 @@ public class DataWatcherTests : IAsyncLifetime
         // Arrange
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
 
-        // The snapshot service snapshots right after the first delta, and then every 5 deltas. Waiting for each
-        // snapshot before writing more pins them to versions 1 and 6; otherwise a slow snapshot run lands later, and
-        // the watcher never reports version 7, which this test waits for.
+        // The snapshot service snapshots right after the first delta, and then every 5 deltas: at versions 1 and 6.
+        // The watcher starts from the snapshot at 6 and reports the deltas after it, up to version 7, which ends it.
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
-        await WaitForSnapshot(1);
+        await AssertSnapshot(1);
 
         const string testAddUpdateDeleted = "Test2";
         await datasetWriter.Put(testAddUpdateDeleted, [1], null, null);
@@ -104,7 +104,7 @@ public class DataWatcherTests : IAsyncLifetime
         var testAddUpdate3Times = "Test3";
         await datasetWriter.Put(testAddUpdate3Times, [1], null, null);
         await datasetWriter.Put(testAddUpdate3Times, [2], null, null);
-        await WaitForSnapshot(6);
+        await AssertSnapshot(6);
         await datasetWriter.Put(testAddUpdate3Times, [3], null, null);
         await datasetWriter.Put(testAddUpdate3Times, [4], null, null);
         using CancellationTokenSource cts = new(TestTimeout);
@@ -126,21 +126,12 @@ public class DataWatcherTests : IAsyncLifetime
         datasetObserver.Verify(o => o.OnDatasetVersionEnd(7), Times.Once);
     }
 
-    private async Task WaitForSnapshot(ulong version)
+    private async Task AssertSnapshot(ulong version)
     {
-        var deadline = DateTime.UtcNow + TestTimeout;
-        while (true)
-        {
-            var (_, _, snapshots) = await _storageProvider.ListVersions();
-            if (snapshots.Any(s => s.Version == version))
-                return;
-
-            if (DateTime.UtcNow > deadline)
-                throw new TimeoutException(
-                    $"No snapshot at version {version}; snapshots: [{string.Join(", ", snapshots.Select(s => s.Version))}]");
-
-            await Task.Delay(10);
-        }
+        // With the synchronous notifications hub a write returns only after the snapshot service has handled it
+        var (_, _, snapshots) = await _storageProvider.ListVersions();
+        snapshots.Select(s => s.Version).Should().Contain(version,
+            $"snapshots [{string.Join(", ", snapshots.Select(s => s.Version))}]");
     }
 
     private async Task<(DatasetWriter<object> datasetWriter, Mock<IDatasetObserver<object>> datasetObserver, DatasetWatcher<object> datasetWatcher)> SetupWatcher()
