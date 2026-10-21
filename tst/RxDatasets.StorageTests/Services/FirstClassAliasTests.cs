@@ -179,6 +179,23 @@ public class FirstClassAliasTests
         writer.ResolveAlias(Sic, "1234").Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteChildren_ReleasesTheAliasesOfTheEntitiesItDeletes(bool coalescing)
+    {
+        const string otherStoresLink = "t/T/s/X/links/L9";
+        var writer = await StartWriter(coalescing: coalescing);
+        await writer.PutMany(Puts((L1, Payload(Esl(B1))), (L2, Payload(Esl(B2))), (otherStoresLink, Payload(Esl(B3)))));
+
+        await writer.DeleteChildren("t/T/s/S", null, null);
+        await writer.Put(L3, Payload(Esl(B1)), null, null);
+
+        writer.ResolveAlias(StoreEsl, B1).Should().Be(L3);
+        writer.ResolveAlias(StoreEsl, B2).Should().BeNull();
+        writer.ResolveAlias(StoreEsl, B3).Should().Be(otherStoresLink);
+    }
+
     [Fact]
     public async Task PutAll_MayGiveTheAliasOfAnEntityItImplicitlyDeletes_ToAnother()
     {
@@ -409,6 +426,13 @@ public class FirstClassAliasTests
         rebuilt.ResolveAlias(ExternalId, "A").Should().BeNull();
         rebuilt.GetEntityAliases(L2).Should().Equal((ExternalId, "Y"));
         Interlocked.Read(ref conflicts).Should().Be(1);
+
+        // Sent again unchanged, the loser keeps the set it owns; evaluating it again would conflict with L1
+        await rebuilt.PutMany(Puts((L2, Payload("old=A", "new=X", "new=Y"))));
+        await rebuilt.PutAll(Puts((L2, Payload("old=A", "new=X", "new=Y")), (L1, Payload("old=B", "new=X"))));
+
+        rebuilt.ResolveAlias(ExternalId, "X").Should().Be(L1);
+        rebuilt.GetEntityAliases(L2).Should().Equal((ExternalId, "Y"));
     }
 
     [Fact]
@@ -479,6 +503,29 @@ public class FirstClassAliasTests
                 (B1, L1, ChangeType.Deleted, "move"),
                 (B2, L1, ChangeType.New, "move"),
                 (B2, L1, ChangeType.Deleted, "delete"));
+    }
+
+    [Fact]
+    public async Task Reporting_SendsTheAliasChangesOfARebuild()
+    {
+        var writer = await StartWriter([Definition(ExternalId, "old", "v1")]);
+        await writer.Put(L1, Payload("old=A", "new=X"), "put", null);
+        await StartWriter([Definition(ExternalId, "new", "v2")], rebuilds: true);
+
+        var reporter = new Mock<IDatasetUpdateReporting<object>>();
+        reporter.Setup(r => r.OpenDeltaTransaction(It.IsAny<ulong>())).ReturnsAsync((object?)null);
+        reporter.SetupGet(r => r.ReportingIdentifier).Returns("test");
+        var plugin = new DatasetUpdateReportingPlugin<object, IDatasetUpdateReporting<object>>(_provider,
+            Mock.Of<ILogger<DatasetUpdateReportingPlugin<object, IDatasetUpdateReporting<object>>>>(), reporter.Object);
+
+        await plugin.HandleNewDeltas(CancellationToken.None);
+
+        reporter.Invocations.Where(i => i.Method.Name == nameof(IDatasetUpdateReporting<object>.OnAliasChanged))
+            .Select(i => ((string)i.Arguments[1], (string)i.Arguments[2], (ChangeType)i.Arguments[3], (string?)i.Arguments[4]))
+            .Should().Equal(
+                ("A", L1, ChangeType.New, "put"),
+                ("A", L1, ChangeType.Deleted, null),
+                ("X", L1, ChangeType.New, null));
     }
 
     private async Task CreateSnapshot()
