@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RxDatasets;
 using RxDatasets.BackgroundServices;
+using RxDatasets.Reporting.Cqs;
 using RxDatasets.StorageProvider.S3;
 
 namespace Host;
@@ -12,7 +13,14 @@ public static class DI
     public static void ConfigureServices(IServiceCollection builderServices)
     {
         RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
-        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>().WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup().Build(ReadinessTags);
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.DemodtoV1.Demodto>()
+            .WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup()
+            .WithCqsReporting().Build(ReadinessTags);
+
+        RxDatasets.Demodto2V1.Server.DI.ConfigureServices(builderServices);
+        builderServices.AddDtoServer<Hightechinnovators.Dtos.Demodto2V1.Demodto2>()
+            .WithS3Storage().WithDistributedLock().WithCache().WithSnapshot().WithCleanup()
+            .WithCqsReporting().Build(ReadinessTags);
 
         //new testdto
         //RxDatasets.DemodtoV1.Server.DI.ConfigureServices(builderServices);
@@ -29,6 +37,7 @@ public static class DI
     public static void ConfigureApp(WebApplication app)
     {
         RxDatasets.DemodtoV1.Server.DI.ConfigureApp(app);
+        RxDatasets.Demodto2V1.Server.DI.ConfigureApp(app);
         RxDatasets.TestdtoV1.Server.DI.ConfigureApp(app);
 
         app.MapGrpcReflectionService();
