@@ -275,7 +275,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     /// <param name="sourceStream"></param>
     /// <param name="relative"></param>
     /// <returns>The 'relative' value</returns>
-    private static long SeekForwardBy(Stream sourceStream, long relative)
+    internal static long SeekForwardBy(Stream sourceStream, long relative)
     {
         switch (relative)
         {

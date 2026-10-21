@@ -2,13 +2,23 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
+using RxDatasets.Models;
 
 namespace RxDatasets.InMemoryDataset;
 
 public record DatasetVersionUpdate(ulong NewDatasetVersion, ulong PreviousDatasetVersion);
 
-public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
+/// <summary>
+/// A dataset in memory, for tests. Checks aliases exactly like <see cref="DatasetWriter{T}"/>, with the same
+/// <see cref="AliasStaging"/>, and keeps them in an index of its own.
+/// </summary>
+public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions = null)
+    : IDatasetReader<T>, IDatasetWriter<T>, IAliasIndex
 {
+    private readonly IReadOnlyList<AliasDefinition> _aliasDefinitions = aliasDefinitions ?? [];
+    private readonly string _aliasDefinitionsHash = AliasOptions<T>.HashOf(aliasDefinitions ?? []);
+    private ImmutableDatasetState _aliasIndex = ImmutableDatasetState.Empty(0, 0);
     private readonly SemaphoreSlim _semaphore = new(1);
     private ulong LatestVersion => _deltas.LastOrDefault()?.DatasetVersion ?? 0;
     private readonly Dictionary<string, byte[]> _currentSnapshot = [];
@@ -20,8 +30,10 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         using var slot = await _semaphore.LockAsync(ct);
         if (!_currentSnapshot.ContainsKey(name))
             return new IDatasetWriter<T>.WriteResponse { NewDatasetVersion = LatestVersion };
+        var staging = NewAliasStaging();
+        staging.Release(name);
         var delta = new Delta(new[] { (name, (byte[]?)null, ChangeType.Deleted) }, LatestVersion + 1);
-        ApplyDelta(delta);
+        ApplyDelta(delta, staging);
         return WriteResponseFor(delta);
     }
 
@@ -29,11 +41,13 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
     {
         using var slot = await _semaphore.LockAsync(ct);
         var changes = new Dictionary<string, (string Name, byte[]? Entity, ChangeType Change)>();
+        var staging = NewAliasStaging();
 
         await foreach (var (name, _, _) in names.WithCancellation(ct))
         {
             if (_currentSnapshot.TryGetValue(name, out _))
                 changes[name] = (name, null, ChangeType.Deleted);
+            staging.Release(name);
         }
 
         if (changes.Count == 0)
@@ -43,7 +57,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
         // Create delta and apply it
         var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
-        ApplyDelta(theDelta);
+        ApplyDelta(theDelta, staging);
 
         return WriteResponseFor(theDelta);
     }
@@ -75,8 +89,11 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
 
         var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted)).ToArray();
+        var staging = NewAliasStaging();
+        foreach (var name in deletedNames)
+            staging.Release(name);
         var delta = new Delta(deleteChanges, LatestVersion + 1);
-        ApplyDelta(delta);
+        ApplyDelta(delta, staging);
         return WriteResponseFor(delta);
     }
 
@@ -96,7 +113,9 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
             delta = new Delta(new[] { (name, newEntity, ChangeType.Changed) }, LatestVersion + 1);
         }
 
-        ApplyDelta(delta);
+        var staging = NewAliasStaging();
+        staging.Put(name, newEntity);
+        ApplyDelta(delta, staging);
         return WriteResponseFor(delta);
     }
 
@@ -143,6 +162,9 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
 
         // Track final state per entity - last operation wins
         var entityFinalStates = new Dictionary<string, (uint crc32, byte[] bytes)?>();
+        var staging = NewAliasStaging();
+        if (performImplicitDeletes && !includeParents)
+            staging.ReleaseAll();
 
         await foreach (var (name, entityBytes, trackingId, slaTimestamp) in entities.WithCancellation(ct))
         {
@@ -151,8 +173,14 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
                 var parent = DatasetHelper.FindParentOfEntity(name);
                 if (string.IsNullOrEmpty(parent))
                     continue;
-                allParents.Add(parent);
+                if (allParents.Add(parent))
+                    staging.ReleaseChildren(parent);
             }
+
+            if (entityBytes == null)
+                staging.Release(name);
+            else
+                staging.Put(name, entityBytes);
 
             receivedNames.Add(name);
 
@@ -229,7 +257,7 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
         }
 
         var theDelta = new Delta(changes.Values.ToArray(), LatestVersion + 1);
-        ApplyDelta(theDelta);
+        ApplyDelta(theDelta, staging);
         return WriteResponseFor(theDelta);
     }
 
@@ -471,9 +499,33 @@ public class InMemoryDataset<T> : IDatasetReader<T>, IDatasetWriter<T>
             NumDeletedEntities = (uint)delta.Changes.Count(ch => ch.Change == ChangeType.Deleted),
         };
 
-    private void ApplyDelta(Delta delta)
+    private AliasStaging NewAliasStaging() => new(_aliasIndex, _aliasDefinitions, _aliasDefinitionsHash);
+
+    public string? ResolveAlias(string aliasName, string alias) => _aliasIndex.ResolveAlias(aliasName, alias);
+
+    public (IReadOnlyList<string> Aliases, ulong Version) ListAliases(string aliasName, string prefix)
+    {
+        var index = _aliasIndex;
+        return (index.ListAliases(aliasName, prefix), index.LatestVersion);
+    }
+
+    private void ApplyDelta(Delta delta, AliasStaging staging)
     {
         var fromVersion = LatestVersion;
+
+        // The same index the real writer keeps, without the data positions: it holds the aliases
+        var deltaIndex = new DeltaIndex { DeltaVersion = delta.DatasetVersion };
+        foreach (var (name, entity, change) in delta.Changes)
+        {
+            if (change == ChangeType.Deleted)
+                deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name });
+            else
+                (change == ChangeType.New ? deltaIndex.NewEntities : deltaIndex.ChangedEntities)
+                    .Add(new DeltaEntity { Name = name, Crc32 = DatasetHelper.ComputeCrc32(entity) });
+        }
+
+        staging.AttachTo(deltaIndex);
+        _aliasIndex = _aliasIndex.ApplyDelta(deltaIndex);
 
         _deltas.Add(delta);
         NotifyDeltaUpdate();
