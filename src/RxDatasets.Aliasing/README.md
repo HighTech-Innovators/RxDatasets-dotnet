@@ -1,209 +1,79 @@
-# DatasetAlias - Alias-Based Entity Reader
+# RxDatasets.Aliasing - looking entities up by alias
 
 ## Overview
 
-`DatasetAlias` provides a generic `IDatasetReader<T>` wrapper implementation that allows querying entities by their aliases in addition to their primary IDs. This is particularly useful for scenarios where entities can be referenced by multiple alternative identifiers.
+An alias is another name for an entity, computed from its data: for example the ESL a link is on
+(`t/{tenantid}/s/{storeid}/esls/{barcode}/link`). Each alias name of a dataset maps its alias values to entities.
 
-## Key Features
+Aliases are part of the dataset index:
 
-- **Bidirectional Mapping**: Maintains automatic mappings between aliases and entity IDs
-- **Transparent Alias Resolution**: Queries using aliases are automatically translated to the primary entity ID
-- **Background Synchronization**: Continuously synchronizes with the upstream reader to stay current with entity changes
-- **Generic Implementation**: Works with any protobuf message type `T`
-- **Dependency Injection**: Integrates seamlessly with ASP.NET Core DI container via keyed services
-- **Multiple Alias Types**: Supports multiple different alias "names" per DTO type, each registered separately
+- **Checked on write.** An alias value is unique within its alias name. The writer evaluates the aliases of every
+  put, in the order the operations arrive, and rejects a write that would leave an alias owned by two live entities
+  with `AliasConflictException` (nothing of the write is stored). A payload the alias factory can't evaluate is
+  rejected with `ArgumentException`.
+- **Stored in the index.** Deltas store each entity's added and removed aliases, snapshots each entity's full set.
+  Nothing is stored or read beyond the index files that are written and read anyway.
+- **Read with the index.** `DatasetReader`, `DatasetReaderWriter` and `InMemoryDataset` implement `IAliasIndex`, from
+  the same state as their entities. With `WithSharedReaderWriter()` an alias resolves as soon as the write that
+  claimed it returns; a read-only replica resolves exactly the aliases of the version it is at.
 
-## Architecture
+### Moving an alias to another entity
 
-### AliasDatasetReader<T>
+Free it first: delete the old owner, or change it to no longer have the alias, either earlier in the same
+`PutOrDeleteMany` or in an earlier request. Freeing it later in the same request does not count. `PutAll` and
+`PutAllChildren` free the aliases of the entities they replace before the first item is checked.
 
-The core implementation class that wraps an existing `IDatasetReader<T>`:
+This is stricter than a last-writer-wins store: a client that relied on taking over an alias now gets a conflict.
 
-```csharp
-public class AliasDatasetReader<T> : IDatasetReader<T>
-    where T : class, IMessage<T>, new()
-```
+### Changing the alias definitions
 
-#### Key Components
+Every delta and snapshot carries a hash of the alias definitions. When a writer starts with other definitions than the
+stored hash, it recomputes the aliases of all entities from the data (one sequential pass) before it reports ready, and
+stores the result as one delta. An alias that now comes out on more than one entity goes to the entity with the
+newest version, then the lowest name; the others lose just that alias. Such conflicts are logged and counted in the
+`rxdatasets.aliases.rebuild_conflicts` metric (meter `RxDatasets.Aliases`).
 
-1. **Alias Factory Function**: 
-   - Signature: `Func<ReadOnlyMemory<byte>, IEnumerable<string>>`
-   - Converts raw entity bytes to a list of aliases for that entity
-   - Called during initialization and on each entity update
+## Registration
 
-2. **Internal Mappings**:
-   - `_aliasToIdMap`: Maps each alias → original entity ID (for lookups)
-   - `_idToAliasesMap`: Maps each entity ID → list of its aliases (for updates/deletes)
-   - `_knownIds`: Tracks which entity IDs exist
-
-3. **Initialization**:
-   - Loads all entities from version 0 via `GetChangedNames(0)`
-   - Builds the complete alias mapping
-   - Calls `StartInitialization()` method to trigger background sync
-
-4. **Background Sync**:
-   - Continuously monitors `WaitChangedNames()` for upstream changes
-   - Updates alias mappings when entities are created or modified
-   - Removes aliases when entities are deleted
-   - Auto-reconnects on failures with 5-second retry delay
-
-## Usage
-
-### Registration
-
-Register an alias reader in DI container for a specific DTO type and alias name:
+From the alias patterns of the DTO (as in the DTOflow templates):
 
 ```csharp
-services.AddDatasetAlias<Link>(
-    aliasName: "byitem",
-    aliasFactory: entityBytes =>
-    {
-        // Deserialize entity and extract alias list
-        var link = new Link();
-        link.MergeFrom(entityBytes);
-        
-        // Return list of aliases for this link
-        return link.GetItemAliases(); // custom logic
-    }
-);
-
-// Multiple alias types can be registered
-services.AddDatasetAlias<Link>(
-    aliasName: "bybarcode",
-    aliasFactory: entityBytes =>
-    {
-        var link = new Link();
-        link.MergeFrom(entityBytes);
-        return link.GetBarcodeAliases();
-    }
-);
+services.AddDatasetAliases<Link>(
+    Link.Parser,
+    ["t/{tenantid}/s/{storeid}/links/{linkid}"],
+    ("by_storeesl", "{.id/[..4]}/esls/{.single.esl.barcode}/link"),
+    ("by_item", "t/{tenantid}/s/{storeid}/items/{.single.linked_item.item_id}/links/{linkid}"));
 ```
 
-### Retrieval
-
-Get the alias reader from the service provider:
+Or with a factory of your own, which gets the entity name and its bytes, and throws on bytes it can't evaluate. The
+definition hash must change whenever the factory would give other aliases:
 
 ```csharp
-var aliasReader = serviceProvider.GetDatasetReader<Link>("byitem");
-
-// Query by alias (automatically resolved to primary ID)
-var link = await aliasReader.Get("some-alias");
-
-// Batch queries work too
-var links = await aliasReader.BatchGet(new[] { "alias1", "alias2" });
+services.AddDatasetAlias<Link>("by_storeesl",
+    (name, bytes) => [AliasOf(Link.Parser.ParseFrom(bytes.Span))],
+    definitionHash: "by_storeesl-v1");
 ```
 
-### Alias Factory Implementation
+The order of registration doesn't matter: the dataset's writer reads the definitions from `AliasOptions<T>`.
 
-The alias factory function receives raw protobuf bytes and should return a collection of aliases:
+## Reading
 
 ```csharp
-Func<ReadOnlyMemory<byte>, IEnumerable<string>> factory = entityBytes =>
-{
-    var entity = new MyDtoType();
-    entity.MergeFrom(entityBytes);
-    
-    // Extract aliases from entity
-    // Example: a Link might have aliases based on item IDs
-    var aliases = new List<string>();
-    
-    if (entity.Single?.LinkedItem != null)
-    {
-        aliases.Add($"item/{entity.Single.LinkedItem.ItemId}");
-    }
-    
-    return aliases;
-};
+var byStoreEsl = serviceProvider.GetDatasetReader<Link>("by_storeesl");
+var link = await byStoreEsl.Get("t/T/s/S/esls/B1/link");
+var links = await byStoreEsl.BatchGet(["t/T/s/S/esls/B1/link", "t/T/s/S/esls/B2/link"]);
+var (aliases, version) = await byStoreEsl.List("t/T/s/S/esls");
 ```
 
-## Proto Example
+`AliasDatasetReader<T>` is a thin view: it resolves aliases through the dataset reader's `IAliasIndex` and gets the
+entities from the dataset reader. `List` and `CountChildren` return the aliases below a parent alias; history is not
+available by alias.
 
-From `link.v1.proto`, aliases are documented as:
+`serviceProvider.GetAliasesFor(entityId, dto)` returns the (alias name, alias value) pairs the registered aliases give
+a DTO, and none when they can't be evaluated, for validating requests before the write.
 
-```proto
-message Link {
-    string id = 1;
-    
-    // Multiple alias patterns can be defined
-    // __aliasname__ __aliaspattern__ byitem ...
-    // __aliasname__ __aliaspattern__ bybarcode ...
-    
-    // ... entity structure
-}
-```
+## Change notifications
 
-## Thread Safety
-
-- All internal mappings (`_aliasToIdMap`, `_idToAliasesMap`, `_knownIds`) are protected by a `lock` statement
-- Background sync runs on a separate task to avoid blocking queries
-- Initialization completes before any queries can proceed
-
-## Implementation Details
-
-### Initialization Sequence
-
-1. Constructor creates the reader (not yet initialized)
-2. `StartInitialization()` is called (by DI factory)
-3. Loads all entities from version 0
-4. Builds alias mappings
-5. Starts background sync task
-6. Sets initialization complete
-7. From this point on, queries succeed
-
-### Query Flow
-
-1. User calls `Get(id)` or `BatchGet(ids)`
-2. Waits for initialization if needed
-3. Resolves alias → primary ID
-4. Delegates to upstream reader with primary ID
-5. Returns result
-
-### Background Sync Flow
-
-1. Watches upstream reader for changes via `WaitChangedNames()`
-2. For each changed entity:
-   - Fetches full entity via `Get()`
-   - Removes old aliases if entity already existed
-   - Registers new aliases via alias factory
-3. Updates version pointer and loops
-4. On error: waits 5 seconds and retries
-
-## Limitations
-
-- `List()` and `CountChildren()` operations throw `NotImplementedException` (alias readers focus on ID-based lookups)
-- Only supports querying by alias/ID - does not support hierarchical listing
-- Changes are only visible via the main reader's `WaitChangedNames()`, not through the alias reader
-
-## Dependencies
-
-- `Google.Protobuf` - Protobuf message support
-- `HighTechInnovators.RxDatasets.Abstractions` - IDatasetReader interface
-- `Microsoft.Extensions.DependencyInjection` - DI integration
-- `Microsoft.Extensions.Logging` - Logging support
-
-## Thread-Safety and Concurrency
-
-The implementation is thread-safe for concurrent reads and updates:
-
-- All mapping operations are locked
-- Background sync runs independently without blocking queries
-- Read operations (`Get`, `BatchGet`) check out the lock only briefly for resolution
-- Initialization is guarded by a `TaskCompletionSource`
-
-## Error Handling
-
-- Invalid aliases return `null` or empty collections
-- Failed entity loads during initialization are logged as warnings, not fatal
-- Background sync failures are logged and trigger automatic retry
-- Missing `StartInitialization()` call raises `InvalidOperationException`
-
-## Logging
-
-The implementation logs at various levels:
-
-- `Information`: Initialization started/completed, sync started/stopped
-- `Debug`: Alias registration/removal, query resolution, entity updates
-- `Warning`: Failed entity loads, processing errors
-- `Error`: Fatal initialization errors
-
-Debug logs can be valuable for troubleshooting alias resolution issues.
+`DatasetUpdateReportingPlugin` calls `IDatasetUpdateReporting<T>.OnAliasChanged` for every alias an entity gains
+(`ChangeType.New`) or loses (`ChangeType.Deleted`), also when the entity is deleted and when a definitions change
+recomputes the aliases.
