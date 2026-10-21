@@ -48,6 +48,9 @@ public sealed class AliasStaging(
     /// <summary>Frees the aliases of every entity, for a write that replaces the whole dataset.</summary>
     public void ReleaseAll()
     {
+        if (definitions.Count == 0)
+            return;
+
         foreach (var (name, _) in state.EnumerateAll(where: HasAliases))
             Release(name);
     }
@@ -55,6 +58,9 @@ public sealed class AliasStaging(
     /// <summary>Frees the aliases of the direct children of <paramref name="parent"/>, for a write that replaces them.</summary>
     public void ReleaseChildren(string parent)
     {
+        if (definitions.Count == 0)
+            return;
+
         foreach (var (name, _) in state.EnumerateAll(parent, HasAliases))
         {
             if (DatasetHelper.FindParentOfEntity(name) == parent)
@@ -179,7 +185,9 @@ public static class AliasMetrics
     public const string MeterName = "RxDatasets.Aliases";
     private static readonly Meter Meter = new(MeterName);
 
-    /// <summary>Aliases that a rebuild after changed alias definitions found on more than one entity, and took from all but one.</summary>
+    /// <summary>
+    /// Aliases that a rebuild after changed alias definitions found on more than one entity, and took from all but one.
+    /// </summary>
     public static readonly Counter<long> RebuildConflicts = Meter.CreateCounter<long>("rxdatasets.aliases.rebuild_conflicts",
         description: "Aliases claimed by more than one entity when the aliases were recomputed for changed definitions");
 }

@@ -38,7 +38,8 @@ public class FirstClassAliasTests
     private static readonly AliasDefinition[] Definitions = [Definition(StoreEsl), Definition(Sic)];
 
     private readonly IOptions<StorageConfig> _storageConfig = Options.Create(new StorageConfig());
-    private readonly CountingStorage _storage = new(new LowLevelInMemoryStorage<object>(Mock.Of<ILogger<LowLevelInMemoryStorage<object>>>()));
+    private readonly CountingStorage _storage =
+        new(new LowLevelInMemoryStorage<object>(Mock.Of<ILogger<LowLevelInMemoryStorage<object>>>()));
     private INotificationsHub<object> _hub = null!;
     private ObjectStorageProvider<object> _provider = null!;
 
@@ -68,7 +69,8 @@ public class FirstClassAliasTests
         bool rebuilds = false)
     {
         _hub = rebuilds ? new NotificationsHub<object>() : new NotificationsHubSync<object>();
-        var storageReader = new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), _storageConfig, _storage);
+        var storageReader =
+            new ObjectStorageReader<object>(Mock.Of<ILogger<ObjectStorageReader<object>>>(), _storageConfig, _storage);
         _provider = new ObjectStorageProvider<object>(Mock.Of<ILogger<ObjectStorageProvider<object>>>(), _storageConfig,
             _storage, _hub, storageReader, false);
         var aliasOptions = new AliasOptions<object>();
@@ -86,7 +88,8 @@ public class FirstClassAliasTests
     private async Task<DeltaIndex> ReadDelta(ulong version) =>
         DeltaIndex.Parser.ParseFrom((await _provider.ReadDeltaIndex(version)).Span);
 
-    private static IAsyncEnumerable<(string, byte[]?, string?, DateTimeOffset?)> Changes(params (string Name, byte[]? Bytes)[] changes) =>
+    private static IAsyncEnumerable<(string, byte[]?, string?, DateTimeOffset?)> Changes(
+        params (string Name, byte[]? Bytes)[] changes) =>
         changes.Select(c => (c.Name, c.Bytes, (string?)null, (DateTimeOffset?)null)).ToAsyncEnumerable();
 
     private static IAsyncEnumerable<(string, byte[], string?, DateTimeOffset?)> Puts(params (string Name, byte[] Bytes)[] puts) =>
@@ -488,7 +491,8 @@ public class FirstClassAliasTests
 internal static class AliasTestExtensions
 {
     /// <summary>The aliases an entity owns, from the writer's index.</summary>
-    public static IEnumerable<(string Name, string Value)> GetEntityAliases(this DatasetReaderWriter<object> writer, string name) =>
+    public static IEnumerable<(string Name, string Value)> GetEntityAliases(this DatasetReaderWriter<object> writer,
+        string name) =>
         writer.ListAliases(Sic, "").Aliases.Select(a => (Sic, a))
             .Concat(writer.ListAliases(StoreEsl, "").Aliases.Select(a => (StoreEsl, a)))
             .Concat(writer.ListAliases(ExternalId, "").Aliases.Select(a => (ExternalId, a)))
