@@ -136,8 +136,7 @@ public static class PatternsAndExpressions
             var idVariables = Array.Find(patternInfos, p => p.segmentCount == idSegmentCount).variables ?? [];
             return aliasPatterns
                 .SelectMany(aliasPattern => EvaluateAliasPattern(aliasPattern, idVariables, entity, entityName))
-                .Distinct()
-                .ToList();
+                .ToList(); // AliasStaging.Evaluate drops duplicates
         };
     }
 
