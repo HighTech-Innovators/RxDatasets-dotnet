@@ -180,6 +180,42 @@ Templates and variables are opaque strings to everything except `IndexKeys`. Reg
 onto the tree differently later (for example to also share a literal that the pair rule takes as a variable, like
 `studio` in `t/T/s/S/esls/B/link/studio`) without changing these messages.
 
+## Aliases
+An alias is another name for an entity, under an alias name (like `by_storeesl`), computed from its data by the alias
+definitions the writer is registered with. An alias value is unique within its alias name; one entity may own many.
+The writer rejects a write that would give an alias two live owners, so the stored state never has two.
+
+Aliases are stored in the index files, as diffs in deltas and as full sets in snapshots:
+
+```protobuf
+message AliasRef { string name = 1; string value = 2; } // alias name, alias value
+
+message SnapshotEntity { ...; repeated AliasRef aliases = 8; }         // the full set the entity owns
+message DeltaEntity    { ...; repeated AliasRef added_aliases = 9;
+                              repeated AliasRef removed_aliases = 10; }
+message DeletedEntity  { ...; repeated AliasRef removed_aliases = 5; } // the aliases the delete released
+
+// An alias change without a data change, by the full entity name (written by an alias definitions rebuild)
+message AliasOnlyChange {
+	string name = 1;
+	repeated AliasRef added_aliases = 2;
+	repeated AliasRef removed_aliases = 3;
+}
+
+message DeltaIndex    { ...; repeated AliasOnlyChange alias_changes = 7; string alias_definitions_hash = 8; }
+message SnapshotIndex { ...; string alias_definitions_hash = 3; }
+```
+
+- A delta stores each entity's net change over the whole write. A reader gets an entity's set by applying the deltas
+  in order on top of the snapshot's set, and builds the reverse map (alias → owner, per alias name) from the sets, so
+  no entity data is read for aliases.
+- A deleted entity owns no aliases: whatever it owned is released, also when `removed_aliases` is empty.
+- `alias_definitions_hash` is written on every delta, and copied into a snapshot from the delta it is made at. A
+  dataset without alias definitions has an empty hash. When a writer starts with definitions whose hash differs from
+  the latest one, it reads the data of all entities once, recomputes their aliases, and writes one delta with an
+  `alias_changes` entry for every entity whose set changed, and the new hash. If it crashes before that delta is
+  stored, the next start does it again.
+
 ## DeltaInfo
 - `DeltaInfo.pb`: Storing the metadata about the delta files that are available.
 
