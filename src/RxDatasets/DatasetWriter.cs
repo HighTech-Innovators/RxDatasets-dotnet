@@ -247,6 +247,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             });
         }
 
+        // One range read per entity, as in CopyRelevantItemsFromDeltas; batching them per delta is an option if
+        // first-deploy rebuilds turn out slow
         foreach (var (name, entity) in live.Where(e => e.Value.GetLatestEntityVersion() > index.SnapshotVersion))
         {
             var bytes = await _storageProvider.ReadDataFromSources(
