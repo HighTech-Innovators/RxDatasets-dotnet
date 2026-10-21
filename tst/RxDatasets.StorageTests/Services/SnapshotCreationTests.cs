@@ -40,6 +40,11 @@ public class SnapshotCreationPluginTests
         return (inMemoryStorage, datasetReader, datasetWriter);
     }
 
+    // This test has failed in CI with one snapshot where it expected two; the state helps find out why
+    private static string Describe(TestScheduler scheduler, ulong newestDelta, List<SnapshotType> snapshots) =>
+        $"scheduler time {scheduler.Now:O}, newest delta {newestDelta}, snapshots [" +
+        string.Join(", ", snapshots.OrderBy(s => s.Version).Select(s => $"{s.Version} at {s.DateTime:O}")) + "]";
+
     private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
@@ -78,13 +83,24 @@ public class SnapshotCreationPluginTests
 
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
-        snapshots.Count.Should().Be(1);
+        snapshots.Count.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
+        // Taken right after the first delta, so the next one is scheduled an hour later; taken later, nothing is
+        snapshots.Single().Version.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
         scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4, currently nothing happens
 
+        // The snapshot is created by the background service, which may not have run yet: wait for it
+        for (var i = 0; i < 50; i++)
+        {
+            var (_, _, s) = await storageProvider.ListVersions();
+            if (s.Count >= 2) break;
+            await Task.Delay(100);
+        }
+
         (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        snapshots.Count.Should().Be(2);
-        snapshots.First().Version.Should().Be(oldestDelta);
-        snapshots.Last().Version.Should().Be(newestDelta);
+        snapshots.Count.Should().Be(2, Describe(scheduler, newestDelta, snapshots));
+        var byVersion = snapshots.OrderBy(s => s.Version).ToList();
+        byVersion.First().Version.Should().Be(oldestDelta);
+        byVersion.Last().Version.Should().Be(newestDelta);
         await storageProvider.StoreProcessedVersion("unittest", howManyDeltasToCreate);
     }
 

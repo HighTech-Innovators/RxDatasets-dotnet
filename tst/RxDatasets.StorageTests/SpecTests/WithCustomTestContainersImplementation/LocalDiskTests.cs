@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -12,10 +13,13 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
-public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
+public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IAsyncLifetime
 {
     private readonly IOptions<LocalDiskStorageConfig> _config;
     private readonly LocalDiskStorage<object> _localStorage;
+
+    // Stopped before the test's folder is deleted: still running, they write into it while it is being deleted
+    private readonly List<IHostedService> _startedServices = [];
 
     public LocalDiskDatasetTests()
     {
@@ -43,22 +47,30 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IDisposable
 
         var storageProvider = new ObjectStorageProvider<object>(new Mock<ILogger<ObjectStorageProvider<object>>>().Object, storageConfig, _localStorage, notificationsHub, readOnlyStorage, false);
         storageProvider.StartAsync(CancellationToken.None).Wait();
+        _startedServices.Add(storageProvider);
 
         var writerLogger = new Mock<ILogger<DatasetWriter<object>>>();
 
         var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), storageProvider, notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
+        _startedServices.Add(datasetReader);
         var datasetWriter = new DatasetWriter<object>(notificationsHub, writerLogger.Object, storageProvider, Options.Create(new WriterConfig { }), false);
         var snapshotCreationTaskLogger = new Mock<ILogger<SnapshotCreationPlugin<object>>>();
         var datasetUpdateConsumingServiceLogger = new Mock<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>();
         var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(snapshotCreationTaskLogger.Object, storageProvider, SnapshotsOptions, new TestScheduler());
         var datasetUpdateConsumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(datasetUpdateConsumingServiceLogger.Object, notificationsHub, snapshotCreationPlugin);
         await datasetUpdateConsumingService.StartAsync(CancellationToken.None);
+        _startedServices.Add(datasetUpdateConsumingService);
         return (datasetReader, datasetWriter);
     }
 
-    public void Dispose()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
     {
+        for (var i = _startedServices.Count - 1; i >= 0; i--)
+            await _startedServices[i].StopAsync(CancellationToken.None);
+
         if (Directory.Exists(_config.Value.RootFolder))
             Directory.Delete(_config.Value.RootFolder, true);
     }

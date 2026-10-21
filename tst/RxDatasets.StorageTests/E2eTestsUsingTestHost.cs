@@ -60,7 +60,9 @@ namespace RxDatasets.StorageTests
             });
 
             var healthClient = customFactory.CreateClient();
-            var grpcWebHandler = new GrpcWebHandler(GrpcWebMode.GrpcWebText, customFactory.Server.CreateHandler());
+            // Binary gRPC-Web, as real clients use: with GrpcWebText, a streaming call over the TestServer
+            // intermittently failed decoding its response ("Unexpected end of data when reading base64 content")
+            var grpcWebHandler = new GrpcWebHandler(GrpcWebMode.GrpcWeb, customFactory.Server.CreateHandler());
             var httpClient = customFactory.CreateDefaultClient(grpcWebHandler);
             var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
 
