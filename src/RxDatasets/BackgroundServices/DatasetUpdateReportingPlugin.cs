@@ -76,6 +76,8 @@ namespace RxDatasets.BackgroundServices
                         string.IsNullOrEmpty(newEntity.TrackingId) ? null : newEntity.TrackingId,
                         newEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, newEntity.AddedAliases, newEntity.RemovedAliases, newEntity.TrackingId,
+                        newEntity.SlaTimestamp, optionalState);
                 }
 
                 foreach (var (name, updatedEntity) in deltaIndexParsed.EnumerateChangedEntities())
@@ -87,6 +89,8 @@ namespace RxDatasets.BackgroundServices
                         string.IsNullOrEmpty(updatedEntity.TrackingId) ? null : updatedEntity.TrackingId,
                         updatedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, updatedEntity.AddedAliases, updatedEntity.RemovedAliases,
+                        updatedEntity.TrackingId, updatedEntity.SlaTimestamp, optionalState);
                 }
 
                 foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
@@ -105,6 +109,14 @@ namespace RxDatasets.BackgroundServices
                         string.IsNullOrEmpty(deletedEntity.TrackingId) ? null : deletedEntity.TrackingId,
                         deletedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, [], deletedEntity.RemovedAliases, deletedEntity.TrackingId,
+                        deletedEntity.SlaTimestamp, optionalState);
+                }
+
+                foreach (var change in deltaIndexParsed.AliasChanges)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await ReportAliasChanges(change.Name, change.AddedAliases, change.RemovedAliases, "", null, optionalState);
                 }
 
                 if (optionalState != null)
@@ -126,6 +138,17 @@ namespace RxDatasets.BackgroundServices
                     logger.LogInformation("Rolling back my delta {Version} transaction", deltaVersion);
                     await _reportingImplementation.RollBackDeltaTransaction(optionalState);
                 }
+            }
+        }
+
+        private async Task ReportAliasChanges(string name, IEnumerable<AliasRef> added, IEnumerable<AliasRef> removed,
+            string trackingId, Google.Protobuf.WellKnownTypes.Timestamp? slaTimestamp, object? optionalState)
+        {
+            var changes = removed.Select(alias => (alias, ChangeType.Deleted)).Concat(added.Select(alias => (alias, ChangeType.New)));
+            foreach (var (alias, change) in changes)
+            {
+                await _reportingImplementation.OnAliasChanged(alias.Name, alias.Value, name, change,
+                    string.IsNullOrEmpty(trackingId) ? null : trackingId, slaTimestamp?.ToDateTimeOffset(), optionalState);
             }
         }
 
