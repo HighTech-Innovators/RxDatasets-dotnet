@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+// Consumer-facing pull API of the Change Queue Service (CQS).
+// Renamespaced for the OSS RxDatasets port — the wire contract is a fresh
+// API (package change = new gRPC method paths), NOT wire-compatible with
+// the java reference implementation's proto. That is deliberate: there are
+// no legacy callers in this namespace, so the reference's deprecated unary
+// Dequeue/Acknowledge RPCs are dropped rather than carried forward
+// (recorded in ticket 300).
+//
+// Differences vs. the reference proto, all specced in the tickets:
+//   - package/namespace rename (this file's reason for existing)
+//   - BatchDequeueRequest.worker_id added (ticket 240)
+//   - SelfEnqueue / ReEnqueue included (reconstructed from the reference
+//     implementation's server code; the reference kept them in a separate
+//     shared proto repo)
+//   - deprecated Dequeue/Acknowledge RPCs removed
+
+package hti.rxdatasets.cqs.v1;
+
+option csharp_namespace = "Hti.RxDatasets.Cqs.V1";
+
+import "google/protobuf/timestamp.proto";
+
+// Prioritized, deduplicated stream of change notifications, ordered by
+// earliest sla_timestamp. See tickets 170/180/190/200.
+service DtoChangeQueueService {
+  // Retrieves a batch of up to N change notifications. The first
+  // notification is always the most urgent available; the remaining up to
+  // N-1 are the next most urgent whose dto_id shares the first item's path
+  // prefix at the requested depth. Long-polling via wait_time_milliseconds.
+  // max_notifications is an UPPER BOUND, not a fill target (default
+  // behavior; see the optional server-side dequeue linger, ticket 070).
+  rpc BatchDequeue(BatchDequeueRequest) returns (BatchDequeueResponse);
+
+  // Acknowledges multiple notifications. Unknown/already-acked tokens are
+  // silently ignored and not counted.
+  rpc BatchAcknowledge(BatchAcknowledgeRequest) returns (BatchAcknowledgeResponse);
+
+  // Idempotently creates or reconfigures a named queue. Consumer services
+  // call this on their own startup (self-service provisioning).
+  rpc CreateOrConfigureQueue(CreateOrConfigureQueueRequest) returns (CreateOrConfigureQueueResponse);
+
+  // Directly injects change notifications, bypassing the normal ingress
+  // path. Intended for auditable operator/internal triggers — reason and
+  // tracking_id are REQUIRED here, unlike normal ingress. Ticket 180.
+  rpc SelfEnqueue(SelfEnqueueRequest) returns (SelfEnqueueResponse);
+
+  // Client-streaming fan-out: a worker that dequeued a parent notification
+  // streams child notifications back (Header -> SplitItem* -> Footer).
+  // Children inherit the parent's sla and tracking_id; the parent is
+  // acknowledged by the server on successful Footer commit. Ticket 190.
+  rpc ReEnqueue(stream ReEnqueueRequest) returns (ReEnqueueResponse);
+}
+
+// A single, minimal notification that the state of a DTO may have changed.
+// The consumer infers deletion from a NotFound when fetching the DTO.
+message DtoChangeNotification {
+  // Unique token for this specific delivery attempt; required to
+  // acknowledge. Fresh per delivery attempt (never reused across
+  // redeliveries).
+  string ack_token = 1;
+
+  // The type-name of the DTO that changed (e.g. "link.v1").
+  string dto_type = 2;
+
+  oneof urn {
+    // The id of the DTO instance that changed, or (if alias_name is set)
+    // the alias whose target changed.
+    string dto_id = 3;
+
+    // The parent_id of multiple DTOs (or aliases) that must be
+    // re-evaluated — typically re-enqueued as individual children via
+    // ReEnqueue rather than processed directly.
+    string parent_id = 6;
+  }
+
+  // The alias namespace for which dto_id / parent_id is valid. Set only
+  // when the alias itself changed target (not when the aliased DTO's
+  // content changed).
+  string alias_name = 7;
+
+  // Business deadline; the queue's primary sort key.
+  google.protobuf.Timestamp sla_timestamp = 4;
+
+  // Optional tracing identifier.
+  string tracking_id = 5;
+}
+
+message BatchDequeueRequest {
+  // Queue to dequeue from. Empty = server picks (compatibility shim,
+  // flagged for removal — ticket 300). Unknown name = NOT_FOUND.
+  string queue_name = 4;
+
+  // Upper bound on returned notifications; <= 0 defaults to 1.
+  int32 max_notifications = 1;
+
+  // When set, only notifications whose dto_id matches this prefix are
+  // returned. Always respected regardless of prefix_depth. Segment count
+  // must not exceed the queue's max tree depth (INVALID_ARGUMENT).
+  string prefix = 5;
+
+  // Number of leading '/'-separated dto_id segments subsequent items must
+  // share with the first item (2 = tenant, 4 = store). <= 0 disables
+  // prefix grouping.
+  int32 prefix_depth = 2;
+
+  // Max time to wait for at least one notification (long-poll). No
+  // server-side cap (ADR 0003 in the reference implementation).
+  int32 wait_time_milliseconds = 3;
+
+  // Stable per-worker-instance GUID. Enables organic worker tracking for
+  // pull-mode capacity accounting (ticket 240). NEW vs. the reference
+  // proto. Optional — empty means "untracked caller".
+  string worker_id = 6;
+}
+
+message BatchDequeueResponse {
+  // First element = most urgent; the rest share its prefix group, ordered
+  // by ascending sla_timestamp. Empty = nothing available in the wait
+  // window. May contain fewer than max_notifications (upper bound
+  // semantics; see also the opt-in dequeue linger, ticket 070).
+  repeated DtoChangeNotification notifications = 1;
+}
+
+message BatchAcknowledgeRequest {
+  // Queue the tokens belong to. Empty = server picks (same shim as
+  // BatchDequeueRequest.queue_name). Unknown name = NOT_FOUND.
+  string queue_name = 2;
+
+  repeated string ack_tokens = 1;
+}
+
+message BatchAcknowledgeResponse {
+  // Tokens actually acknowledged; unknown/duplicate tokens are ignored.
+  int32 acknowledged_count = 1;
+}
+
+// A DTO-type subscription, optionally alias-qualified. alias_name empty =
+// plain subscription (matches notifications without an alias); non-empty =
+// matches only notifications carrying exactly that alias.
+message DtoTypeSubscription {
+  string dto_type = 1;
+  string alias_name = 2;
+}
+
+message CreateOrConfigureQueueRequest {
+  string queue_name = 1;
+
+  // Replaces ALL existing subscriptions for the queue (not additive).
+  repeated DtoTypeSubscription subscriptions = 2;
+
+  // Default prefix-grouping depth. CREATE-ONLY: a nonzero value differing
+  // from an existing queue's depth returns INVALID_ARGUMENT. <= 0 on
+  // creation defaults to 4.
+  int32 depth = 3;
+}
+
+message CreateOrConfigureQueueResponse {
+  string queue_name = 1;
+  repeated DtoTypeSubscription subscriptions = 2;
+  int32 depth = 3;
+}
+
+// One child item in SelfEnqueue/ReEnqueue. Exactly one of dto_id /
+// parent_id must be set (INVALID_ARGUMENT otherwise).
+message SplitItem {
+  string dto_type = 1;
+
+  oneof urn {
+    string dto_id = 2;
+    string parent_id = 3;
+  }
+
+  string alias_name = 4;
+}
+
+message SelfEnqueueRequest {
+  // Target queue. REQUIRED (unlike normal ingress, no dtoType routing —
+  // the caller says exactly where these go).
+  string queue_name = 1;
+
+  repeated SplitItem items = 2;
+
+  // REQUIRED human-readable reason — SelfEnqueue calls are auditable
+  // operator actions, not routine traffic.
+  string reason = 3;
+
+  // REQUIRED tracing id, shared by all items in this request.
+  string tracking_id = 4;
+
+  // Shared SLA for all items; unset = now.
+  optional google.protobuf.Timestamp sla_timestamp = 5;
+}
+
+message SelfEnqueueResponse {
+  int32 items_enqueued = 1;
+}
+
+message ReEnqueueHeader {
+  string queue_name = 1;
+
+  // The in-flight parent notification's ack token. Unknown / already
+  // acknowledged / lease-expired = FAILED_PRECONDITION.
+  string ack_token = 2;
+}
+
+message ReEnqueueFooter {
+  // Commit signal. A stream that completes without a Footer is rejected
+  // (INVALID_ARGUMENT) — truncated streams are never a partial success.
+}
+
+message ReEnqueueRequest {
+  oneof payload {
+    ReEnqueueHeader header = 1;  // must be the first message, exactly once
+    SplitItem item = 2;          // 0..N children; inherit parent sla + tracking_id
+    ReEnqueueFooter footer = 3;  // must be the last message
+  }
+}
+
+message ReEnqueueResponse {
+  int32 items_enqueued = 1;
+}
