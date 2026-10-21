@@ -8,6 +8,9 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
 {
     public bool IsLive => this.GetLatestChangeType() != ChangeType.Deleted;
 
+    /// <summary>The aliases the entity owns: (alias name, alias value).</summary>
+    public ImmutableArray<(string Name, string Value)> Aliases { get; init; } = [];
+
     public SnapshotEntity ToProto()
     {
         return new SnapshotEntity
@@ -17,7 +20,8 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
             LastUpdatedVersion = LastUpdatedVersion,
             Position = Position,
             Length = Length,
-            Crc32 = Crc32
+            Crc32 = Crc32,
+            Aliases = { Aliases.ToProto() }
         };
     }
 
@@ -28,8 +32,20 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
             snapshotEntity.LastUpdatedVersion,
             snapshotEntity.Position,
             snapshotEntity.Length,
-            snapshotEntity.Crc32);
+            snapshotEntity.Crc32)
+        {
+            Aliases = snapshotEntity.Aliases.FromProto()
+        };
     }
+}
+
+public static class AliasRefExtensions
+{
+    public static IEnumerable<AliasRef> ToProto(this IEnumerable<(string Name, string Value)> aliases) =>
+        aliases.Select(alias => new AliasRef { Name = alias.Name, Value = alias.Value });
+
+    public static ImmutableArray<(string Name, string Value)> FromProto(this IReadOnlyCollection<AliasRef> aliases) =>
+        aliases.Count == 0 ? [] : [.. aliases.Select(alias => (alias.Name, alias.Value))];
 }
 
 public record ImmutableDeltaEntity(string Name, long Position, int Length, uint Crc32 = 0)

@@ -136,9 +136,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             targetSnapshotStream.Close();
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
-            var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutable(), newSnapshotVersion,
-                    currentIndex.LatestVersion);
+            // With, so the alias definitions hash (and the entities' aliases) carry over
+            var newSnapshotIndex = currentIndex with
+            {
+                Root = newSnapshotEntities.ToImmutable(),
+                SnapshotVersion = newSnapshotVersion
+            };
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
