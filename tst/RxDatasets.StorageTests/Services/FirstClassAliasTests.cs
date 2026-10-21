@@ -65,10 +65,10 @@ public class FirstClassAliasTests
     /// once it is ready; with the synchronous hub it is ready only after the writer, so such a start uses the
     /// asynchronous hub of a real host.
     /// </param>
-    /// <param name="logger">The writer's logger.</param>
     /// <param name="initializes">Whether to wait for the writer to initialize.</param>
+    /// <param name="retryInitialization">Whether the writer retries a failed initialization.</param>
     private async Task<DatasetReaderWriter<object>> StartWriter(AliasDefinition[]? definitions = null, bool coalescing = false,
-        bool rebuilds = false, ILogger<DatasetWriter<object>>? logger = null, bool initializes = true)
+        bool rebuilds = false, bool initializes = true, bool retryInitialization = true)
     {
         _hub = rebuilds ? new NotificationsHub<object>() : new NotificationsHubSync<object>();
         var storageReader =
@@ -77,8 +77,9 @@ public class FirstClassAliasTests
             _storage, _hub, storageReader, false);
         var aliasOptions = new AliasOptions<object>();
         aliasOptions.Definitions.AddRange(definitions ?? Definitions);
-        var writer = new DatasetReaderWriter<object>(_hub, logger ?? Mock.Of<ILogger<DatasetWriter<object>>>(), _provider,
-            Options.Create(new WriterConfig { EnableWriteCoalescing = coalescing }), Options.Create(aliasOptions));
+        var writer = new DatasetReaderWriter<object>(_hub, Mock.Of<ILogger<DatasetWriter<object>>>(), _provider,
+            Options.Create(new WriterConfig { EnableWriteCoalescing = coalescing }), Options.Create(aliasOptions),
+            retryInitialization);
 
         await _provider.StartAsync(CancellationToken.None);
         while (writer.InitializationTask == null)
@@ -374,15 +375,11 @@ public class FirstClassAliasTests
         var writer = await StartWriter();
         await writer.Put(L1, Payload(Esl(B1)), null, null);
         var version = writer.GetLatestVersion();
-        var logger = new Mock<ILogger<DatasetWriter<object>>>();
 
-        var withoutDefinitions = await StartWriter([], rebuilds: true, logger: logger.Object, initializes: false);
-        await Task.Delay(200);
+        var withoutDefinitions = await StartWriter([], rebuilds: true, initializes: false, retryInitialization: false);
 
-        withoutDefinitions.InitializationTask!.IsCompleted.Should().BeFalse("it keeps retrying");
-        logger.Verify(l => l.Log(LogLevel.Critical, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(),
-            It.Is<InvalidOperationException>(e => e.Message.Contains("registers no alias definitions")),
-            It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.AtLeastOnce);
+        await withoutDefinitions.Invoking(w => w.InitializationTask!).Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*registers no alias definitions*");
         (await _provider.ListVersions()).NewestDelta.Should().Be(version, "the aliases aren't dropped");
         (await StartWriter()).ResolveAlias(StoreEsl, B1).Should().Be(L1);
     }
