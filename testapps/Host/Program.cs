@@ -19,7 +19,7 @@ public static class Program
             });
         }
 
-        Host.DI.ConfigureServices(builder.Services);
+        Host.DI.ConfigureServices(builder.Services, builder.Configuration);
 
         var app = builder.Build();
 
