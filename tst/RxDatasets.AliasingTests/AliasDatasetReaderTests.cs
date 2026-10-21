@@ -17,7 +17,12 @@ namespace RxDatasets.AliasingTests;
 /// </summary>
 public class AliasDatasetReaderTests
 {
-    private readonly InMemoryDataset<TestEntity> _inMemoryDataset = new([new AliasDefinition("megatest", ExtractAliases, "h"), new AliasDefinition("reader1", ExtractAliases, "h"), new AliasDefinition("reader2", ExtractAliases, "h"), new AliasDefinition("test", ExtractAliases, "h")
+    private readonly InMemoryDataset<TestEntity> _inMemoryDataset = new(
+    [
+        new AliasDefinition("megatest", ExtractAliases, "h"),
+        new AliasDefinition("reader1", ExtractAliases, "h"),
+        new AliasDefinition("reader2", ExtractAliases, "h"),
+        new AliasDefinition("test", ExtractAliases, "h"),
     ]);
 
     /// <summary>

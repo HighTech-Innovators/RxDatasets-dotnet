@@ -144,7 +144,8 @@ namespace RxDatasets.BackgroundServices
         private async Task ReportAliasChanges(string name, IEnumerable<AliasRef> added, IEnumerable<AliasRef> removed,
             string trackingId, Google.Protobuf.WellKnownTypes.Timestamp? slaTimestamp, object? optionalState)
         {
-            var changes = removed.Select(alias => (alias, ChangeType.Deleted)).Concat(added.Select(alias => (alias, ChangeType.New)));
+            var changes = removed.Select(alias => (alias, ChangeType.Deleted))
+                .Concat(added.Select(alias => (alias, ChangeType.New)));
             foreach (var (alias, change) in changes)
             {
                 await _reportingImplementation.OnAliasChanged(alias.Name, alias.Value, name, change,

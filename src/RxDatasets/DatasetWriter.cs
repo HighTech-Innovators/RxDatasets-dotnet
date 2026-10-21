@@ -45,7 +45,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly ConcurrentQueue<WriteIntent> _pendingWrites = new();
     private int _batchInProgress;
 
-    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true,
+    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger,
+        IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true,
         IOptions<AliasOptions<T>>? aliasOptions = null)
     {
         _storageProvider = storageProvider;
@@ -195,7 +196,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             var added = after.Except(before).ToProto().ToList();
             var removed = before.Except(after).ToProto().ToList();
             if (added.Count > 0 || removed.Count > 0)
-                delta.AliasChanges.Add(new AliasOnlyChange { Name = name, AddedAliases = { added }, RemovedAliases = { removed } });
+            {
+                delta.AliasChanges.Add(new AliasOnlyChange
+                {
+                    Name = name, AddedAliases = { added }, RemovedAliases = { removed }
+                });
+            }
         }
 
         await _storageProvider.StoreDelta(delta.DeltaVersion, delta.ToByteArray(), Stream.Null);
@@ -483,7 +489,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         var staging = NewAliasStaging();
         if (performImplicitDeletes && !includeParents)
             staging.ReleaseAll(); // every existing entity is either sent again or implicitly deleted
-        var (deltaIndex, receivedNames, allParents) = await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, staging, ct);
+        var (deltaIndex, receivedNames, allParents) =
+            await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, staging, ct);
 
         // Handle deletes based on parent inclusion and only if deletes are allowed
         if (performImplicitDeletes)
@@ -1160,7 +1167,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     {
         if (intent.DeleteChildrenAncestor is { } prefix)
         {
-            foreach (var name in index.EnumerateAll(prefix).Select(e => e.Key).Concat(namesInBatch))
+            // Only entities with aliases have any to release
+            foreach (var name in index.EnumerateAll(prefix, e => !e.Aliases.IsEmpty).Select(e => e.Key).Concat(namesInBatch))
             {
                 if (name.StartsWith(prefix, StringComparison.Ordinal))
                     staging.Release(name);

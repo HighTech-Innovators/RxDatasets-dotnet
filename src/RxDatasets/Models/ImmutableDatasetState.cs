@@ -18,7 +18,9 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
     public string? ResolveAlias(string aliasName, string alias) =>
         Aliases.TryGetValue(aliasName, out var map) && map.TryGetValue(alias, out var owner) ? owner : null;
 
-    /// <summary>The alias values under <paramref name="aliasName"/> that equal or start with <paramref name="prefix"/>/.</summary>
+    /// <summary>
+    /// The alias values under <paramref name="aliasName"/> that equal <paramref name="prefix"/> or start with it and '/'.
+    /// </summary>
     public IReadOnlyList<string> ListAliases(string aliasName, string prefix) =>
         Aliases.TryGetValue(aliasName, out var map) ? map.EnumerateAll(prefix).Select(alias => alias.Key).ToList() : [];
 

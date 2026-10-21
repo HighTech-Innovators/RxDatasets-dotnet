@@ -60,7 +60,8 @@ public static class DatasetExtensions
 
         foreach (var change in delta.AliasChanges)
         {
-            var entity = builder.Get(change.Name) ?? throw new KeyNotFoundException($"Entity {change.Name} not found for an alias change");
+            var entity = builder.Get(change.Name)
+                         ?? throw new KeyNotFoundException($"Entity {change.Name} not found for an alias change");
             builder.Set(change.Name, entity with
             {
                 Aliases = ApplyAliasChanges(change.Name, entity.Aliases, change.AddedAliases.FromProto(),

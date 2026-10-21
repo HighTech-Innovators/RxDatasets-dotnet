@@ -19,7 +19,9 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
 
     /// <param name="sourceReader">The dataset reader; it must also be an <see cref="IAliasIndex"/>.</param>
     /// <param name="aliasName">The alias name this view resolves.</param>
-    /// <param name="aliasFactory">The alias factory of the alias name, for <see cref="AliasingExtensions.GetAliasesFor{T}"/>.</param>
+    /// <param name="aliasFactory">
+    /// The alias factory of the alias name, for <see cref="AliasingExtensions.GetAliasesFor{T}"/>.
+    /// </param>
     public AliasDatasetReader(IDatasetReader<T> sourceReader, string aliasName,
         Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory)
     {
@@ -74,7 +76,8 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         CancellationToken ct = default) =>
         throw new InvalidOperationException("Can't provide history by alias");
 
-    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default) =>
+    public Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0,
+        CancellationToken ct = default) =>
         throw new InvalidOperationException("Can't provide history by alias");
 
     public IAsyncEnumerable<HistoryEntry> StreamHistory(string parent, ulong sinceVersion = 0, ulong maxVersion = 0,
