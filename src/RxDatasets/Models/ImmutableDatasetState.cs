@@ -54,6 +54,7 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
         var aliases = new AliasMapsBuilder(ImmutableDictionary<string, ImmutableIndexNode<string>>.Empty);
         if (snapshotIndex.Root != null)
             AddNode(builder, snapshotIndex.Root, aliases, []);
+        // The flat format is from before aliases, so its entities have none for the reverse maps
         foreach (var (name, entity) in snapshotIndex.Entities)
             builder.Set(name, ImmutableSnapshotEntity.FromProto(entity));
 
