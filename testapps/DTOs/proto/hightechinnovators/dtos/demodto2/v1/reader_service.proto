@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package hightechinnovators.dtos.demodto2.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "ReaderServiceProto";
+option java_package = "com.hightechinnovators.dtos.demodto2.v1";
+option csharp_namespace = "Hightechinnovators.Dtos.Demodto2V1";
+
+import "hightechinnovators/dtos/type/reader_service_types.proto";
+import "hightechinnovators/dtos/demodto2/v1/demodto2.proto";
+
+service ReaderService {
+    rpc GetDemodto2(GetDemodto2Request) returns (Demodto2);
+    rpc BatchGetDemodto2s(BatchGetDemodto2sRequest) returns (BatchGetDemodto2sResponse);
+    rpc ListDemodto2s(ListDemodto2sRequest) returns (ListDemodto2sResponse);
+    rpc ListChanges(hightechinnovators.dtos.type.ListChangesRequest) returns (hightechinnovators.dtos.type.ListChangesResponse);
+    rpc CountChildren(hightechinnovators.dtos.type.CountChildrenRequest) returns (hightechinnovators.dtos.type.CountChildrenResponse);
+}
+
+message GetDemodto2Request {
+    string name = 1;
+}
+
+message BatchGetDemodto2sRequest {
+    string parent = 1;
+    repeated string names = 2;
+}
+
+message BatchGetDemodto2sResponse {
+    repeated Demodto2 demodto2s = 1;
+}
+
+message ListDemodto2sRequest {
+    string parent = 1;
+    int32 page_size = 2;
+    string page_token = 3;
+}
+
+message ListDemodto2sResponse {
+    repeated Demodto2 demodto2s = 1;
+    string next_page_token = 2;
+}
