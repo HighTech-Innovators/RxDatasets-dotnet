@@ -263,7 +263,7 @@ public class FirstClassAliasTests
         // Hold the next write in its upload, so the three after it are queued and merged into one batch
         var uploading = new TaskCompletionSource();
         var release = new TaskCompletionSource();
-        _storage.BeforeUpload = async () =>
+        _storage.BeforeUpload = async _ =>
         {
             _storage.BeforeUpload = null;
             uploading.SetResult();
@@ -367,6 +367,31 @@ public class FirstClassAliasTests
         _storage.DataReads.Should().Be(0);
         restartedAgain.GetLatestVersion().Should().Be(version + 1);
         restartedAgain.ResolveAlias(ExternalId, "E2").Should().Be(L2);
+    }
+
+    [Fact]
+    public async Task ARebuildThatCrashesBeforeItsDeltaIsListed_IsDoneAgain_InOneDelta()
+    {
+        AliasDefinition[] changed = [Definition(StoreEsl), Definition(ExternalId)];
+        var writer = await StartWriter([Definition(StoreEsl)]);
+        await writer.Put(L1, Payload(Esl(B1), $"{ExternalId}=E1"), null, null);
+        var version = writer.GetLatestVersion();
+
+        // The rebuild's delta index is stored, then the process dies before DeltaInfo lists it
+        _storage.BeforeUpload = key => key.EndsWith("DeltaInfo.pb", StringComparison.Ordinal)
+            ? throw new IOException("Crashed")
+            : Task.CompletedTask;
+        var crashed = await StartWriter(changed, rebuilds: true, initializes: false, retryInitialization: false);
+        await crashed.Invoking(w => w.InitializationTask!).Should().ThrowAsync<IOException>();
+        _storage.BeforeUpload = null;
+
+        var restarted = await StartWriter(changed, rebuilds: true);
+
+        restarted.GetLatestVersion().Should().Be(version + 1);
+        (await _provider.ListVersions()).NewestDelta.Should().Be(version + 1, "the rebuild is one delta");
+        (await ReadDelta(version + 1)).AliasChanges.Select(c => c.Name).Should().Equal(L1);
+        restarted.ResolveAlias(ExternalId, "E1").Should().Be(L1);
+        restarted.ResolveAlias(StoreEsl, B1).Should().Be(L1);
     }
 
     [Fact]
@@ -544,7 +569,7 @@ public class FirstClassAliasTests
             set => _dataReads = value;
         }
 
-        public Func<Task>? BeforeUpload { get; set; }
+        public Func<string, Task>? BeforeUpload { get; set; }
 
         private void Count(string objectKey)
         {
@@ -573,14 +598,14 @@ public class FirstClassAliasTests
         public async Task UploadBytes(string objectKey, byte[] bytes)
         {
             if (BeforeUpload is { } beforeUpload)
-                await beforeUpload();
+                await beforeUpload(objectKey);
             await inner.UploadBytes(objectKey, bytes);
         }
 
         public async Task UploadFileStream(string objectKey, Stream stream)
         {
             if (BeforeUpload is { } beforeUpload)
-                await beforeUpload();
+                await beforeUpload(objectKey);
             await inner.UploadFileStream(objectKey, stream);
         }
 
