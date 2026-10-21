@@ -126,7 +126,7 @@ public sealed class AliasStaging(
 
     /// <summary>The aliases the definitions give for an entity.</summary>
     /// <exception cref="ArgumentException">A definition can't evaluate the bytes.</exception>
-    public static ImmutableArray<(string Name, string Value)> Evaluate(IReadOnlyList<AliasDefinition> definitions,
+    internal static ImmutableArray<(string Name, string Value)> Evaluate(IReadOnlyList<AliasDefinition> definitions,
         string name, ReadOnlyMemory<byte> bytes)
     {
         var aliases = ImmutableArray.CreateBuilder<(string Name, string Value)>();
