@@ -12,7 +12,7 @@ namespace RxDatasets;
 /// owns at that point throws <see cref="AliasConflictException"/>: freeing an alias earlier in the same write makes a
 /// later claim valid, freeing it later does not.
 /// </summary>
-public sealed class AliasStaging(
+internal sealed class AliasStaging(
     ImmutableDatasetState state,
     IReadOnlyList<AliasDefinition> definitions,
     string definitionsHash)
