@@ -2,7 +2,10 @@ using System.Collections.Immutable;
 
 namespace RxDatasets.Models;
 
-/// <summary>A value stored in an <see cref="ImmutableIndexNode{TValue}"/>.</summary>
+/// <summary>
+/// A value stored in an <see cref="ImmutableIndexNode{TValue}"/> that can be present or not. Values that don't
+/// implement it always count as present.
+/// </summary>
 public interface IIndexValue
 {
     /// <summary>Whether the value counts as present, for <see cref="ImmutableIndexNode{TValue}.LiveCount"/>.</summary>
@@ -18,7 +21,7 @@ public interface IIndexValue
 /// asked for, without allocating. Updates go through a <see cref="Builder"/>, which copies only the touched path;
 /// readers keep the nodes they hold.
 /// </remarks>
-public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
+public sealed class ImmutableIndexNode<TValue> where TValue : class
 {
     private static readonly
         ImmutableDictionary<ReadOnlyMemory<char>, ImmutableDictionary<ReadOnlyMemory<char>, ImmutableIndexNode<TValue>>>
@@ -52,6 +55,8 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     public int LiveCount { get; }
 
     public Builder ToBuilder() => new(this);
+
+    private static bool IsLive(TValue value) => value is not IIndexValue { IsLive: false };
 
     /// <summary>Looks up a value by its full name, without allocating.</summary>
     public bool TryGetValue(string name, out TValue value)
@@ -140,7 +145,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
     {
         int count = 0;
         foreach (var match in Match(prefix))
-            count += match.Node?.LiveCount ?? (match.Value!.IsLive ? 1 : 0);
+            count += match.Node?.LiveCount ?? (IsLive(match.Value!) ? 1 : 0);
         return count;
     }
 
@@ -294,6 +299,29 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
 
         public void SetLeaf(string template, ReadOnlyMemory<char> variable, TValue value)
         {
+            var group = GetLeafGroupBuilder(template);
+            if (!group.TryGetValue(variable, out var previous))
+                variable = IndexKeys.ShareVariable(variable);
+            else if (IsLive(previous))
+                _leafLiveCountChange--;
+            if (IsLive(value))
+                _leafLiveCountChange++;
+            group[variable] = value;
+        }
+
+        /// <summary>Removes a value; an emptied group or node stays, empty.</summary>
+        public void RemoveLeaf(string template, ReadOnlyMemory<char> variable)
+        {
+            if (GetLeaf(template, variable) is not { } previous)
+                return;
+
+            GetLeafGroupBuilder(template).Remove(variable);
+            if (IsLive(previous))
+                _leafLiveCountChange--;
+        }
+
+        private ImmutableDictionary<ReadOnlyMemory<char>, TValue>.Builder GetLeafGroupBuilder(string template)
+        {
             if (!(_leaves ??= new(StringComparer.Ordinal)).TryGetValue(template, out var group))
             {
                 int index = _original.IndexOfTemplate(template);
@@ -303,23 +331,39 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class, IIndexValue
                 _leaves[index >= 0 ? _original.Leaves[index].Key : IndexKeys.ShareTemplate(template)] = group;
             }
 
-            if (!group.TryGetValue(variable, out var previous))
-                variable = IndexKeys.ShareVariable(variable);
-            else if (previous.IsLive)
-                _leafLiveCountChange--;
-            if (value.IsLive)
-                _leafLiveCountChange++;
-            group[variable] = value;
+            return group;
         }
 
         /// <summary>Sets the value of a full name, creating the nodes on its path.</summary>
         public void Set(string name, TValue value)
         {
+            var (node, template, variable) = Locate(name);
+            node.SetLeaf(template, variable, value);
+        }
+
+        /// <summary>The value of a full name, or null.</summary>
+        public TValue? Get(string name)
+        {
+            var (node, template, variable) = Locate(name);
+            return node.GetLeaf(template, variable);
+        }
+
+        /// <summary>Removes the value of a full name, if it is there.</summary>
+        public void Remove(string name)
+        {
+            var (node, template, variable) = Locate(name);
+            node.RemoveLeaf(template, variable);
+        }
+
+        // ponytail: walks the path through Child, which marks it as touched even for a lookup that finds nothing;
+        // ToImmutable then copies those nodes unchanged. A read-only walk if that ever shows up in a profile.
+        private (Builder Node, string Template, ReadOnlyMemory<char> Variable) Locate(string name)
+        {
             var key = IndexKeys.Split(name);
             var node = this;
             for (int i = 0; i < key.Path.Length; i += 2)
                 node = node.Child(key.Path[i].AsMemory(), key.Path[i + 1].AsMemory());
-            node.SetLeaf(key.Template, key.Variable.AsMemory(), value);
+            return (node, key.Template, key.Variable.AsMemory());
         }
 
         public ImmutableIndexNode<TValue> ToImmutable()

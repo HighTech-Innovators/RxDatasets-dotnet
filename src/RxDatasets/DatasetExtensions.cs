@@ -1,4 +1,5 @@
-﻿using RxDatasets.Abstractions;
+﻿using System.Collections.Immutable;
+using RxDatasets.Abstractions;
 using RxDatasets.Models;
 
 namespace RxDatasets;
@@ -44,24 +45,52 @@ public static class DatasetExtensions
     }
 
     /// <summary>
-    /// Applies the provided DeltaIndex to the provided state; copies only the paths to the changed entities.
-    /// Reads both the tree format and the legacy flat lists.
+    /// Applies the provided DeltaIndex to the provided state; copies only the paths to the changed entities and
+    /// aliases. Reads both the tree format and the legacy flat lists.
     /// </summary>
     public static ImmutableDatasetState ApplyDelta(this ImmutableDatasetState index, DeltaIndex delta)
     {
         var deltaVersion = delta.DeltaVersion > 0 ? delta.DeltaVersion : delta.DeltaVersionLegacy;
         var builder = index.Root.ToBuilder();
+        var aliases = new AliasMapsBuilder(index.Aliases);
         if (delta.Root != null)
-            ApplyDeltaNode(builder, delta.Root, deltaVersion);
+            ApplyDeltaNode(builder, delta.Root, deltaVersion, aliases, []);
         if (delta.HasFlatEntries())
-            ApplyDeltaNode(builder, AddFlatEntriesToTree(delta, new DeltaNode()), deltaVersion);
+            ApplyDeltaNode(builder, AddFlatEntriesToTree(delta, new DeltaNode()), deltaVersion, aliases, []);
 
-        return new ImmutableDatasetState(builder.ToImmutable(), index.SnapshotVersion, deltaVersion);
+        foreach (var change in delta.AliasChanges)
+        {
+            var entity = builder.Get(change.Name) ?? throw new KeyNotFoundException($"Entity {change.Name} not found for an alias change");
+            builder.Set(change.Name, entity with
+            {
+                Aliases = ApplyAliasChanges(change.Name, entity.Aliases, change.AddedAliases.FromProto(),
+                    change.RemovedAliases.FromProto(), aliases)
+            });
+        }
+
+        return new ImmutableDatasetState(builder.ToImmutable(), index.SnapshotVersion, deltaVersion)
+        {
+            AliasDefinitionsHash = delta.AliasDefinitionsHash,
+            Aliases = aliases.ToImmutable()
+        };
+    }
+
+    /// <summary>The owned set after a change, with the reverse maps updated to match.</summary>
+    private static ImmutableArray<(string Name, string Value)> ApplyAliasChanges(string entityName,
+        ImmutableArray<(string Name, string Value)> owned, ImmutableArray<(string Name, string Value)> added,
+        ImmutableArray<(string Name, string Value)> removed, AliasMapsBuilder aliases)
+    {
+        aliases.Remove(entityName, removed);
+        aliases.Add(entityName, added);
+        return [.. owned.Except(removed).Concat(added)];
     }
 
     private static void ApplyDeltaNode(ImmutableIndexNode<ImmutableSnapshotEntity>.Builder node, DeltaNode delta,
-        ulong deltaVersion)
+        ulong deltaVersion, AliasMapsBuilder aliases, List<string> path)
     {
+        string NameOf(string template, string variable) =>
+            IndexKeys.Join(string.Join('/', path), IndexKeys.LeafName(template, variable));
+
         foreach (var (template, group) in delta.Leaves)
         {
             foreach (var (variable, newEntity) in group.NewEntities)
@@ -74,7 +103,11 @@ public static class DatasetExtensions
                     existingEntity.LastUpdatedVersion,
                     newEntity.Position,
                     newEntity.Length,
-                    newEntity.Crc32));
+                    newEntity.Crc32)
+                {
+                    Aliases = OwnedAliases(variable, existingEntity.Aliases, newEntity.AddedAliases,
+                        newEntity.RemovedAliases)
+                });
             }
 
             foreach (var (variable, changedEntity) in group.ChangedEntities)
@@ -87,7 +120,11 @@ public static class DatasetExtensions
                     deltaVersion,
                     changedEntity.Position,
                     changedEntity.Length,
-                    changedEntity.Crc32));
+                    changedEntity.Crc32)
+                {
+                    Aliases = OwnedAliases(variable, existingEntity.Aliases, changedEntity.AddedAliases,
+                        changedEntity.RemovedAliases)
+                });
             }
 
             foreach (var variable in group.DeletedEntities.Keys)
@@ -100,14 +137,34 @@ public static class DatasetExtensions
                     existingEntity.LastUpdatedVersion,
                     0,
                     0,
-                    existingEntity.Crc32));
+                    existingEntity.Crc32)
+                {
+                    // A deleted entity owns nothing: release all it owned, not only what the delta lists
+                    Aliases = existingEntity.Aliases.IsEmpty
+                        ? []
+                        : ApplyAliasChanges(NameOf(template, variable), existingEntity.Aliases, [], existingEntity.Aliases,
+                            aliases)
+                });
             }
+
+            // The full name is only built for an entity whose aliases change
+            ImmutableArray<(string Name, string Value)> OwnedAliases(string variable,
+                ImmutableArray<(string Name, string Value)> owned, IReadOnlyCollection<AliasRef> added,
+                IReadOnlyCollection<AliasRef> removed) =>
+                added.Count == 0 && removed.Count == 0
+                    ? owned
+                    : ApplyAliasChanges(NameOf(template, variable), owned, added.FromProto(), removed.FromProto(), aliases);
         }
 
         foreach (var (collection, group) in delta.Children)
         {
             foreach (var (id, child) in group.Nodes)
-                ApplyDeltaNode(node.Child(collection.AsMemory(), id.AsMemory()), child, deltaVersion);
+            {
+                path.Add(collection);
+                path.Add(id);
+                ApplyDeltaNode(node.Child(collection.AsMemory(), id.AsMemory()), child, deltaVersion, aliases, path);
+                path.RemoveRange(path.Count - 2, 2);
+            }
         }
     }
 
