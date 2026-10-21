@@ -1,3 +1,10 @@
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging.Abstractions;
+using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
+using RxDatasets.StorageProviders;
+using Xunit;
+
 namespace RxDatasets.Reporting.Cqs.Tests;
 
 /// <summary>
