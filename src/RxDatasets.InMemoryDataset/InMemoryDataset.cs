@@ -114,7 +114,7 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
         }
 
         var staging = NewAliasStaging();
-        staging.Put(name, newEntity);
+        staging.Put(name, newEntity, DatasetHelper.ComputeCrc32(newEntity));
         ApplyDelta(delta, staging);
         return WriteResponseFor(delta);
     }
@@ -177,21 +177,18 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
                     staging.ReleaseChildren(parent);
             }
 
-            if (entityBytes == null)
-                staging.Release(name);
-            else
-                staging.Put(name, entityBytes);
-
             receivedNames.Add(name);
 
             // Store final state (last operation wins)
             if (entityBytes == null)
             {
+                staging.Release(name);
                 entityFinalStates[name] = null;
             }
             else
             {
                 var crc32 = DatasetHelper.ComputeCrc32(entityBytes);
+                staging.Put(name, entityBytes, crc32);
                 entityFinalStates[name] = (crc32, entityBytes);
             }
         }

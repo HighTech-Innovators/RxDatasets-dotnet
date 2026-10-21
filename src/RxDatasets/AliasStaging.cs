@@ -25,14 +25,14 @@ public sealed class AliasStaging(
     /// Stages a put: claims the aliases the definitions give for <paramref name="bytes"/>, and frees the ones the
     /// entity no longer has. Bytes the index already holds keep their owned set; they aren't evaluated again.
     /// </summary>
+    /// <param name="crc">The CRC32 of <paramref name="bytes"/>, which the caller computes anyway.</param>
     /// <exception cref="AliasConflictException">An alias is owned by another entity.</exception>
     /// <exception cref="ArgumentException">A definition can't evaluate the bytes.</exception>
-    public void Put(string name, byte[] bytes)
+    public void Put(string name, byte[] bytes, uint crc)
     {
         if (definitions.Count == 0)
             return;
 
-        uint crc = DatasetHelper.ComputeCrc32(bytes);
         Claim(name, state.TryGetEntity(name, out var entity) && entity.IsLive && entity.Crc32 != 0 && entity.Crc32 == crc
             ? entity.Aliases
             : Evaluate(definitions, name, bytes));

@@ -410,11 +410,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         using var slot = await _semaphore.LockAsync(ct);
         Delta delta;
+        uint crc = DatasetHelper.ComputeCrc32(entityBytes);
 
         if (!_index!.TryGetEntity(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             delta = new Delta([(name, entityBytes, ChangeType.New, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
-        else if (await IsByteArrayUpdated(name, entityBytes))
+        else if (await IsByteArrayUpdated(name, entityBytes, crc))
             delta = new Delta([(name, entityBytes, ChangeType.Changed, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else
@@ -424,7 +425,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
 
         var staging = NewAliasStaging();
-        staging.Put(name, entityBytes);
+        staging.Put(name, entityBytes, crc);
         await ApplyDelta(delta, staging);
 
         _logger.LogInformation("Put 1 entity; version {NewVersion}", _index.LatestVersion);
@@ -621,11 +622,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     staging.ReleaseChildren(parent);
             }
 
+            uint crc32 = entityBytes == null ? 0 : DatasetHelper.ComputeCrc32(entityBytes);
+
             // In stream order, before entries with the same name are collapsed
             if (entityBytes == null)
                 staging.Release(name);
             else
-                staging.Put(name, entityBytes);
+                staging.Put(name, entityBytes, crc32);
 
             receivedNames.Add(name);
 
@@ -636,9 +639,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
             else
             {
-                // Put operation - compute and store CRC32, write to stream
-                var crc32 = DatasetHelper.ComputeCrc32(entityBytes);
-
+                // Put operation - store CRC32, write to stream
                 var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(stream, entityBytes.Length);
                 byteArrayPosition += lengthOfTheVarPrefix;
 
@@ -721,20 +722,20 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return ChangeType.New;
         }
 
-        return await IsByteArrayUpdated(name, entityBytes) ? ChangeType.Changed : ChangeType.None;
+        return await IsByteArrayUpdated(name, entityBytes, DatasetHelper.ComputeCrc32(entityBytes))
+            ? ChangeType.Changed
+            : ChangeType.None;
     }
 
-    private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
+    private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes, uint crc)
     {
         var existingEntity = _index!.GetEntity(name);
         if (existingEntity.Length != entityBytes.Length)
             return true;
 
-        var newHashCode = DatasetHelper.ComputeCrc32(entityBytes);
-
         // If we have a stored CRC (non-zero), trust it completely
         if (existingEntity.Crc32 != 0)
-            return existingEntity.Crc32 != newHashCode;
+            return existingEntity.Crc32 != crc;
 
         // If stored CRC is 0 (legacy), always compare bytes
         var existingBytes = await ReadEntityBytes(name);
@@ -995,10 +996,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             uint added = 0, changed = 0, deleted = 0;
             var intent = intents[i];
 
+            var crcs = intent.Operations?.Select(op => op.EntityBytes == null ? 0 : DatasetHelper.ComputeCrc32(op.EntityBytes))
+                .ToArray();
             int mark = staging.Mark();
             try
             {
-                StageAliases(intent, index, virtualState.Keys, staging);
+                StageAliases(intent, crcs, index, virtualState.Keys, staging);
             }
             catch (Exception e) when (e is AliasConflictException or ArgumentException)
             {
@@ -1052,8 +1055,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             else if (intent.Operations != null)
             {
                 var intentFinalStates = new Dictionary<string, (byte[]? Bytes, uint Crc32, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
-                foreach (var (name, entityBytes, trackingId, slaTimestamp) in intent.Operations)
+                for (int op = 0; op < intent.Operations.Length; op++)
                 {
+                    var (name, entityBytes, trackingId, slaTimestamp) = intent.Operations[op];
                     if (entityBytes == null)
                     {
                         if (!intentFinalStates.TryGetValue(name, out var currentState))
@@ -1067,7 +1071,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     }
                     else
                     {
-                        var crc = DatasetHelper.ComputeCrc32(entityBytes);
+                        var crc = crcs![op];
                         if (!intentFinalStates.TryGetValue(name, out var currentState))
                         {
                             intentFinalStates[name] = (entityBytes, crc, trackingId, slaTimestamp);
@@ -1174,8 +1178,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return (mergedChanges.ToArray(), responses, errors);
     }
 
-    private static void StageAliases(WriteIntent intent, ImmutableDatasetState index, IEnumerable<string> namesInBatch,
-        AliasStaging staging)
+    private static void StageAliases(WriteIntent intent, uint[]? crcs, ImmutableDatasetState index,
+        IEnumerable<string> namesInBatch, AliasStaging staging)
     {
         if (intent.DeleteChildrenAncestor is { } prefix)
         {
@@ -1189,12 +1193,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return;
         }
 
-        foreach (var (name, entityBytes, _, _) in intent.Operations!)
+        for (int op = 0; op < intent.Operations!.Length; op++)
         {
+            var (name, entityBytes, _, _) = intent.Operations[op];
             if (entityBytes == null)
                 staging.Release(name);
             else
-                staging.Put(name, entityBytes);
+                staging.Put(name, entityBytes, crcs![op]);
         }
     }
 
