@@ -158,8 +158,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     /// </remarks>
     private async Task RebuildAliases(ImmutableDatasetState index)
     {
-        _logger.LogWarning("The alias definitions of {EntityType} changed; recomputing the aliases of all entities",
-            typeof(T).Name);
+        // A new or empty dataset gets here on every start until its first write stores the hash
+        _logger.Log(index.EnumerateAll(where: entity => entity.IsLive).Any() ? LogLevel.Warning : LogLevel.Information,
+            "The alias definitions of {EntityType} changed; recomputing the aliases of all entities", typeof(T).Name);
 
         var entities = new List<(string Name, ulong Version, ImmutableArray<(string Name, string Value)> Aliases)>();
         await ReadAllLiveEntities(index, (name, entity, bytes) =>
