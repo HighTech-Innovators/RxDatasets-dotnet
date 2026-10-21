@@ -39,7 +39,7 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
     }
 }
 
-public static class AliasRefExtensions
+internal static class AliasRefExtensions
 {
     public static IEnumerable<AliasRef> ToProto(this IEnumerable<(string Name, string Value)> aliases) =>
         aliases.Select(alias => new AliasRef { Name = alias.Name, Value = alias.Value });

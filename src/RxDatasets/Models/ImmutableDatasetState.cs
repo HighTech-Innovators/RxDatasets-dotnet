@@ -128,7 +128,7 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
 }
 
 /// <summary>Updates the reverse alias maps of a state, copying only what it touches.</summary>
-public sealed class AliasMapsBuilder(ImmutableDictionary<string, ImmutableIndexNode<string>> original)
+internal sealed class AliasMapsBuilder(ImmutableDictionary<string, ImmutableIndexNode<string>> original)
 {
     private readonly Dictionary<string, ImmutableIndexNode<string>.Builder> _builders = new(StringComparer.Ordinal);
 
