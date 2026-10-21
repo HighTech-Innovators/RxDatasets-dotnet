@@ -61,8 +61,8 @@ The order of registration doesn't matter: the dataset's writer reads the definit
 ```csharp
 var byStoreEsl = serviceProvider.GetDatasetReader<Link>("by_storeesl");
 var link = await byStoreEsl.Get("t/T/s/S/esls/B1/link");
-var links = await byStoreEsl.BatchGet(["t/T/s/S/esls/B1/link", "t/T/s/S/esls/B2/link"]);
-var (aliases, version) = await byStoreEsl.List("t/T/s/S/esls");
+var links = await byStoreEsl.BatchGet(["t/T/s/S/esls/B1/link", "t/T/s/S/esls/B2/link"], null);
+var (aliases, version) = await byStoreEsl.List("t/T/s/S/esls", CancellationToken.None);
 ```
 
 `AliasDatasetReader<T>` is a thin view: it resolves aliases through the dataset reader's `IAliasIndex` and gets the
