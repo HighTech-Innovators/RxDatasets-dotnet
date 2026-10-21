@@ -269,7 +269,7 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
     private IEnumerable<string> HandleParentDeletes(HashSet<string> receivedNames, string parent)
     {
         return _currentSnapshot
-            .Where(kvp => kvp.Key.StartsWith(parent, StringComparison.Ordinal) && !_currentSnapshot[kvp.Key].SequenceEqual(Array.Empty<byte>()))
+            .Where(kvp => DatasetHelper.FindParentOfEntity(kvp.Key) == parent && !kvp.Value.SequenceEqual(Array.Empty<byte>()))
             .Select(kvp => kvp.Key)
             .Except(receivedNames);
     }
