@@ -22,7 +22,6 @@ public abstract class StorageTestSpecWithTwoStepInit : StorageTestSpec
             datasetVersion++;
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(0.1), cancallationSource.Token);
         await cancallationSource.CancelAsync();
         cancallationSource.TryReset();
         //Create a new Dataset instance, they should return identical results

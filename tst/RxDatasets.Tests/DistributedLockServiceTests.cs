@@ -382,14 +382,7 @@ public class DistributedLockServiceTests : IDisposable
         await WaitForAcquiredAsync(service);
 
         // Act
-        try
-        {
-            await service.StopAsync(_testCts.Token);
-        }
-        catch (TaskCanceledException)
-        {
-            // Expected when stopping the service
-        }
+        await service.StopAsync(_testCts.Token);
 
         // Assert - service should have acquired a lock
         service.HasLock.Should().BeTrue();

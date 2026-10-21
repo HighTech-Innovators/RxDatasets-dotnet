@@ -235,7 +235,6 @@ public class StorageCleanTaskTests
         await storageProvider.StoreProcessedVersion("unittest", 15);
 
         // Allow cleanup to process
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         //assert
         var (oldestDelta, _, currentSnapshots) = await storageProvider.ListVersions();
@@ -274,18 +273,14 @@ public class StorageCleanTaskTests
         scheduler.Schedule(TimeSpan.FromMinutes(3), () => Create6Deltas(datasetWriter).Wait());
         scheduler.Schedule(TimeSpan.FromMinutes(6), () => Create6Deltas(datasetWriter).Wait());
         await storageProvider.StoreProcessedVersion("unittest", 10);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //create 3 snapshots as a setup with 18 deltas
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         await Create6Deltas(datasetWriter);
         await storageProvider.StoreProcessedVersion("unittest", 25);
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         //assert nothing is deleted even tho the threshold for snapshots is met at minimum 2 snapshots
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -296,7 +291,6 @@ public class StorageCleanTaskTests
 
         // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
         scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         int fiveSnapshots = 5;
@@ -305,7 +299,6 @@ public class StorageCleanTaskTests
 
         //act
         scheduler.AdvanceBy(TimeSpan.FromMinutes(6).Ticks);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
 
         //assert
@@ -367,17 +360,12 @@ public class StorageCleanTaskTests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //act
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //assert
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -414,14 +402,11 @@ public class StorageCleanTaskTests
         var howManyDeltasToCreate = deltasInOneSnapshot * threeSnapshots; //3
         scheduler.Schedule(TimeSpan.FromMinutes(3), () => Create6Deltas(datasetWriter).Wait());
         scheduler.Schedule(TimeSpan.FromMinutes(6), () => Create6Deltas(datasetWriter).Wait());
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //create 3 snapshots as a setup with 18 deltas
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         await Create6Deltas(datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.2));
 
         //assert nothing is deleted even tho the threshold for snapshots is met at minimum 2 snapshots
         var (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
@@ -432,7 +417,6 @@ public class StorageCleanTaskTests
 
         // at 3 minutes we still have not deleted anything, however, we added one more snapshot (i.e 6 deltas)
         scheduler.AdvanceBy(TimeSpan.FromMinutes(4).Ticks);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         (oldestDelta, _, snapshots) = await storageProvider.ListVersions();
         int fourSnapshots = 4;
@@ -441,7 +425,6 @@ public class StorageCleanTaskTests
 
         //act
         scheduler.AdvanceBy(TimeSpan.FromMinutes(5).Ticks); //create snapshot 5 here after time interval passes
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         //assert
         (oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
