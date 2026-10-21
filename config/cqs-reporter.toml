@@ -1,0 +1,13 @@
+[server]
+grpc_addr = "127.0.0.1:50051"
+health_addr = "127.0.0.1:8081"
+
+[persistence]
+store_url = "./data/cqs-reporter"
+interval = "5s"
+
+[queues.demodto]
+dto_types = ["hightechinnovators.dtos.demodto.v1.Demodto"]
+
+[queues.demodto2]
+dto_types = ["hightechinnovators.dtos.demodto2.v1.Demodto2"]
