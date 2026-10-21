@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HighTechInnovators.RxDatasets.Reporting.Cqs</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RxDatasets\RxDatasets.csproj" />
+    <PackageReference Include="Grpc.AspNetCore.Server.ClientFactory" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\change_queue.proto" ProtoRoot="Protos" GrpcServices="None" />
+    <Protobuf Include="Protos\change_queue_ingress.proto" ProtoRoot="Protos" GrpcServices="Client" />
+  </ItemGroup>
+
+</Project>
