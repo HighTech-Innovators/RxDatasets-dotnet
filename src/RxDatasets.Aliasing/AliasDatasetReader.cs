@@ -57,6 +57,7 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
     }
 
     /// <summary>The aliases that start with <paramref name="parent"/>/, sorted.</summary>
+    /// <remarks><c>List("")</c> returns nothing, as before; use <see cref="GetChangedNames"/> for all aliases.</remarks>
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken cancellationToken = default) =>
         Task.FromResult(ListChildren(parent));
 
