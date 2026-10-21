@@ -309,7 +309,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
             group[variable] = value;
         }
 
-        /// <summary>Removes a value; an emptied group or node stays, empty.</summary>
+        /// <summary>Removes a value; <see cref="ToImmutable"/> drops a group or node it empties.</summary>
         public void RemoveLeaf(string template, ReadOnlyMemory<char> variable)
         {
             if (GetLeaf(template, variable) is not { } previous)
@@ -344,19 +344,35 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
         /// <summary>The value of a full name, or null.</summary>
         public TValue? Get(string name)
         {
-            var (node, template, variable) = Locate(name);
-            return node.GetLeaf(template, variable);
+            // A read-only walk: a lookup touches nothing, so it creates no nodes
+            var key = IndexKeys.Split(name);
+            Builder? node = this;
+            for (int i = 0; i < key.Path.Length && node != null; i += 2)
+                node = node.FindChild(key.Path[i].AsMemory(), key.Path[i + 1].AsMemory());
+            return node?.GetLeaf(key.Template, key.Variable.AsMemory());
         }
 
         /// <summary>Removes the value of a full name, if it is there.</summary>
         public void Remove(string name)
         {
+            if (Get(name) == null)
+                return;
+
             var (node, template, variable) = Locate(name);
             node.RemoveLeaf(template, variable);
         }
 
-        // ponytail: walks the path through Child, which marks it as touched even for a lookup that finds nothing;
-        // ToImmutable then copies those nodes unchanged. A read-only walk if that ever shows up in a profile.
+        private Builder? FindChild(ReadOnlyMemory<char> collection, ReadOnlyMemory<char> id)
+        {
+            if (_children != null && _children.TryGetValue(collection, out var group) && group.TryGetValue(id, out var child))
+                return child;
+
+            return _original.Children.TryGetValue(collection, out var originalGroup)
+                   && originalGroup.TryGetValue(id, out var originalChild)
+                ? new Builder(originalChild)
+                : null;
+        }
+
         private (Builder Node, string Template, ReadOnlyMemory<char> Variable) Locate(string name)
         {
             var key = IndexKeys.Split(name);
@@ -386,6 +402,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
                         leavesBuilder.Add(new(template, group.ToImmutable()));
                 }
 
+                leavesBuilder.RemoveAll(leaf => leaf.Value.IsEmpty);
                 leaves = leavesBuilder.ToImmutable();
             }
 
@@ -403,10 +420,16 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
                     {
                         var child = childBuilder.ToImmutable();
                         liveCount += child.LiveCount - childBuilder._original.LiveCount;
-                        groupBuilder[id] = child;
+                        if (child.Leaves.IsEmpty && child.Children.IsEmpty)
+                            groupBuilder.Remove(id);
+                        else
+                            groupBuilder[id] = child;
                     }
 
-                    childrenBuilder[collection] = groupBuilder.ToImmutable();
+                    if (groupBuilder.Count == 0)
+                        childrenBuilder.Remove(collection);
+                    else
+                        childrenBuilder[collection] = groupBuilder.ToImmutable();
                 }
 
                 children = childrenBuilder.ToImmutable();
