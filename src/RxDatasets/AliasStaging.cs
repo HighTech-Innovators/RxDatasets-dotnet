@@ -190,4 +190,9 @@ public static class AliasMetrics
     /// </summary>
     public static readonly Counter<long> RebuildConflicts = Meter.CreateCounter<long>("rxdatasets.aliases.rebuild_conflicts",
         description: "Aliases claimed by more than one entity when the aliases were recomputed for changed definitions");
+
+    /// <summary>Entities that a rebuild after changed alias definitions couldn't evaluate, and left without aliases.</summary>
+    public static readonly Counter<long> RebuildUnparseable = Meter.CreateCounter<long>(
+        "rxdatasets.aliases.rebuild_unparseable",
+        description: "Entities the alias definitions couldn't evaluate when the aliases were recomputed, left without aliases");
 }

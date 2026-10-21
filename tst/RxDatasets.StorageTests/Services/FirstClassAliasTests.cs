@@ -412,6 +412,29 @@ public class FirstClassAliasTests
     }
 
     [Fact]
+    public async Task ARebuild_CountsTheEntitiesItCantEvaluate()
+    {
+        long unparseable = 0;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == AliasMetrics.MeterName && instrument.Name == "rxdatasets.aliases.rebuild_unparseable")
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref unparseable, value));
+        listener.Start();
+
+        var writer = await StartWriter([]);
+        await writer.Put(L1, Encoding.UTF8.GetBytes("!garbage"), null, null);
+        await writer.Put(L2, Payload(Esl(B2)), null, null);
+
+        var rebuilt = await StartWriter([Definition(StoreEsl)], rebuilds: true);
+
+        rebuilt.ResolveAlias(StoreEsl, B2).Should().Be(L2);
+        Interlocked.Read(ref unparseable).Should().Be(1);
+    }
+
+    [Fact]
     public async Task AReplica_ResolvesExactlyTheWritersAliases_AtEachVersion()
     {
         var writer = await StartWriter();

@@ -153,7 +153,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     /// </summary>
     /// <remarks>
     /// An alias that comes out on more than one entity goes to the newest entity version, then the lowest name; the
-    /// others keep the rest of their aliases. Logged, and counted in <see cref="AliasMetrics.RebuildConflicts"/>.
+    /// others keep the rest of their aliases. Logged, and counted in <see cref="AliasMetrics.RebuildConflicts"/>. An
+    /// entity the definitions can't evaluate gets no aliases; counted in <see cref="AliasMetrics.RebuildUnparseable"/>.
     /// </remarks>
     private async Task RebuildAliases(ImmutableDatasetState index)
     {
@@ -171,6 +172,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             catch (ArgumentException e)
             {
                 _logger.LogError(e, "Entity {Name} gets no aliases", name);
+                AliasMetrics.RebuildUnparseable.Add(1, new KeyValuePair<string, object?>("dataset", typeof(T).Name));
                 aliases = [];
             }
 
