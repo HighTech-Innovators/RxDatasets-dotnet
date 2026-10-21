@@ -1,3 +1,10 @@
+using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
+using Hti.RxDatasets.Cqs.Ingress.V1;
+using Hti.RxDatasets.Cqs.V1;
+using Microsoft.Extensions.Options;
+using Xunit;
+
 namespace RxDatasets.Reporting.Cqs.Tests;
 
 public class CqsReporterTests

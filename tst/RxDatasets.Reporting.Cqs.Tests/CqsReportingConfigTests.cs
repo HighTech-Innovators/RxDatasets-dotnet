@@ -1,4 +1,11 @@
 using System.ComponentModel.DataAnnotations;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using RxDatasets.BackgroundServices;
+using Xunit;
 
 namespace RxDatasets.Reporting.Cqs.Tests;
 
