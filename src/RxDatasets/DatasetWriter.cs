@@ -717,19 +717,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return (deltaIndex, receivedNames, allParents);
     }
 
-    private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
-    {
-        if (!_index!.TryGetEntity(name, out var existingEntity) ||
-            existingEntity.GetLatestChangeType() == ChangeType.Deleted)
-        {
-            return ChangeType.New;
-        }
-
-        return await IsByteArrayUpdated(name, entityBytes, DatasetHelper.ComputeCrc32(entityBytes))
-            ? ChangeType.Changed
-            : ChangeType.None;
-    }
-
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes, uint crc)
     {
         var existingEntity = _index!.GetEntity(name);
