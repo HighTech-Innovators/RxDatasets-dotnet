@@ -22,8 +22,9 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         ILogger<DatasetWriter<T>> logger,
         IStorageProvider<T> storageProvider,
         IOptions<WriterConfig> writerConfig,
-        IOptions<AliasOptions<T>>? aliasOptions = null)
-        : base(notificationsHub, logger, storageProvider, writerConfig, aliasOptions: aliasOptions)
+        IOptions<AliasOptions<T>>? aliasOptions = null,
+        bool retryInitialization = true)
+        : base(notificationsHub, logger, storageProvider, writerConfig, retryInitialization, aliasOptions)
     {
     }
 

@@ -64,7 +64,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 return;
             }
 
-            InitializationTask = InitializationLoop();
+            InitializationTask = retryInitialization ? InitializationLoop() : Initialize();
             await InitializationTask;
         }));
 
