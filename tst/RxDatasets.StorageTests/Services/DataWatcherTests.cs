@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -11,8 +12,23 @@ using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.StorageTests.Services;
 
-public class DataWatcherTests
+public class DataWatcherTests : IAsyncLifetime
 {
+    // The watcher polls until the observer cancels it; if the version it waits for never comes, this fails the test
+    // instead of polling forever.
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
+
+    private IStorageProvider<object> _storageProvider = null!;
+    private IHostedService? _snapshotCreationService;
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
+    {
+        if (_snapshotCreationService != null)
+            await _snapshotCreationService.StopAsync(CancellationToken.None);
+    }
+
     [Fact]
     public async Task WhenThereIsASubscriber_ShouldCallOnVersionStart()
     {
@@ -20,8 +36,9 @@ public class DataWatcherTests
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
+        await WaitForSnapshot(1);
 
-        CancellationTokenSource cts = new();
+        using CancellationTokenSource cts = new(TestTimeout);
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
 
         // Act
@@ -44,7 +61,8 @@ public class DataWatcherTests
 
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
-        CancellationTokenSource cts = new();
+        await WaitForSnapshot(1);
+        using CancellationTokenSource cts = new(TestTimeout);
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(1))).Callback(() => cts.Cancel());
 
 
@@ -71,8 +89,12 @@ public class DataWatcherTests
         // Arrange
         var (datasetWriter, datasetObserver, datasetWatcher) = await SetupWatcher();
 
+        // The snapshot service snapshots right after the first delta, and then every 5 deltas. Waiting for each
+        // snapshot before writing more pins them to versions 1 and 6; otherwise a slow snapshot run lands later, and
+        // the watcher never reports version 7, which this test waits for.
         const string testAdd = "Test";
         await datasetWriter.Put(testAdd, [1], null, null);
+        await WaitForSnapshot(1);
 
         const string testAddUpdateDeleted = "Test2";
         await datasetWriter.Put(testAddUpdateDeleted, [1], null, null);
@@ -82,9 +104,10 @@ public class DataWatcherTests
         var testAddUpdate3Times = "Test3";
         await datasetWriter.Put(testAddUpdate3Times, [1], null, null);
         await datasetWriter.Put(testAddUpdate3Times, [2], null, null);
+        await WaitForSnapshot(6);
         await datasetWriter.Put(testAddUpdate3Times, [3], null, null);
         await datasetWriter.Put(testAddUpdate3Times, [4], null, null);
-        CancellationTokenSource cts = new();
+        using CancellationTokenSource cts = new(TestTimeout);
         datasetObserver.Setup((observer => observer.OnDatasetVersionEnd(7))).Callback(() => cts.Cancel());
 
         // act
@@ -103,7 +126,24 @@ public class DataWatcherTests
         datasetObserver.Verify(o => o.OnDatasetVersionEnd(7), Times.Once);
     }
 
-    private static async Task<(DatasetWriter<object> datasetWriter, Mock<IDatasetObserver<object>> datasetObserver, DatasetWatcher<object> datasetWatcher)> SetupWatcher()
+    private async Task WaitForSnapshot(ulong version)
+    {
+        var deadline = DateTime.UtcNow + TestTimeout;
+        while (true)
+        {
+            var (_, _, snapshots) = await _storageProvider.ListVersions();
+            if (snapshots.Any(s => s.Version == version))
+                return;
+
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException(
+                    $"No snapshot at version {version}; snapshots: [{string.Join(", ", snapshots.Select(s => s.Version))}]");
+
+            await Task.Delay(10);
+        }
+    }
+
+    private async Task<(DatasetWriter<object> datasetWriter, Mock<IDatasetObserver<object>> datasetObserver, DatasetWatcher<object> datasetWatcher)> SetupWatcher()
     {
         var logger = Mock.Of<ILogger<DatasetWatcher<object>>>();
         var lowLevelStorage = new LowLevelInMemoryStorage<object>(Mock.Of<ILogger<LowLevelInMemoryStorage<object>>>());
@@ -115,6 +155,8 @@ public class DataWatcherTests
         await ((ObjectStorageProvider<object>)storageProvider).StartAsync(CancellationToken.None);
         var scs = UsingLowLevelInMemoryStorage.CreateSnapshotCreationService(storageProvider, notificationsHub);
         await scs.StartAsync(CancellationToken.None);
+        _storageProvider = storageProvider;
+        _snapshotCreationService = scs;
 
         var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), storageProvider, Options.Create(new WriterConfig()), false);
         var datasetObserver = new Mock<IDatasetObserver<object>>();

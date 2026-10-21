@@ -1054,7 +1054,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
             "retry delay should be scheduled after failure");
 
         // Trigger first retry
-        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+        clock.AdvanceBy(TimeSpan.FromMilliseconds(600));
 
         // Wait for the second retry delay to be scheduled
         await clock.WaitUntilAnyDelaysPending(
@@ -1062,7 +1062,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
             "second retry delay should be scheduled");
 
         // Trigger second retry
-        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+        clock.AdvanceBy(TimeSpan.FromMilliseconds(600));
 
         // Wait for the reader to recover and initialize (with timeout)
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -1105,7 +1105,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
             "retry delay should be scheduled after failure");
 
         // Fast-forward past the 5-second retry delay
-        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(600).Ticks);
+        clock.AdvanceBy(TimeSpan.FromMilliseconds(600));
 
         // The Get call should eventually succeed (after retry) rather than throwing forever
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -1146,7 +1146,7 @@ public class AliasDatasetReaderTests : IAsyncLifetime
             "retry delay should be scheduled after failure");
 
         // Fast-forward past a few retry delays to ensure retries are happening
-        scheduler.AdvanceBy(TimeSpan.FromSeconds(12).Ticks);
+        clock.AdvanceBy(TimeSpan.FromSeconds(12));
 
         // The reader should still be trying to initialize (via retries)
         // Calling Get should wait for initialization and eventually work after retries
