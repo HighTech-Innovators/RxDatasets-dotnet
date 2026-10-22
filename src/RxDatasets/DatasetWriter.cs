@@ -152,7 +152,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             return await EnqueueAndAwait(new WriteIntent { Operations = [(name, null, trackingId, slaTimestamp)], Completion = new(), CancellationToken = ct });
 
         using var slot = await _semaphore.LockAsync(ct);
-        if (!_index!.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!_index!.TryGetEntity(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
@@ -180,11 +180,11 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         using var slot = await _semaphore.LockAsync(ct);
 
-        var deletedNames = new List<(string Name, string? TrackingId, DateTimeOffset? SlaTimestamp)>(_index!.Entities.Count);
+        var deletedNames = new List<(string Name, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
 
         await foreach (var (name, trackingId, slaTimestamp) in names.WithCancellation(ct))
         {
-            if (!_index.Entities.TryGetValue(name, out var existingEntity) ||
+            if (!_index!.TryGetEntity(name, out var existingEntity) ||
                 existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 continue;
@@ -197,13 +197,13 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             return new IDatasetWriter<T>.WriteResponse()
             {
-                NewDatasetVersion = _index.LatestVersion
+                NewDatasetVersion = _index!.LatestVersion
             };
         }
 
         var deleteChanges = deletedNames.Select(nm => (nm.Name, (byte[]?)null, ChangeType.Deleted, nm.TrackingId, nm.SlaTimestamp)).ToArray();
 
-        var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
+        var delta = new Delta(deleteChanges, _index!.LatestVersion + 1);
         await ApplyDelta(delta);
 
         _logger.LogInformation("Deleted {Count} entities; version {NewVersion}", deleteChanges.Length, _index.LatestVersion);
@@ -223,18 +223,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         using var slot = await _semaphore.LockAsync(ct);
 
-        var deletedNames = new List<string>(_index!.Entities.Count);
-
-        foreach (var (name, entity) in _index!.Entities)
-        {
-            if (!name.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
-
-            if (entity.GetLatestChangeType() == ChangeType.Deleted)
-                continue;
-
-            deletedNames.Add(name);
-        }
+        var deletedNames = _index!.EnumerateAll(prefix, entity => entity.IsLive)
+            .Select(entity => entity.Key)
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal)) // not the ancestor itself
+            .ToList();
 
         if (!deletedNames.Any())
         {
@@ -278,7 +270,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         using var slot = await _semaphore.LockAsync(ct);
         Delta delta;
 
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
+        if (!_index!.TryGetEntity(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             delta = new Delta([(name, entityBytes, ChangeType.New, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else if (await IsByteArrayUpdated(name, entityBytes))
@@ -363,13 +355,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
             foreach (var name in implicitDeletes)
             {
-                if (_index!.Entities.TryGetValue(name, out var existingEntity))
+                if (_index!.TryGetEntity(name, out var existingEntity))
                 {
                     deltaIndex.DeletedEntities.Add(new DeletedEntity { Name = name, PreviousVersion = existingEntity.GetLatestEntityVersion() });
                 }
             }
         }
-        var hasEntityData = deltaIndex.NewEntities.Count > 0 || deltaIndex.ChangedEntities.Count > 0;
+        int added = deltaIndex.NewEntities.Count, changed = deltaIndex.ChangedEntities.Count,
+            deleted = deltaIndex.DeletedEntities.Count;
+        var hasEntityData = added > 0 || changed > 0;
         if (hasEntityData)
         {
             await fileStream.WriteAsync(new byte[1], ct); // trailing byte sentinel only when data exists
@@ -377,7 +371,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         fileStream.Close();
 
-        if (deltaIndex.NewEntities.Count == 0 && deltaIndex.ChangedEntities.Count == 0 && deltaIndex.DeletedNames.Count == 0 && deltaIndex.DeletedEntities.Count == 0)
+        if (added == 0 && changed == 0 && deleted == 0)
         {
             File.Delete(tempDataFilePath);
             return new IDatasetWriter<T>.WriteResponse
@@ -387,6 +381,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         // Apply the delta and store it
+        deltaIndex.ConvertToTree();
         var newIndex = _index!.ApplyDelta(deltaIndex);
         using (var deltaDataStream = hasEntityData ? File.OpenRead(tempDataFilePath) : Stream.Null)
         {
@@ -397,14 +392,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         _index = newIndex;
         await OnDeltaApplied(deltaIndex);
 
-        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}", _index.LatestVersion, deltaIndex.NewEntities.Count, deltaIndex.ChangedEntities.Count, deltaIndex.DeletedEntities.Count);
+        _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}",
+            _index.LatestVersion, added, changed, deleted);
 
         return new IDatasetWriter<T>.WriteResponse
         {
             NewDatasetVersion = _index.LatestVersion,
-            NumAddedEntities = (uint)deltaIndex.NewEntities.Count,
-            NumUpdatedEntities = (uint)deltaIndex.ChangedEntities.Count,
-            NumDeletedEntities = (uint)deltaIndex.DeletedEntities.Count
+            NumAddedEntities = (uint)added,
+            NumUpdatedEntities = (uint)changed,
+            NumDeletedEntities = (uint)deleted
         };
     }
 
@@ -486,7 +482,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         foreach (var (name, finalState) in entityFinalStates)
         {
             // Get original state from index
-            var hasExistingEntity = index.Entities.TryGetValue(name, out var existingEntity);
+            var hasExistingEntity = index.TryGetEntity(name, out var existingEntity);
             var existingIsDeleted = hasExistingEntity && existingEntity!.GetLatestChangeType() == ChangeType.Deleted;
             ulong previousVersion = hasExistingEntity ? existingEntity!.GetLatestEntityVersion() : 0;
 
@@ -545,7 +541,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
     {
-        if (!_index!.Entities.TryGetValue(name, out var existingEntity) ||
+        if (!_index!.TryGetEntity(name, out var existingEntity) ||
             existingEntity.GetLatestChangeType() == ChangeType.Deleted)
         {
             return ChangeType.New;
@@ -556,7 +552,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
     private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
     {
-        var existingEntity = _index!.Entities[name];
+        var existingEntity = _index!.GetEntity(name);
         if (existingEntity.Length != entityBytes.Length)
             return true;
 
@@ -574,7 +570,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
         // Precondition: calling method MUST have checked it exists AND is not deleted.
-        var entityInMainIndex = _index!.Entities[name];
+        var entityInMainIndex = _index!.GetEntity(name);
         var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
@@ -584,7 +580,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             // At this point, we KNOW it must be in there and be the latest version in existence,
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.Entities[name];
+            var entityFromSnapshot = _indexBasedOnMostRecentSnapshot.GetEntity(name);
             sources.Add((ObjectNameTypeEnum.Snapshot, _indexBasedOnMostRecentSnapshot.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
@@ -619,7 +615,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         foreach (var (name, entityBytes, change, crc32, trackingId, slaTimestamp) in delta.Changes)
         {
             ulong previousVersion = 0;
-            if (_index!.Entities.TryGetValue(name, out var existingEntity))
+            if (_index!.TryGetEntity(name, out var existingEntity))
             {
                 previousVersion = existingEntity.GetLatestEntityVersion();
             }
@@ -670,6 +666,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
         }
 
+        deltaIndex.ConvertToTree();
         concatenatedByteStream.Position = 0;
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
 
@@ -813,7 +810,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 var prefix = intent.DeleteChildrenAncestor;
 
                 // First, check entities in the real index
-                foreach (var (name, entity) in index.Entities)
+                foreach (var (name, entity) in index.EnumerateAll(prefix))
                 {
                     if (!name.StartsWith(prefix, StringComparison.Ordinal))
                         continue;
@@ -841,7 +838,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         continue;
                     if (!vs.Exists)
                         continue;
-                    if (index.Entities.ContainsKey(name))
+                    if (index.TryGetEntity(name, out _))
                         continue; // Already handled above
 
                     deleted++;
@@ -889,7 +886,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                         currentlyExists = vs.Exists;
                         currentCrc32 = vs.Crc32;
                     }
-                    else if (index.Entities.TryGetValue(name, out var existing)
+                    else if (index.TryGetEntity(name, out var existing)
                              && existing.GetLatestChangeType() != ChangeType.Deleted)
                     {
                         currentlyExists = true;
@@ -950,7 +947,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         foreach (var (name, (bytes, crc, exists, trackingId, slaTimestamp)) in virtualState)
         {
-            bool realExists = index.Entities.TryGetValue(name, out var realEntity)
+            bool realExists = index.TryGetEntity(name, out var realEntity)
                               && realEntity.GetLatestChangeType() != ChangeType.Deleted;
 
             if (exists && !realExists)
