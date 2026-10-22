@@ -11,6 +11,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="RxDatasets.Tests" />
     <InternalsVisibleTo Include="RxDatasets.StorageTests" />
+    <InternalsVisibleTo Include="RxDatasets.InMemoryDataset" />
   </ItemGroup>
 
   <ItemGroup>

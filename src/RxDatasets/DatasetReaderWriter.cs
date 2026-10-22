@@ -13,7 +13,7 @@ namespace RxDatasets;
 /// Combined reader+writer that shares a single <see cref="ImmutableDatasetState"/> index
 /// and a single initialization path, eliminating duplicate storage reads at startup.
 /// </summary>
-public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
+public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAliasIndex
 {
     private TaskCompletionSource _indexChangedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -21,9 +21,19 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>
         INotificationsHub<T> notificationsHub,
         ILogger<DatasetWriter<T>> logger,
         IStorageProvider<T> storageProvider,
-        IOptions<WriterConfig> writerConfig)
-        : base(notificationsHub, logger, storageProvider, writerConfig)
+        IOptions<WriterConfig> writerConfig,
+        IOptions<AliasOptions<T>>? aliasOptions = null,
+        bool retryInitialization = true)
+        : base(notificationsHub, logger, storageProvider, writerConfig, retryInitialization, aliasOptions)
     {
+    }
+
+    public string? ResolveAlias(string aliasName, string alias) => GetInitializedIndex().ResolveAlias(aliasName, alias);
+
+    public (IReadOnlyList<string> Aliases, ulong Version) ListAliases(string aliasName, string prefix)
+    {
+        var indexRef = GetInitializedIndex();
+        return (indexRef.ListAliases(aliasName, prefix), indexRef.LatestVersion);
     }
 
     protected override Task OnDeltaApplied(DeltaIndex deltaIndex)

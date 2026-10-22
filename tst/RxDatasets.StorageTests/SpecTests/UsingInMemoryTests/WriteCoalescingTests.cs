@@ -385,7 +385,7 @@ public class WriteCoalescingTests
             new() { Operations = [("foo", dataA, null, null)], Completion = new() }
         };
 
-        var (mergedChanges, responses) = DatasetWriter<object>.MergeIntents(intents, index);
+        var (mergedChanges, responses, _) = DatasetWriter<object>.MergeIntents(intents, index, new AliasStaging(index, [], ""));
 
         // Intent 1 (B): sees foo=A in real index, crc differs → changed=1
         responses[0].NumUpdatedEntities.Should().Be(1, "Write B changed foo from A to B");

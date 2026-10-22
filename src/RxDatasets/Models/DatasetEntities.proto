@@ -9,6 +9,13 @@ message SnapshotEntity {
 	int64 position = 4;
 	int32 length = 5;
 	uint32 crc32 = 7;
+	repeated AliasRef aliases = 8; // the full set of aliases the entity owns
+}
+
+// An alias value under an alias name; unique within the alias name
+message AliasRef {
+	string name = 1;
+	string value = 2;
 }
 
 // Hierarchical index: see IndexKeys for how a name maps onto nodes, templates and variables.
@@ -31,6 +38,7 @@ message SnapshotIndex {
 	uint64 snapshot_version = 32;
 	reserved 33; // root of an unreleased earlier tree format
 	SnapshotNode root = 34;
+	string alias_definitions_hash = 3;
 }
 
 message DeltaEntity {
@@ -41,6 +49,8 @@ message DeltaEntity {
 	uint64 previous_version = 6;
 	string tracking_id = 7;
 	google.protobuf.Timestamp sla_timestamp = 8;
+	repeated AliasRef added_aliases = 9;
+	repeated AliasRef removed_aliases = 10;
 }
 
 message DeletedEntity {
@@ -48,6 +58,14 @@ message DeletedEntity {
 	uint64 previous_version = 2;
 	string tracking_id = 3;
 	google.protobuf.Timestamp sla_timestamp = 4;
+	repeated AliasRef removed_aliases = 5; // the aliases the delete released
+}
+
+// An alias change without a data change, by the full entity name (written by an alias definitions rebuild)
+message AliasOnlyChange {
+	string name = 1;
+	repeated AliasRef added_aliases = 2;
+	repeated AliasRef removed_aliases = 3;
 }
 
 message DeltaNode {
@@ -77,6 +95,8 @@ message DeltaIndex {
 	uint64 delta_version = 32;
 	reserved 33; // root of an unreleased earlier tree format
 	DeltaNode root = 34;
+	repeated AliasOnlyChange alias_changes = 7;
+	string alias_definitions_hash = 8; // written on every delta
 }
 
 message ProcessedVersionsInfo {
