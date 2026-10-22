@@ -1,5 +1,6 @@
 
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Reactive.Disposables;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Models;
@@ -20,6 +22,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
     private readonly IOptions<WriterConfig> _writerConfig;
+    private readonly IReadOnlyList<AliasDefinition> _aliasDefinitions;
+    private readonly string _aliasDefinitionsHash;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _indexBasedOnMostRecentSnapshot;
 
@@ -41,10 +45,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly ConcurrentQueue<WriteIntent> _pendingWrites = new();
     private int _batchInProgress;
 
-    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger, IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true)
+    public DatasetWriter(INotificationsHub<T> notificationsHub, ILogger<DatasetWriter<T>> logger,
+        IStorageProvider<T> storageProvider, IOptions<WriterConfig> writerConfig, bool retryInitialization = true,
+        IOptions<AliasOptions<T>>? aliasOptions = null)
     {
         _storageProvider = storageProvider;
         _writerConfig = writerConfig;
+        _aliasDefinitions = aliasOptions?.Value.Definitions ?? [];
+        _aliasDefinitionsHash = AliasOptions<T>.HashOf(_aliasDefinitions);
         _logger = logger;
         _datasetHelper = new DatasetHelper(logger, _storageProvider);
         _subscriptions.Add(notificationsHub.Subscribe<SnapshotCreatedNotification>(OnSnapshotCreated));
@@ -56,7 +64,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 return;
             }
 
-            InitializationTask = InitializationLoop();
+            InitializationTask = retryInitialization ? InitializationLoop() : Initialize();
             await InitializationTask;
         }));
 
@@ -115,12 +123,140 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 //ignored as we dont have a snapshot yet
             }
 
+            if (_index.AliasDefinitionsHash != _aliasDefinitionsHash)
+            {
+                // A rebuild without definitions would drop every alias; keep failing until the host registers them
+                if (_aliasDefinitions.Count == 0)
+                {
+                    throw new InvalidOperationException($"Dataset {typeof(T).Name} stores aliases (hash "
+                        + $"{_index.AliasDefinitionsHash}) but this host registers no alias definitions; register them "
+                        + "(AddDatasetAliases) before writing");
+                }
+
+                await RebuildAliases(_index);
+            }
+
             _logger.LogInformation($"Initialized DatasetWriter {typeof(T).Name} Dataset with latest version {_index.LatestVersion}");
         }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "Failed to initialize Writer for {EntityType} Dataset", typeof(T).Name);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Recomputes the aliases of every live entity after the alias definitions changed, reading the data
+    /// sequentially, and stores the result as one ordinary delta: an alias change for every entity whose set changed,
+    /// and the new definitions hash. Runs before the writer is ready; a crash before the delta is stored just means the
+    /// next start does it again.
+    /// </summary>
+    /// <remarks>
+    /// An alias that comes out on more than one entity goes to the newest entity version, then the lowest name; the
+    /// others keep the rest of their aliases. Logged, and counted in <see cref="AliasMetrics.RebuildConflicts"/>. An
+    /// entity the definitions can't evaluate gets no aliases; counted in <see cref="AliasMetrics.RebuildUnparseable"/>.
+    /// </remarks>
+    private async Task RebuildAliases(ImmutableDatasetState index)
+    {
+        // A new or empty dataset gets here on every start until its first write stores the hash
+        _logger.Log(index.EnumerateAll(where: entity => entity.IsLive).Any() ? LogLevel.Warning : LogLevel.Information,
+            "The alias definitions of {EntityType} changed; recomputing the aliases of all entities", typeof(T).Name);
+
+        var entities = new List<(string Name, ulong Version, ImmutableArray<(string Name, string Value)> Aliases)>();
+        await ReadAllLiveEntities(index, (name, entity, bytes) =>
+        {
+            ImmutableArray<(string Name, string Value)> aliases;
+            try
+            {
+                aliases = AliasStaging.Evaluate(_aliasDefinitions, name, bytes);
+            }
+            catch (ArgumentException e)
+            {
+                _logger.LogError(e, "Entity {Name} gets no aliases", name);
+                AliasMetrics.RebuildUnparseable.Add(1, new KeyValuePair<string, object?>("dataset", typeof(T).Name));
+                aliases = [];
+            }
+
+            entities.Add((name, entity.GetLatestEntityVersion(), aliases));
+        });
+
+        if (entities.Count == 0)
+            return; // nothing to store: the next delta carries the new hash
+
+        var owners = new Dictionary<(string Name, string Value), string>();
+        foreach (var (name, _, aliases) in entities.OrderByDescending(e => e.Version).ThenBy(e => e.Name, StringComparer.Ordinal))
+        {
+            foreach (var alias in aliases)
+            {
+                if (owners.TryAdd(alias, name))
+                    continue;
+                _logger.LogWarning("Alias {Alias} ({AliasName}) of {Name} stays with {Owner}", alias.Value, alias.Name, name,
+                    owners[alias]);
+                AliasMetrics.RebuildConflicts.Add(1, new KeyValuePair<string, object?>("dataset", typeof(T).Name));
+            }
+        }
+
+        var delta = new DeltaIndex
+        {
+            DeltaVersion = index.LatestVersion + 1,
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
+            AliasDefinitionsHash = _aliasDefinitionsHash
+        };
+        foreach (var (name, _, aliases) in entities)
+        {
+            var before = index.GetEntity(name).Aliases;
+            var after = aliases.Where(alias => owners[alias] == name).ToList();
+            var added = after.Except(before).ToProto().ToList();
+            var removed = before.Except(after).ToProto().ToList();
+            if (added.Count > 0 || removed.Count > 0)
+            {
+                delta.AliasChanges.Add(new AliasOnlyChange
+                {
+                    Name = name, AddedAliases = { added }, RemovedAliases = { removed }
+                });
+            }
+        }
+
+        await _storageProvider.StoreDelta(delta.DeltaVersion, delta.ToByteArray(), Stream.Null);
+        _index = index.ApplyDelta(delta);
+        await OnDeltaApplied(delta);
+        _logger.LogInformation("Recomputed the aliases of {Count} entities; {Changed} changed; version {Version}",
+            entities.Count, delta.AliasChanges.Count, delta.DeltaVersion);
+    }
+
+    /// <summary>
+    /// Reads every live entity: those in the snapshot the index starts from in one pass over its data file, as
+    /// <see cref="SnapshotCreationPlugin{T}"/> does, the newer ones from their deltas.
+    /// </summary>
+    private async Task ReadAllLiveEntities(ImmutableDatasetState index,
+        Action<string, ImmutableSnapshotEntity, ReadOnlyMemory<byte>> onEntity)
+    {
+        var live = index.EnumerateAll(where: entity => entity.IsLive).ToList();
+        var inSnapshot = live.Where(e => e.Value.GetLatestEntityVersion() <= index.SnapshotVersion)
+            .OrderBy(e => e.Value.Position).ToList();
+        if (inSnapshot.Count > 0)
+        {
+            await _storageProvider.ReadSnapshotData(index.SnapshotVersion, stream =>
+            {
+                long position = 0;
+                foreach (var (name, entity) in inSnapshot)
+                {
+                    position += SnapshotCreationPlugin<T>.SeekForwardBy(stream, entity.Position - position);
+                    var bytes = new byte[entity.Length];
+                    stream.ReadExactly(bytes);
+                    position += entity.Length;
+                    onEntity(name, entity, bytes);
+                }
+            });
+        }
+
+        // One range read per entity, as in CopyRelevantItemsFromDeltas; batching them per delta is an option if
+        // first-deploy rebuilds turn out slow
+        foreach (var (name, entity) in live.Where(e => e.Value.GetLatestEntityVersion() > index.SnapshotVersion))
+        {
+            var bytes = await _storageProvider.ReadDataFromSources(
+                [(ObjectNameTypeEnum.Delta, entity.GetLatestEntityVersion(), entity.Position)], entity.Length);
+            onEntity(name, entity, bytes);
         }
     }
 
@@ -160,8 +296,10 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             };
         }
 
+        var staging = NewAliasStaging();
+        staging.Release(name);
         var delta = new Delta([(name, null, ChangeType.Deleted, trackingId, slaTimestamp)], _index.LatestVersion + 1);
-        await ApplyDelta(delta);
+        await ApplyDelta(delta, staging);
 
         _logger.LogInformation("Deleted 1 entity; version {NewVersion}", _index.LatestVersion);
         return WriteResponseFor(delta);
@@ -202,9 +340,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         var deleteChanges = deletedNames.Select(nm => (nm.Name, (byte[]?)null, ChangeType.Deleted, nm.TrackingId, nm.SlaTimestamp)).ToArray();
+        var staging = NewAliasStaging();
+        foreach (var (name, _, _) in deletedNames)
+            staging.Release(name);
 
         var delta = new Delta(deleteChanges, _index!.LatestVersion + 1);
-        await ApplyDelta(delta);
+        await ApplyDelta(delta, staging);
 
         _logger.LogInformation("Deleted {Count} entities; version {NewVersion}", deleteChanges.Length, _index.LatestVersion);
         return WriteResponseFor(delta);
@@ -237,9 +378,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         var deleteChanges = deletedNames.Select(nm => (nm, (byte[]?)null, ChangeType.Deleted, trackingId, slaTimestamp)).ToArray();
+        var staging = NewAliasStaging();
+        foreach (var name in deletedNames)
+            staging.Release(name);
 
         var delta = new Delta(deleteChanges, _index.LatestVersion + 1);
-        await ApplyDelta(delta);
+        await ApplyDelta(delta, staging);
 
         _logger.LogInformation("Deleted {Count} descendants of '{Prefix}'; version {NewVersion}", deleteChanges.Length, prefix, _index.LatestVersion);
         return WriteResponseFor(delta);
@@ -269,11 +413,12 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         using var slot = await _semaphore.LockAsync(ct);
         Delta delta;
+        uint crc = DatasetHelper.ComputeCrc32(entityBytes);
 
         if (!_index!.TryGetEntity(name, out var existingEntity) || existingEntity.GetLatestChangeType() == ChangeType.Deleted)
             delta = new Delta([(name, entityBytes, ChangeType.New, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
-        else if (await IsByteArrayUpdated(name, entityBytes))
+        else if (await IsByteArrayUpdated(name, entityBytes, crc))
             delta = new Delta([(name, entityBytes, ChangeType.Changed, trackingId, slaTimestamp)], _index.LatestVersion + 1);
 
         else
@@ -282,7 +427,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 NewDatasetVersion = _index.LatestVersion
             };
 
-        await ApplyDelta(delta);
+        var staging = NewAliasStaging();
+        staging.Put(name, entityBytes, crc);
+        await ApplyDelta(delta, staging);
 
         _logger.LogInformation("Put 1 entity; version {NewVersion}", _index.LatestVersion);
         return WriteResponseFor(delta);
@@ -337,8 +484,29 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         ThrowIfNotInitialized();
 
         var tempDataFilePath = DatasetHelper.GetTempFilePath();
+        try
+        {
+            return await PutEntitiesAsync(entities, includeParents, performImplicitDeletes, tempDataFilePath, ct);
+        }
+        finally
+        {
+            File.Delete(tempDataFilePath); // Single deletion point (exists even if empty, or when the write failed)
+        }
+    }
+
+    private async Task<IDatasetWriter<T>.WriteResponse> PutEntitiesAsync(
+        IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities,
+        bool includeParents,
+        bool performImplicitDeletes,
+        string tempDataFilePath,
+        CancellationToken ct)
+    {
         await using var fileStream = new FileStream(tempDataFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
-        var (deltaIndex, receivedNames, allParents) = await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, ct);
+        var staging = NewAliasStaging();
+        if (performImplicitDeletes && !includeParents)
+            staging.ReleaseAll(); // every existing entity is either sent again or implicitly deleted
+        var (deltaIndex, receivedNames, allParents) =
+            await CreateDeltaIndexFromAsyncEnumerable(_index!, entities, includeParents, fileStream, staging, ct);
 
         // Handle deletes based on parent inclusion and only if deletes are allowed
         if (performImplicitDeletes)
@@ -361,6 +529,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 }
             }
         }
+
+        staging.AttachTo(deltaIndex);
         int added = deltaIndex.NewEntities.Count, changed = deltaIndex.ChangedEntities.Count,
             deleted = deltaIndex.DeletedEntities.Count;
         var hasEntityData = added > 0 || changed > 0;
@@ -371,9 +541,8 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
         fileStream.Close();
 
-        if (added == 0 && changed == 0 && deleted == 0)
+        if (added == 0 && changed == 0 && deleted == 0 && deltaIndex.AliasChanges.Count == 0)
         {
-            File.Delete(tempDataFilePath);
             return new IDatasetWriter<T>.WriteResponse
             {
                 NewDatasetVersion = _index!.LatestVersion
@@ -387,7 +556,6 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             await _storageProvider.StoreDelta(newIndex.LatestVersion, deltaIndex.ToByteArray(), deltaDataStream);
         }
-        File.Delete(tempDataFilePath); // Single deletion point (exists even if empty)
 
         _index = newIndex;
         await OnDeltaApplied(deltaIndex);
@@ -409,6 +577,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         IAsyncEnumerable<(string name, byte[]? entityBytes, string? trackingId, DateTimeOffset? slaTimestamp)> entities,
         bool includeParents,
         Stream stream,
+        AliasStaging staging,
         CancellationToken ct)
     {
         var deltaIndex = new DeltaIndex { DeltaVersion = index.LatestVersion + 1, DeltaVersionLegacy = 0 };
@@ -450,8 +619,19 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 var parent = DatasetHelper.FindParentOfEntity(name);
                 if (string.IsNullOrEmpty(parent))
                     continue;
-                allParents.Add(parent);
+                // The first time a parent appears, its existing children free their aliases: each is either sent
+                // again or implicitly deleted
+                if (allParents.Add(parent))
+                    staging.ReleaseChildren(parent);
             }
+
+            uint crc32 = entityBytes == null ? 0 : DatasetHelper.ComputeCrc32(entityBytes);
+
+            // In stream order, before entries with the same name are collapsed
+            if (entityBytes == null)
+                staging.Release(name);
+            else
+                staging.Put(name, entityBytes, crc32);
 
             receivedNames.Add(name);
 
@@ -462,9 +642,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
             else
             {
-                // Put operation - compute and store CRC32, write to stream
-                var crc32 = DatasetHelper.ComputeCrc32(entityBytes);
-
+                // Put operation - store CRC32, write to stream
                 var lengthOfTheVarPrefix = DatasetHelper.WriteProtobufLengthPrefix(stream, entityBytes.Length);
                 byteArrayPosition += lengthOfTheVarPrefix;
 
@@ -539,28 +717,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return (deltaIndex, receivedNames, allParents);
     }
 
-    private async Task<ChangeType> DetermineChangeType(string name, byte[] entityBytes)
-    {
-        if (!_index!.TryGetEntity(name, out var existingEntity) ||
-            existingEntity.GetLatestChangeType() == ChangeType.Deleted)
-        {
-            return ChangeType.New;
-        }
-
-        return await IsByteArrayUpdated(name, entityBytes) ? ChangeType.Changed : ChangeType.None;
-    }
-
-    private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes)
+    private async Task<bool> IsByteArrayUpdated(string name, byte[] entityBytes, uint crc)
     {
         var existingEntity = _index!.GetEntity(name);
         if (existingEntity.Length != entityBytes.Length)
             return true;
 
-        var newHashCode = DatasetHelper.ComputeCrc32(entityBytes);
-
         // If we have a stored CRC (non-zero), trust it completely
         if (existingEntity.Crc32 != 0)
-            return existingEntity.Crc32 != newHashCode;
+            return existingEntity.Crc32 != crc;
 
         // If stored CRC is 0 (legacy), always compare bytes
         var existingBytes = await ReadEntityBytes(name);
@@ -600,7 +765,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         return await _storageProvider.ReadDataFromSources(sources, entityInMainIndex.Length);
     }
 
-    private async Task<ImmutableDatasetState> ApplyDelta(Delta delta)
+    private AliasStaging NewAliasStaging() => new(_index!, _aliasDefinitions, _aliasDefinitionsHash);
+
+    private async Task<ImmutableDatasetState> ApplyDelta(Delta delta, AliasStaging staging)
     {
         var deltaIndex = new DeltaIndex()
         {
@@ -666,6 +833,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             }
         }
 
+        staging.AttachTo(deltaIndex);
         deltaIndex.ConvertToTree();
         concatenatedByteStream.Position = 0;
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
@@ -757,7 +925,15 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             using var slot = await _semaphore.LockAsync();
             try
             {
-                var (mergedChanges, perIntentResponses) = MergeIntents(batch, _index!);
+                var staging = NewAliasStaging();
+                var (mergedChanges, perIntentResponses, errors) = MergeIntents(batch, _index!, staging);
+
+                // An intent whose aliases conflict fails on its own; its changes are not in mergedChanges
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    if (errors[i] != null)
+                        batch[i].Completion.TrySetException(errors[i]!);
+                }
 
                 if (mergedChanges.Length == 0)
                 {
@@ -770,7 +946,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                 }
 
                 var delta = new Delta(mergedChanges, _index!.LatestVersion + 1);
-                await ApplyDelta(delta);
+                await ApplyDelta(delta, staging);
 
                 var version = _index!.LatestVersion;
                 _logger.LogInformation("Coalesced {Count} write intents into single delta; version {Version}", batch.Count, version);
@@ -788,12 +964,18 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
     }
 
+    /// <summary>
+    /// Merges the intents into one set of changes. Each intent's aliases are staged on their own, in order: an intent
+    /// that fails them gets its exception in <c>Errors</c>, and its changes are left out.
+    /// </summary>
     internal static (
         (string Name, byte[]? Entity, ChangeType Change, string? TrackingId, DateTimeOffset? SlaTimestamp)[] MergedChanges,
-        IDatasetWriter<T>.WriteResponse[] PerIntentResponses
-    ) MergeIntents(List<WriteIntent> intents, ImmutableDatasetState index)
+        IDatasetWriter<T>.WriteResponse[] PerIntentResponses,
+        Exception?[] Errors
+    ) MergeIntents(List<WriteIntent> intents, ImmutableDatasetState index, AliasStaging staging)
     {
         var responses = new IDatasetWriter<T>.WriteResponse[intents.Count];
+        var errors = new Exception?[intents.Count];
 
         // Virtual state tracks entities modified by intents processed so far.
         // Value: (Bytes, Crc32, Exists, TrackingId, SlaTimestamp) — null entry means deleted in virtual state
@@ -803,6 +985,21 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         {
             uint added = 0, changed = 0, deleted = 0;
             var intent = intents[i];
+
+            var crcs = intent.Operations?.Select(op => op.EntityBytes == null ? 0 : DatasetHelper.ComputeCrc32(op.EntityBytes))
+                .ToArray();
+            int mark = staging.Mark();
+            try
+            {
+                StageAliases(intent, crcs, index, virtualState.Keys, staging);
+            }
+            catch (Exception e) when (e is AliasConflictException or ArgumentException)
+            {
+                staging.Rollback(mark);
+                errors[i] = e;
+                responses[i] = new IDatasetWriter<T>.WriteResponse();
+                continue;
+            }
 
             if (intent.DeleteChildrenAncestor != null)
             {
@@ -848,8 +1045,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             else if (intent.Operations != null)
             {
                 var intentFinalStates = new Dictionary<string, (byte[]? Bytes, uint Crc32, string? TrackingId, DateTimeOffset? SlaTimestamp)>();
-                foreach (var (name, entityBytes, trackingId, slaTimestamp) in intent.Operations)
+                for (int op = 0; op < intent.Operations.Length; op++)
                 {
+                    var (name, entityBytes, trackingId, slaTimestamp) = intent.Operations[op];
                     if (entityBytes == null)
                     {
                         if (!intentFinalStates.TryGetValue(name, out var currentState))
@@ -863,7 +1061,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
                     }
                     else
                     {
-                        var crc = DatasetHelper.ComputeCrc32(entityBytes);
+                        var crc = crcs![op];
                         if (!intentFinalStates.TryGetValue(name, out var currentState))
                         {
                             intentFinalStates[name] = (entityBytes, crc, trackingId, slaTimestamp);
@@ -967,7 +1165,32 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             // !exists && !realExists: no-op (entity was added then deleted within the batch, net zero)
         }
 
-        return (mergedChanges.ToArray(), responses);
+        return (mergedChanges.ToArray(), responses, errors);
+    }
+
+    private static void StageAliases(WriteIntent intent, uint[]? crcs, ImmutableDatasetState index,
+        IEnumerable<string> namesInBatch, AliasStaging staging)
+    {
+        if (intent.DeleteChildrenAncestor is { } prefix)
+        {
+            // Only entities with aliases have any to release
+            foreach (var name in index.EnumerateAll(prefix, e => !e.Aliases.IsEmpty).Select(e => e.Key).Concat(namesInBatch))
+            {
+                if (name.StartsWith(prefix, StringComparison.Ordinal))
+                    staging.Release(name);
+            }
+
+            return;
+        }
+
+        for (int op = 0; op < intent.Operations!.Length; op++)
+        {
+            var (name, entityBytes, _, _) = intent.Operations[op];
+            if (entityBytes == null)
+                staging.Release(name);
+            else
+                staging.Put(name, entityBytes, crcs![op]);
+        }
     }
 
     private static string? UpdateTrackingId(string? currentTrackingId, DateTimeOffset? currentSla, string? newTrackingId, DateTimeOffset? newSla)

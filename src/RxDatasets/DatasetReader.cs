@@ -12,7 +12,7 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetReader<T> : IDatasetReader<T>, IHostedService
+public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 {
     private readonly ILogger<DatasetReader<T>> _logger;
     private readonly IReadOnlyStorageProvider<T> _storageProvider;
@@ -422,6 +422,14 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         }
 
         return tempState;
+    }
+
+    public string? ResolveAlias(string aliasName, string alias) => ThrowIfNotInitialized().ResolveAlias(aliasName, alias);
+
+    public (IReadOnlyList<string> Aliases, ulong Version) ListAliases(string aliasName, string prefix)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        return (indexRef.ListAliases(aliasName, prefix), indexRef.LatestVersion);
     }
 
     public ulong GetLatestVersion()

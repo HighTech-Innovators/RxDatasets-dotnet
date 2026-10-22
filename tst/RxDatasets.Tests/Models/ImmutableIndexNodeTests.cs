@@ -183,4 +183,24 @@ public class ImmutableIndexNodeTests
             .GetLeaf("items/{}/values", "I1".AsMemory())!.Position.Should().Be(1);
         builder.ToImmutable().EnumerateAll("t/T/s/S/items/I1/values").Single().Value.Position.Should().Be(1);
     }
+
+    [Fact]
+    public void Builder_RemoveAfterAdd_AndLookupsOfMissingNames_LeaveNoEmptyNode()
+    {
+        var root = Build(("t/T/tenant", Live()));
+        var builder = root.ToBuilder();
+
+        builder.Set("t/T/s/S/items/I1/values", Live());
+        builder.Remove("t/T/s/S/items/I1/values");
+        builder.Set("single", Live());
+        builder.Remove("single");
+        builder.Get("t/T/s/S2/items/I2/values").Should().BeNull();
+        builder.Remove("t/T/s/S3/items/I3/values");
+        var result = builder.ToImmutable();
+
+        result.Children.Should().BeEmpty();
+        result.Leaves.Select(l => l.Key).Should().Equal("t/{}/tenant");
+        result.LiveCount.Should().Be(1);
+        result.EnumerateAll().Select(e => e.Key).Should().Equal("t/T/tenant");
+    }
 }

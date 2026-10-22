@@ -136,9 +136,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             targetSnapshotStream.Close();
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
-            var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutable(), newSnapshotVersion,
-                    currentIndex.LatestVersion);
+            // With, so the alias definitions hash (and the entities' aliases) carry over
+            var newSnapshotIndex = currentIndex with
+            {
+                Root = newSnapshotEntities.ToImmutable(),
+                SnapshotVersion = newSnapshotVersion
+            };
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
@@ -272,7 +275,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     /// <param name="sourceStream"></param>
     /// <param name="relative"></param>
     /// <returns>The 'relative' value</returns>
-    private static long SeekForwardBy(Stream sourceStream, long relative)
+    internal static long SeekForwardBy(Stream sourceStream, long relative)
     {
         switch (relative)
         {
