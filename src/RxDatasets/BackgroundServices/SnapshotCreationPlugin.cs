@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Collections.Immutable;
 using System.Reactive.Concurrency;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -113,7 +112,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities = [];
+        var newSnapshotEntities = ImmutableIndexNode<ImmutableSnapshotEntity>.Empty.ToBuilder();
 
         var tempPath = DatasetHelper.GetTempFilePath();
 
@@ -138,7 +137,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
             var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
+                new ImmutableDatasetState(newSnapshotEntities.ToImmutable(), newSnapshotVersion,
                     currentIndex.LatestVersion);
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
@@ -158,18 +157,18 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        ImmutableIndexNode<ImmutableSnapshotEntity>.Builder newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        foreach (var entity in currentIndex.Entities.Where(x =>
-                     x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        foreach (var entity in currentIndex.EnumerateAll(where: x =>
+                     x.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
 
             if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
                 var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
             }
             else
             {
@@ -185,7 +184,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 targetSnapshotStreamPosition += entityLength;
 
                 var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
             }
         }
 
@@ -193,15 +192,15 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        ImmutableIndexNode<ImmutableSnapshotEntity>.Builder newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {
             long sourceStreamPosition = 0;
 
-            foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
+            foreach (var entity in currentIndex.EnumerateAll(
+                         where: x => x.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)
@@ -210,7 +209,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
                 {
                     ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
                 }
                 else
                 {
@@ -232,7 +231,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                         Position = targetEntityPosition,
                         Length = entityLength
                     };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
                 }
             }
         });

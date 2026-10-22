@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -57,8 +56,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
     public static IEnumerable<string> GetImplicitDeletes(ImmutableDatasetState index, HashSet<string> receivedNames)
     {
-        return index.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
+        return index.EnumerateAll()
+            .Where(x => x.Value.IsLive)
             .Select(x => x.Key)
             .Except(receivedNames);
     }
@@ -66,9 +65,9 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     public static IEnumerable<string> GetImplicitDeletesForParentNames(ImmutableDatasetState index, HashSet<string> receivedNames,
         HashSet<string> allParents)
     {
-        return index.Entities
-            .Where(entity => entity.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Where(entity => allParents.Contains(FindParentOfEntity(entity.Key) ?? string.Empty))
+        return allParents
+            .SelectMany(parent => index.EnumerateAll(parent)
+                .Where(entity => entity.Value.IsLive && FindParentOfEntity(entity.Key) == parent))
             .Select(x => x.Key)
             .Except(receivedNames);
     }
@@ -100,8 +99,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         catch (FileNotFoundException)
         {
             // There are no snapshots available
-            snapshotIndex = new ImmutableDatasetState(new Dictionary<string, ImmutableSnapshotEntity>().ToImmutableDictionary(),
-                0, version);
+            snapshotIndex = ImmutableDatasetState.Empty(0, version);
         }
 
         if (snapshotIndex.SnapshotVersion == 0)
@@ -159,7 +157,8 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         var mutableSnapshotIndexBytes = await storageProvider.ReadSnapshotIndex(snapshotVersion);
         var mutableSnapshotIndex = SnapshotIndex.Parser.ParseFrom(mutableSnapshotIndexBytes.Span);
         mutableSnapshotIndex.ValidateAgainstVersion(snapshotVersion);
-        var lastEntityInDataFile = mutableSnapshotIndex.Entities.Values
+        var lastEntityInDataFile = mutableSnapshotIndex.EnumerateEntities()
+            .Select(e => e.Entity)
             .Where(e => e.GetLatestChangeType() != ChangeType.Deleted).MaxBy(e => e.Position);
 
         if (lastEntityInDataFile is not null)
