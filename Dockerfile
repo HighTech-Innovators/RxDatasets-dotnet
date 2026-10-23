@@ -177,6 +177,13 @@ ARG TARGET_NUGET_APIKEY
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet nuget push /nuget/*.nupkg -s ${TARGET_NUGET} -k ${TARGET_NUGET_APIKEY}
 
+#
+# PACKAGES ONLY (used by .github/workflows/publish.yml, which pushes them with nuget.org Trusted Publishing):
+#   docker buildx build --target packages --build-arg VERSION=<version> --output type=local,dest=out .
+#
+FROM scratch AS packages
+COPY --from=package /nuget/ /
+
 ###########################################################################################################
 ###########################################################################################################
 ###                                                                                                    ####

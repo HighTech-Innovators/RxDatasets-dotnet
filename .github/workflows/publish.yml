@@ -1,0 +1,32 @@
+# Publishes the NuGet packages to nuget.org with Trusted Publishing (OIDC, no long-lived API key).
+# This GitHub repo is a push mirror of https://gitlab.developer.htiprojects.nl/oss/rxdatasets/RxDatasets-dotnet, which is the
+# source of truth: change this file there. Tags (the package version) are created by the GitLab tag pipelines.
+name: publish
+
+on:
+  push:
+    tags: ['**']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build packages
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: docker buildx build --target packages --build-arg VERSION="$VERSION" --output type=local,dest=out .
+
+      - name: NuGet login (Trusted Publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER || 'htibartdeboer' }}
+
+      - name: Push to nuget.org
+        run: dotnet nuget push out/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
