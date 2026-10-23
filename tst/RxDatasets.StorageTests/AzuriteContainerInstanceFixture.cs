@@ -5,8 +5,7 @@ namespace RxDatasets.StorageTests;
 
 public class AzuriteContainerInstanceFixture : IClassFixture<AzuriteContainer>
 {
-    public AzuriteContainer Container { get; set; } = new AzuriteBuilder()
-    .WithImage("mcr.microsoft.com/azure-storage/azurite:latest")
+    public AzuriteContainer Container { get; set; } = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:latest")
     .WithImagePullPolicy(PullPolicy.Always)
     .Build();
 

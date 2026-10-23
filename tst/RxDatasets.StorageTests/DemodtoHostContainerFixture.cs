@@ -86,8 +86,7 @@ public class DemodtoHostContainerFixture : IAsyncLifetime
         if (_hostImageName == string.Empty)
             throw new Exception("Docker image sha was not found after building without errors");
 
-        ContainerBuilder containerBuilder = new ContainerBuilder()
-                    .WithImage(_hostImageName)
+        ContainerBuilder containerBuilder = new ContainerBuilder(_hostImageName)
                     .WithNetwork(network)
                     .WithEnvironment("MINIOS3__ACCESSKEY", s3Config?.AccessKey)
                     .WithEnvironment("MINIOS3__SECRETKEY", s3Config?.SecretKey)
