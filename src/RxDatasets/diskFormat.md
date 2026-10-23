@@ -14,6 +14,11 @@ In total, there are five different file types stored on disk:
 - `SnapshotInfo.pb`: Storing the metadata about the snapshot files that are available.
 - `ProcessedVersions.pb`: Storing the metadata about the services that process delta notifications.
 
+All of these live in one folder per dataset: `StorageConfig.DtoName` when set, otherwise the entity type name, plus
+`V{n}` when the last namespace segment ends in a version other than 1 (`Pricer.Evo.Dtos.LinkV2.Link` → `LinkV2/`,
+`Pricer.Evo.Dtos.LinkV1.Link` → `Link/`). Before this, every version used the bare type name, so all versions of a DTO
+shared one folder.
+
 The full .proto file containing the object definitions can be found [here](src/RxDatasets/Models/DatasetEntities.proto)
 
 ## Delta's
