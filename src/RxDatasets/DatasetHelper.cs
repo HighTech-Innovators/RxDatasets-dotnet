@@ -186,7 +186,27 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         return snapshotIndex;
     }
     public static string GetObjectNamePrefix<T>(StorageConfig storageConfig) =>
-        $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? typeof(T).Name : storageConfig.DtoName)}/";
+        $"{storageConfig.CustomRootFolder}{(string.IsNullOrEmpty(storageConfig.DtoName) ? StorageFolder<T>.Name : storageConfig.DtoName)}/";
+
+    private static readonly Regex NamespaceVersion = new(@"[Vv](\d+)$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The default storage folder of a dataset of <paramref name="entityType"/>: the type name, plus <c>V{n}</c> when the
+    /// last namespace segment ends in a version other than 1 (<c>Pricer.Evo.Dtos.LinkV2.Link</c> → <c>LinkV2</c>), so
+    /// two versions of a DTO don't share a folder. Version 1 and unversioned types keep the bare type name.
+    /// </summary>
+    public static string StorageFolderName(Type entityType)
+    {
+        var match = NamespaceVersion.Match(entityType.Namespace ?? "");
+        return match.Success && ulong.Parse(match.Groups[1].Value) != 1
+            ? $"{entityType.Name}V{match.Groups[1].Value}"
+            : entityType.Name;
+    }
+
+    private static class StorageFolder<T>
+    {
+        public static readonly string Name = StorageFolderName(typeof(T));
+    }
     public static string GetObjectName<T>(ulong version, ObjectNameIndexOrDataEnum indexOrData,
         ObjectNameTypeEnum deltaOrSnapshot, StorageConfig storageConfig)
     {
