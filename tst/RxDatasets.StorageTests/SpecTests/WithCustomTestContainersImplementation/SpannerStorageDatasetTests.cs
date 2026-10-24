@@ -1,6 +1,7 @@
 using System.Data;
 using System.Runtime.CompilerServices;
 using FluentAssertions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -15,9 +16,22 @@ namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementati
 
 /// <summary>All datasets in one set of tables; each test is its own dataset.</summary>
 [Collection(SpannerEmulatorFixture.Name)]
-public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : StorageTestSpecWithTwoStepInit
+public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : StorageTestSpecWithTwoStepInit, IAsyncLifetime
 {
+    // Stopped after each test, so their 5 s polls don't pile up over the suite
+    private readonly List<IHostedService> _services = [];
+
     protected virtual bool TablePerDataset => false;
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
+    {
+        foreach (var service in Enumerable.Reverse(_services))
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
 
     protected override async Task<(DatasetReader<object>, DatasetWriter<object>)> SetupStorageAsync(
         CancellationToken ct,
@@ -26,18 +40,23 @@ public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : Storag
         INotificationsHub<object> notificationsHub = new NotificationsHubSync<object>();
         var provider = new SpannerStorageProvider<object>(Mock.Of<ILogger<SpannerStorageProvider<object>>>(),
             await CreateStore(memberName), notificationsHub, startIfInitFails: false);
+        _services.Add(provider);
         await provider.StartAsync(CancellationToken.None);
 
-        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), provider, notificationsHub);
+        var datasetReader = new DatasetReader<object>(Mock.Of<ILogger<DatasetReader<object>>>(), provider,
+            notificationsHub);
         await datasetReader.StartAsync(CancellationToken.None);
-        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(), provider,
-            Options.Create(new WriterConfig()), false);
+        _services.Add(datasetReader);
+        var datasetWriter = new DatasetWriter<object>(notificationsHub, Mock.Of<ILogger<DatasetWriter<object>>>(),
+            provider, Options.Create(new WriterConfig()), false);
 
-        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(Mock.Of<ILogger<SnapshotCreationPlugin<object>>>(),
-            provider, SnapshotsOptions, new TestScheduler());
-        _ = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(
+        var snapshotCreationPlugin = new SnapshotCreationPlugin<object>(
+            Mock.Of<ILogger<SnapshotCreationPlugin<object>>>(), provider, SnapshotsOptions, new TestScheduler());
+        var consumingService = new DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>(
             Mock.Of<ILogger<DatasetUpdateConsumingService<object, SnapshotCreationPlugin<object>>>>(), notificationsHub,
-            snapshotCreationPlugin).StartAsync(CancellationToken.None);
+            snapshotCreationPlugin);
+        await consumingService.StartAsync(CancellationToken.None);
+        _services.Add(consumingService);
         return (datasetReader, datasetWriter);
     }
 
@@ -48,7 +67,8 @@ public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : Storag
         var config = Options.Create(new SpannerConfig
         {
             ConnectionString = await spanner.ConnectionString(),
-            TablePerDataset = TablePerDataset
+            TablePerDataset = TablePerDataset,
+            CreateTables = true
         });
         return new SpannerDatasetStore<object>(config, StorageConfig);
     }
@@ -69,7 +89,7 @@ public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : Storag
         var (oldest, newest, snapshots) = await store.ListVersions();
         (oldest, newest).Should().Be((4ul, 3ul));
         snapshots.Select(s => s.Version).Should().Equal(3ul);
-        (await store.StoreDelta(2, [1], Stream.Null)).Should().BeFalse("cleaning removed it, but it is not after the latest");
+        (await store.StoreDelta(2, [1], Stream.Null)).Should().BeFalse("cleaning removed 2, but it isn't after the latest");
         (await store.StoreDelta(3, [1], Stream.Null)).Should().BeFalse();
         (await store.StoreDelta(4, [1], Stream.Null)).Should().BeTrue();
         (await store.ListVersions()).Should().BeEquivalentTo((4ul, 4ul, snapshots));
@@ -101,8 +121,14 @@ public class SpannerStorageDatasetTests(SpannerEmulatorFixture spanner) : Storag
 
         await writer.PutMany(new[] { ("small", small), ("large", large), ("after", small) }
             .Select(e => (e.Item1, e.Item2, (string?)null, (DateTimeOffset?)null)).ToAsyncEnumerable());
+        // Snapshots at 10 and 20: the second copies the large entity out of the first's data stream
+        for (var i = 0; i < 20; i++)
+        {
+            await writer.Put($"filler{i}", small, null, null);
+        }
 
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
+        newReader.GetMainIndexSnapshotVersion().Should().BeGreaterThan(11, "the second snapshot");
         foreach (var r in new[] { reader, newReader })
         {
             (await r.Get("large"))!.Value.entityBytes.ToArray().Should().Equal(large);
