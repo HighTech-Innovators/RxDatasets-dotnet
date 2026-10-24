@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HighTechInnovators.RxDatasets.StorageProvider.Spanner</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Spanner.Data" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RxDatasets\RxDatasets.csproj" />
+  </ItemGroup>
+
+</Project>

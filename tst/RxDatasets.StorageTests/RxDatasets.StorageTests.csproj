@@ -36,6 +36,7 @@
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.GoogleCloud\RxDatasets.StorageProvider.GoogleCloud.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.LocalDisk\RxDatasets.StorageProvider.LocalDisk.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.S3\RxDatasets.StorageProvider.S3.csproj" />
+    <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.Spanner\RxDatasets.StorageProvider.Spanner.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets\RxDatasets.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.Aliasing\RxDatasets.Aliasing.csproj" />
     <ProjectReference Include="..\..\src\RxDatasets.StorageProvider.AzBlob\RxDatasets.StorageProvider.AzBlob.csproj" />
