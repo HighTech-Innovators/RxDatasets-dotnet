@@ -1,4 +1,5 @@
-using System.IO.Pipelines;
+using System.IO.Hashing;
+using System.Text;
 using System.Text.RegularExpressions;
 using Google.Cloud.Spanner.Data;
 using Microsoft.Extensions.Options;
@@ -25,26 +26,43 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     private const long IndexPart = 0;
     private const long DataPart = 1;
 
-    private readonly string _connectionString;
+    private readonly SpannerConfig _config;
     private readonly string _dataset;
     private readonly string _versions;
     private readonly string _chunks;
     private readonly string _processed;
+    private readonly string _leases;
     private Task? _schema;
 
     public SpannerDatasetStore(IOptions<SpannerConfig> config, IOptions<StorageConfig> storageConfig)
     {
-        _connectionString = config.Value.ConnectionString;
+        _config = config.Value;
         _dataset = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value);
-        var prefix = config.Value.TablePrefix;
-        if (config.Value.TablePerDataset)
+        var prefix = _config.TablePrefix;
+        if (_config.TablePerDataset)
         {
-            prefix += "_" + Regex.Replace(_dataset, "[^A-Za-z0-9]+", "_").Trim('_');
+            prefix += "_" + TableNamePart(_dataset);
         }
 
         _versions = prefix + "_Versions";
         _chunks = prefix + "_Chunks";
         _processed = prefix + "_ProcessedVersions";
+        _leases = prefix + "_Leases";
+        if (_processed.Length > 128)
+        {
+            throw new ArgumentException(
+                $"Spanner table name {_processed} is over 128 characters; shorten the TablePrefix or the storage folder");
+        }
+    }
+
+    /// <summary>The storage folder as a table name part; a hash of it when sanitizing changed it, so names stay unique.</summary>
+    private static string TableNamePart(string folder)
+    {
+        var trimmed = folder.TrimEnd('/');
+        var sanitized = Regex.Replace(trimmed, "[^A-Za-z0-9]+", "_").Trim('_');
+        return sanitized == trimmed
+            ? sanitized
+            : $"{sanitized}_{Crc32.HashToUInt32(Encoding.UTF8.GetBytes(trimmed)):x8}";
     }
 
     public async Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
@@ -66,12 +84,13 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
                 (version, createdAt) => new SnapshotType((ulong)version, new DateTimeOffset(createdAt.ToUniversalTime())))
             .ToList();
         // Cleaning can remove every delta up to the latest snapshot; the dataset is then at that snapshot's version
-        var newest = Math.Max(reader.IsDBNull(1) ? 0 : (ulong)reader.GetInt64(1), snapshots.Count > 0 ? snapshots[^1].Version : 0);
+        var latestDelta = reader.IsDBNull(1) ? 0 : (ulong)reader.GetInt64(1);
+        var newest = Math.Max(latestDelta, snapshots.Count > 0 ? snapshots[^1].Version : 0);
         var oldest = !reader.IsDBNull(0) ? (ulong)reader.GetInt64(0) : newest == 0 ? 0 : newest + 1;
         return (oldest, newest, snapshots);
     }
 
-    /// <returns>False when the version was already stored, by another writer.</returns>
+    /// <returns>False when the version doesn't follow the latest one: another writer stored it first.</returns>
     public Task<bool> StoreDelta(ulong version, byte[] index, Stream data) => Store(DeltaKind, version, index, data);
 
     /// <returns>False when the version was already stored, by another writer.</returns>
@@ -81,7 +100,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
     public Task<ReadOnlyMemory<byte>> ReadSnapshotIndex(ulong version) => ReadPart(SnapshotKind, version, IndexPart);
 
-    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion) => ReadPart(SnapshotKind, snapshotVersion, DataPart);
+    public Task<ReadOnlyMemory<byte>> ReadSnapshotData(ulong snapshotVersion) =>
+        ReadPart(SnapshotKind, snapshotVersion, DataPart);
 
     public Task ReadSnapshotData(ulong snapshotVersion, Action<Stream> callback) =>
         ReadSnapshotDataAsync(snapshotVersion, stream =>
@@ -92,28 +112,13 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
     public async Task ReadSnapshotDataAsync(ulong snapshotVersion, Func<Stream, Task> asyncCallback)
     {
-        var pipe = new Pipe();
-
-        async Task Produce()
-        {
-            try
-            {
-                await CopyPart(SnapshotKind, snapshotVersion, DataPart, pipe.Writer.AsStream(true));
-                await pipe.Writer.CompleteAsync();
-            }
-            catch (Exception e)
-            {
-                await pipe.Writer.CompleteAsync(e);
-            }
-        }
-
-        var producer = Produce();
-        await using (var stream = pipe.Reader.AsStream())
-        {
-            await asyncCallback(stream);
-        }
-
-        await producer;
+        // A temporary file, not a pipe: the callback may read synchronously, stop early or take its time, and a
+        // snapshot can be larger than memory
+        await using var file = new FileStream(DatasetHelper.GetTempFilePath(), FileMode.CreateNew, FileAccess.ReadWrite,
+            FileShare.None, 81920, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+        await CopyPart(SnapshotKind, snapshotVersion, DataPart, file);
+        file.Position = 0;
+        await asyncCallback(file);
     }
 
     public async Task<ReadOnlyMemory<byte>> ReadDataFromSources(
@@ -131,7 +136,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
         foreach (var (type, version, position) in sources)
         {
-            var bytes = await ReadRange(type == ObjectNameTypeEnum.Snapshot ? SnapshotKind : DeltaKind, version, position, length);
+            var kind = type == ObjectNameTypeEnum.Snapshot ? SnapshotKind : DeltaKind;
+            var bytes = await ReadRange(kind, version, position, length);
             if (bytes is not null)
             {
                 return bytes;
@@ -151,7 +157,10 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
         return length is long value ? value : throw NotFound(SnapshotKind, snapshotVersion);
     }
 
-    /// <summary>Deletes the snapshots before <paramref name="snapshotVersion"/> and, unless kept, the deltas up to it.</summary>
+    /// <summary>
+    /// Deletes the snapshots before <paramref name="snapshotVersion"/> and, unless kept, the deltas up to it. Also
+    /// removes chunks older than a day that no version points at: left behind by a writer that crashed while storing.
+    /// </summary>
     public async Task DeleteOlderThan(ulong snapshotVersion, bool keepAllDeltas)
     {
         var where = "Dataset = @dataset AND ((Kind = 1 AND Version < @version)"
@@ -172,17 +181,20 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
                 }
             }
 
-            if (blobIds.Count == 0)
-            {
-                return;
-            }
-
             // The version rows first: once they are gone nothing points at the chunks
             await using var deleteVersions = connection.CreateDmlCommand($"DELETE FROM {_versions} WHERE {where}",
                 Parameters(("version", SpannerDbType.Int64, (long)snapshotVersion)));
             deleteVersions.Transaction = transaction;
             await deleteVersions.ExecuteNonQueryAsync();
             await DeleteChunks(connection, transaction, blobIds);
+
+            await using var deleteOrphans = connection.CreateDmlCommand(
+                $"DELETE FROM {_chunks} c WHERE c.Dataset = @dataset " +
+                "AND c.CreatedAt < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY) " +
+                $"AND NOT EXISTS (SELECT 1 FROM {_versions} v WHERE v.Dataset = c.Dataset AND v.BlobId = c.BlobId)",
+                Parameters());
+            deleteOrphans.Transaction = transaction;
+            await deleteOrphans.ExecuteNonQueryAsync();
         });
     }
 
@@ -214,40 +226,85 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
         return await command.ExecuteScalarAsync() is long version ? (ulong)version : 0;
     }
 
+    /// <summary>
+    /// Takes or renews the dataset's lease for <paramref name="owner"/>, by Spanner's clock: succeeds when nobody holds
+    /// it, the holder's lease expired, or <paramref name="owner"/> already holds it.
+    /// </summary>
+    public async Task<bool> TryLease(string owner, TimeSpan duration)
+    {
+        await Ready();
+        await using var connection = await Open();
+        return await connection.RunWithRetriableTransactionAsync(async transaction =>
+        {
+            DateTime now;
+            await using (var select = connection.CreateSelectCommand(
+                             $"SELECT CURRENT_TIMESTAMP(), (SELECT Owner FROM {_leases} WHERE Dataset = @dataset), " +
+                             $"(SELECT ExpiresAt FROM {_leases} WHERE Dataset = @dataset)", Parameters()))
+            {
+                select.Transaction = transaction;
+                await using var reader = await select.ExecuteReaderAsync();
+                await reader.ReadAsync();
+                now = reader.GetFieldValue<DateTime>(0);
+                if (!reader.IsDBNull(1) && reader.GetString(1) != owner && reader.GetFieldValue<DateTime>(2) > now)
+                {
+                    return false;
+                }
+            }
+
+            await using var upsert = connection.CreateInsertOrUpdateCommand(_leases, Parameters(
+                ("Owner", SpannerDbType.String, owner),
+                ("ExpiresAt", SpannerDbType.Timestamp, now + duration)));
+            upsert.Transaction = transaction;
+            await upsert.ExecuteNonQueryAsync();
+            return true;
+        });
+    }
+
+    public async Task ReleaseLease(string owner)
+    {
+        await using var connection = await Open();
+        await using var command = connection.CreateDmlCommand(
+            $"DELETE FROM {_leases} WHERE Dataset = @dataset AND Owner = @owner",
+            Parameters(("owner", SpannerDbType.String, owner)));
+        await command.ExecuteNonQueryAsync();
+    }
+
     private async Task<bool> Store(long kind, ulong version, byte[] index, Stream data)
     {
         await Ready();
         var blobId = Guid.NewGuid().ToString("N");
         await using var connection = await Open();
-        var batch = new List<(long Part, long ChunkNo, byte[] Bytes)>();
-        long dataLength = 0;
-
-        // A blob over one commit goes in several; only the last one, with the version row, makes it visible
-        foreach (var chunk in Chunks(IndexPart, new MemoryStream(index)).Concat(Chunks(DataPart, data)))
-        {
-            if (batch.Count == ChunksPerCommit)
-            {
-                await Commit(connection, blobId, batch, null);
-                batch.Clear();
-            }
-
-            batch.Add(chunk);
-            dataLength += chunk.Part == DataPart ? chunk.Bytes.Length : 0;
-        }
-
         bool stored;
         try
         {
+            var batch = new List<(long Part, long ChunkNo, byte[] Bytes)>();
+            long dataLength = 0;
+
+            // A blob over one commit goes in several; only the last one, with the version row, makes it visible
+            foreach (var chunk in Chunks(IndexPart, new MemoryStream(index)).Concat(Chunks(DataPart, data)))
+            {
+                if (batch.Count == ChunksPerCommit)
+                {
+                    await Commit(connection, blobId, batch, null);
+                    batch.Clear();
+                }
+
+                batch.Add(chunk);
+                dataLength += chunk.Part == DataPart ? chunk.Bytes.Length : 0;
+            }
+
             stored = await Commit(connection, blobId, batch, (kind, version, dataLength));
         }
         catch (SpannerException e) when (e.ErrorCode == ErrorCode.AlreadyExists)
         {
+            // Another writer inserted the version row first
             stored = false;
         }
 
+        // Only when the version row is known not to be stored: after another error the commit may still have
+        // happened. Chunks left behind that way, or by a crash, DeleteOlderThan removes after a day.
         if (!stored)
         {
-            // ponytail: a crash between the commits of a large blob leaves its chunks behind, unreferenced
             await connection.RunWithRetriableTransactionAsync(transaction => DeleteChunks(connection, transaction, [blobId]));
         }
 
@@ -255,8 +312,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     }
 
     /// <returns>False when the version row can't be stored: its delta version doesn't follow the latest version.</returns>
-    private Task<bool> Commit(SpannerConnection connection, string blobId, List<(long Part, long ChunkNo, byte[] Bytes)> chunks,
-        (long Kind, ulong Version, long DataLength)? versionRow) =>
+    private Task<bool> Commit(SpannerConnection connection, string blobId,
+        List<(long Part, long ChunkNo, byte[] Bytes)> chunks, (long Kind, ulong Version, long DataLength)? versionRow) =>
         connection.RunWithRetriableTransactionAsync(async transaction =>
         {
             if (versionRow is { Kind: DeltaKind } delta && await LatestVersion(connection, transaction) != delta.Version - 1)
@@ -271,7 +328,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
                     ("BlobId", SpannerDbType.String, blobId),
                     ("Part", SpannerDbType.Int64, part),
                     ("ChunkNo", SpannerDbType.Int64, chunkNo),
-                    ("Data", SpannerDbType.Bytes, bytes)));
+                    ("Data", SpannerDbType.Bytes, bytes),
+                    ("CreatedAt", SpannerDbType.Timestamp, SpannerParameter.CommitTimestamp)));
                 insertChunk.Transaction = transaction;
                 await insertChunk.ExecuteNonQueryAsync();
             }
@@ -292,13 +350,13 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
             return true;
         });
 
-    /// <summary>The dataset's version: its latest delta, or its latest snapshot when cleaning removed the deltas up to it.</summary>
+    /// <summary>The dataset's version: its latest delta, or its latest snapshot once cleaning removed the deltas.</summary>
     private async Task<ulong> LatestVersion(SpannerConnection connection, SpannerTransaction transaction)
     {
+        const string latest = "WHERE Dataset = @dataset AND Kind = {0} ORDER BY Version DESC LIMIT 1";
         await using var command = connection.CreateSelectCommand(
-            $"SELECT GREATEST(" +
-            $"IFNULL((SELECT Version FROM {_versions} WHERE Dataset = @dataset AND Kind = 0 ORDER BY Version DESC LIMIT 1), 0), " +
-            $"IFNULL((SELECT Version FROM {_versions} WHERE Dataset = @dataset AND Kind = 1 ORDER BY Version DESC LIMIT 1), 0))",
+            $"SELECT GREATEST(IFNULL((SELECT Version FROM {_versions} {string.Format(latest, DeltaKind)}), 0), " +
+            $"IFNULL((SELECT Version FROM {_versions} {string.Format(latest, SnapshotKind)}), 0))",
             Parameters());
         command.Transaction = transaction;
         return await command.ExecuteScalarAsync() is long version ? (ulong)version : 0;
@@ -306,6 +364,11 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
     private async Task DeleteChunks(SpannerConnection connection, SpannerTransaction transaction, List<string> blobIds)
     {
+        if (blobIds.Count == 0)
+        {
+            return;
+        }
+
         await using var command = connection.CreateDmlCommand(
             $"DELETE FROM {_chunks} WHERE Dataset = @dataset AND BlobId IN UNNEST(@blobIds)",
             Parameters(("blobIds", SpannerDbType.ArrayOf(SpannerDbType.String), blobIds)));
@@ -339,42 +402,46 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     private async Task CopyPart(long kind, ulong version, long part, Stream target)
     {
         await using var connection = await Open();
-        // LEFT JOIN: a version with an empty part still returns a row, a missing version none
+        var blobId = await BlobId(connection, kind, version) ?? throw NotFound(kind, version);
+        // An empty part has no chunks
         await using var command = connection.CreateSelectCommand(
-            $"SELECT c.Data FROM {_versions} v LEFT JOIN {_chunks} c " +
-            "ON c.Dataset = v.Dataset AND c.BlobId = v.BlobId AND c.Part = @part " +
-            "WHERE v.Dataset = @dataset AND v.Kind = @kind AND v.Version = @version ORDER BY c.ChunkNo",
-            Parameters(("kind", SpannerDbType.Int64, kind), ("version", SpannerDbType.Int64, (long)version),
-                ("part", SpannerDbType.Int64, part)));
+            $"SELECT Data FROM {_chunks} WHERE Dataset = @dataset AND BlobId = @blobId AND Part = @part ORDER BY ChunkNo",
+            Parameters(("blobId", SpannerDbType.String, blobId), ("part", SpannerDbType.Int64, part)));
         await using var reader = await command.ExecuteReaderAsync();
-        var found = false;
         while (await reader.ReadAsync())
         {
-            found = true;
-            if (!reader.IsDBNull(0))
-            {
-                await target.WriteAsync(reader.GetFieldValue<byte[]>(0));
-            }
+            await target.WriteAsync(reader.GetFieldValue<byte[]>(0));
         }
+    }
 
-        if (!found)
-        {
-            throw NotFound(kind, version);
-        }
+    /// <summary>
+    /// The blob of a version. A separate lookup rather than a join, so the chunk reads are plain key range scans
+    /// (the emulator, at least, otherwise reads every chunk of the blob into memory).
+    /// </summary>
+    private async Task<string?> BlobId(SpannerConnection connection, long kind, ulong version)
+    {
+        await using var command = connection.CreateSelectCommand(
+            $"SELECT BlobId FROM {_versions} WHERE Dataset = @dataset AND Kind = @kind AND Version = @version",
+            Parameters(("kind", SpannerDbType.Int64, kind), ("version", SpannerDbType.Int64, (long)version)));
+        return await command.ExecuteScalarAsync() as string;
     }
 
     /// <returns>Null when the version is missing or its data is shorter than the range.</returns>
     private async Task<byte[]?> ReadRange(long kind, ulong version, long start, int length)
     {
         await using var connection = await Open();
+        if (await BlobId(connection, kind, version) is not { } blobId)
+        {
+            return null;
+        }
+
         // Each chunk returns just its piece of [@start, @end); SUBSTR counts from 1
         await using var command = connection.CreateSelectCommand(
-            "SELECT SUBSTR(c.Data, GREATEST(@start - c.ChunkNo * @chunkSize, 0) + 1, " +
-            "LEAST(@end, (c.ChunkNo + 1) * @chunkSize) - GREATEST(@start, c.ChunkNo * @chunkSize)) " +
-            $"FROM {_versions} v JOIN {_chunks} c ON c.Dataset = v.Dataset AND c.BlobId = v.BlobId " +
-            "WHERE v.Dataset = @dataset AND v.Kind = @kind AND v.Version = @version AND c.Part = 1 " +
-            "AND c.ChunkNo BETWEEN DIV(@start, @chunkSize) AND DIV(@end - 1, @chunkSize) ORDER BY c.ChunkNo",
-            Parameters(("kind", SpannerDbType.Int64, kind), ("version", SpannerDbType.Int64, (long)version),
+            "SELECT SUBSTR(Data, GREATEST(@start - ChunkNo * @chunkSize, 0) + 1, " +
+            "LEAST(@end, (ChunkNo + 1) * @chunkSize) - GREATEST(@start, ChunkNo * @chunkSize)) " +
+            $"FROM {_chunks} WHERE Dataset = @dataset AND BlobId = @blobId AND Part = 1 " +
+            "AND ChunkNo BETWEEN DIV(@start, @chunkSize) AND DIV(@end - 1, @chunkSize) ORDER BY ChunkNo",
+            Parameters(("blobId", SpannerDbType.String, blobId),
                 ("start", SpannerDbType.Int64, start), ("end", SpannerDbType.Int64, start + length),
                 ("chunkSize", SpannerDbType.Int64, (long)ChunkSize)));
         await using var reader = await command.ExecuteReaderAsync();
@@ -406,7 +473,7 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
     private async Task<SpannerConnection> Open()
     {
-        var connection = new SpannerConnection(_connectionString);
+        var connection = new SpannerConnection(_config.ConnectionString);
         await connection.OpenAsync();
         return connection;
     }
@@ -424,20 +491,19 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
 
     private async Task EnsureSchema()
     {
+        string[] tables = [_versions, _chunks, _processed, _leases];
         await using var connection = await Open();
         await using var count = connection.CreateSelectCommand(
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '' AND TABLE_NAME IN UNNEST(@names)",
-            new SpannerParameterCollection
-            {
-                { "names", SpannerDbType.ArrayOf(SpannerDbType.String), new[] { _versions, _chunks, _processed } }
-            });
-        if (await count.ExecuteScalarAsync<long>() == 3)
+            new SpannerParameterCollection { { "names", SpannerDbType.ArrayOf(SpannerDbType.String), tables } });
+        if (await count.ExecuteScalarAsync<long>() == tables.Length)
         {
             return;
         }
 
         // ponytail: no migrations; a different schema gets a different TablePrefix
-        await using var ddl = connection.CreateDdlCommand(
+        string[] ddl =
+        [
             $"""
              CREATE TABLE IF NOT EXISTS {_versions} (
                Dataset STRING(MAX) NOT NULL,
@@ -455,6 +521,7 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
                Part INT64 NOT NULL,
                ChunkNo INT64 NOT NULL,
                Data BYTES(MAX) NOT NULL,
+               CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
              ) PRIMARY KEY (Dataset, BlobId, Part, ChunkNo)
              """,
             $"""
@@ -463,7 +530,24 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
                Who STRING(MAX) NOT NULL,
                Version INT64 NOT NULL,
              ) PRIMARY KEY (Dataset, Who)
-             """);
-        await ddl.ExecuteNonQueryAsync();
+             """,
+            $"""
+             CREATE TABLE IF NOT EXISTS {_leases} (
+               Dataset STRING(MAX) NOT NULL,
+               Owner STRING(MAX) NOT NULL,
+               ExpiresAt TIMESTAMP NOT NULL,
+             ) PRIMARY KEY (Dataset)
+             """
+        ];
+        if (!_config.CreateTables)
+        {
+            throw new InvalidOperationException(
+                $"Spanner tables for {_dataset} are missing. Create them, or set Spanner:CreateTables to let this host "
+                + $"do it (needs spanner.databases.updateDdl):{Environment.NewLine}"
+                + string.Join(";" + Environment.NewLine, ddl));
+        }
+
+        await using var command = connection.CreateDdlCommand(ddl[0], ddl[1..]);
+        await command.ExecuteNonQueryAsync();
     }
 }

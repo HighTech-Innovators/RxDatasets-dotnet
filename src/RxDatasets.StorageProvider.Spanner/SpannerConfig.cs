@@ -19,4 +19,11 @@ public class SpannerConfig
     /// True: each dataset gets its own tables, named after the prefix and the storage folder. Same columns either way.
     /// </summary>
     public bool TablePerDataset { get; set; }
+
+    /// <summary>
+    /// Lets the host create missing tables (needs <c>spanner.databases.updateDdl</c>). Without it a host whose tables
+    /// are missing fails to start, logging the DDL to run: tables {Prefix}_Versions, _Chunks, _ProcessedVersions and
+    /// _Leases, see <see cref="SpannerDatasetStore{T}"/>.
+    /// </summary>
+    public bool CreateTables { get; set; }
 }
