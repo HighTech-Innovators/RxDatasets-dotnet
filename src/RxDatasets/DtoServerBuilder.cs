@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using RxDatasets.Abstractions;
 using RxDatasets.BackgroundServices;
@@ -37,6 +38,7 @@ namespace RxDatasets
         private bool _withSnapshot;
         private bool _withCleanup;
         private bool _withSharedReaderWriter;
+        private Action? _addReadWriteStorage;
 
         public IServiceCollection Services => services;
 
@@ -64,21 +66,33 @@ namespace RxDatasets
             }
         }
 
-        private void AddReadWriteObjectStorage()
+        /// <summary>
+        /// Replaces the read/write <see cref="ObjectStorageProvider{T}"/> (blob files via <see cref="IDiskStorage{T}"/>) by
+        /// a provider that implements the storage operations itself, such as a database backend. <see cref="WithCache"/>
+        /// still wraps it. Read-only mode is unaffected: it reads through the registered <see cref="IStorageReader{T}"/>.
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithStorageProvider<TProvider>()
+            where TProvider : class, IStorageProvider<TEntity>, IHostedService
         {
-            // Register the 'actual' ObjectStorageProvider as HostedService
-            services.AddSingletonAsHostedService<ObjectStorageProvider<TEntity>>();
+            _addReadWriteStorage = AddReadWriteStorage<TProvider>;
+            return this;
+        }
+
+        private void AddReadWriteStorage<TProvider>() where TProvider : class, IStorageProvider<TEntity>, IHostedService
+        {
+            // Register the 'actual' provider as HostedService
+            services.AddSingletonAsHostedService<TProvider>();
 
             // Register the cache as the 'to be used' provider (for R/W, and R/O), and register that as Hosted Service
             if (_withCache)
             {
                 services.AddValidatedConfigSection<DtoStorageCacheConfig>();
                 services.AddSingletonAsHostedService<IStorageProvider<TEntity>,
-                    CacheStorageProvider<TEntity, ObjectStorageProvider<TEntity>>>(); // Register the cache
+                    CacheStorageProvider<TEntity, TProvider>>(); // Register the cache
             }
             else
             {
-                services.AddSingletonAlias<IStorageProvider<TEntity>, ObjectStorageProvider<TEntity>>();
+                services.AddSingletonAlias<IStorageProvider<TEntity>, TProvider>();
             }
 
             services.AddSingletonAlias<IReadOnlyStorageProvider<TEntity>, IStorageProvider<TEntity>>();
@@ -212,12 +226,12 @@ namespace RxDatasets
 
             // Register the usage of ObjectStorage
             services.AddValidatedConfigSection<StorageConfig>();
-            services.AddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
+            services.TryAddSingleton<IStorageReader<TEntity>, ObjectStorageReader<TEntity>>();
 
             if (readOnlyMode)
                 AddReadOnlyObjectStorage();
             else
-                AddReadWriteObjectStorage();
+                (_addReadWriteStorage ?? AddReadWriteStorage<ObjectStorageProvider<TEntity>>)();
         }
     }
 

@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
-using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
 
@@ -10,8 +8,6 @@ namespace RxDatasets.StorageProviders.ReadOnly;
 
 public class ReadOnlyObjectStorageProvider<T>(
         ILogger<ReadOnlyObjectStorageProvider<T>> logger,
-        IOptions<StorageConfig> storageConfig,
-        IDiskStorage<T> storage,
         IStorageReader<T> storageReader,
         INotificationsHub<T>? notificationsHub,
         bool startIfInitFails = true
@@ -182,9 +178,6 @@ public class ReadOnlyObjectStorageProvider<T>(
 
     private async Task DoInitialize(CancellationToken cancellationToken)
     {
-        if (storage == null)
-            throw new InvalidOperationException("Disk Storage was not initialized");
-
         var versions = await storageReader.ListVersions();
         DeltaInfo.EarliestDeltaVersion = versions.OldestDelta;
         DeltaInfo.LatestDeltaVersion = versions.NewestDelta;
@@ -193,9 +186,7 @@ public class ReadOnlyObjectStorageProvider<T>(
 
     public Task<long> GetSnapshotDataContentLength(ulong snapshotVersion)
     {
-        var objectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
-            storageConfig.Value);
-        return storage.GetObjectContentLength(objectName);
+        return storageReader.GetSnapshotDataContentLength(snapshotVersion);
     }
 
 }
