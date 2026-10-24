@@ -1,34 +1,53 @@
+using System;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net.Http.Headers;
+using System.Threading.Tasks;
 using Google.Cloud.Storage.V1;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 
 namespace RxDatasets.StorageProvider.GoogleCloud
 {
-    public class GoogleCloudStorage<T> : IDiskStorage<T>, IDisposable
+    public class GoogleCloudStorage<T> : IDiskStorage<T>, IAsyncDisposable, IDisposable
     {
         private readonly StorageClient _storageClient;
         private readonly ILogger<GoogleCloudStorage<T>> _logger;
         private readonly string _bucketName;
+        private readonly string? _projectId;
+        private readonly WriteQueueManager _writeQueueManager;
+        private readonly bool _enableWriteQueue;
+        private readonly IClock _clock;
+        private readonly string? _emulatorHost;
+        private readonly Task _initializationTask;
         private bool _initialized;
+        private volatile bool _disposed;
         private (DateTimeOffset ObtainedAt, Exception? Exception) _lastResult;
 
-        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, bool retryInitialization = true)
+        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, bool retryInitialization = true, bool? enableWriteQueue = null)
+            : this(logger, googleCloudConfig, null, retryInitialization, enableWriteQueue)
+        {
+        }
+
+        public GoogleCloudStorage(ILogger<GoogleCloudStorage<T>> logger, IOptions<GoogleCloudConfig> googleCloudConfig, IClock? clock, bool retryInitialization = true, bool? enableWriteQueue = null)
         {
             _logger = logger;
             _bucketName = googleCloudConfig.Value.BucketName;
+            _projectId = googleCloudConfig.Value.ProjectId;
+            _clock = clock ?? new SystemClock();
+            _enableWriteQueue = enableWriteQueue ?? googleCloudConfig.Value.EnableWriteQueue;
 
             var clientBuilder = new StorageClientBuilder();
 
             // Check if we're running against an emulator
-            var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
-            if (!string.IsNullOrEmpty(emulatorHost))
+            _emulatorHost = googleCloudConfig.Value.EmulatorHost ?? Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
+            if (!string.IsNullOrEmpty(_emulatorHost))
             {
                 // Configure for emulator use
-                clientBuilder.BaseUri = $"http://{emulatorHost}/storage/v1/";
+                clientBuilder.BaseUri = $"http://{_emulatorHost}/storage/v1/";
                 clientBuilder.UnauthenticatedAccess = true;
             }
             else if (!string.IsNullOrEmpty(googleCloudConfig.Value.JsonCredentials))
@@ -38,10 +57,51 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             _storageClient = clientBuilder.Build();
 
-            _ = retryInitialization ? InitializationLoop() : Initialize();
+            // Initialize write queue manager with flush action and clock
+            _writeQueueManager = new WriteQueueManager(_logger, FlushQueuedWriteAsync, _clock);
+
+            _initializationTask = retryInitialization ? InitializationLoop() : Initialize();
         }
 
         public (DateTimeOffset ObtainedAt, Exception? Exception) LastResult => _lastResult;
+
+        /// <summary>
+        /// Executes a queued write by calling the appropriate upload method (bytes or stream).
+        /// Used as the flush action delegate for WriteQueueManager.
+        /// </summary>
+        private async Task FlushQueuedWriteAsync(QueuedWrite queuedWrite)
+        {
+            // Bytes-based write with retry logic
+            for (var i = 0; i < 5; i++)
+            {
+                try
+                {
+                    using var stream = new MemoryStream(queuedWrite.Bytes);
+                    await _storageClient.UploadObjectAsync(_bucketName, queuedWrite.ObjectKey, null, stream);
+                    _logger.LogInformation("Uploaded {ObjectKey} ({Length} bytes) to Google Cloud Storage (from queue)",
+                        queuedWrite.ObjectKey, queuedWrite.Bytes.Length);
+                    SetHealthy();
+                    return;
+                }
+                catch (Exception ex) when (IsGcs429(ex))
+                {
+                    _logger.LogWarning(ex, "Rate limit hit for {objectKey} during queue flush. Retrying in 1.1s. Attempt {attempt}",
+                        queuedWrite.ObjectKey, i + 1);
+                    await _clock.Delay(TimeSpan.FromMilliseconds(1100));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to upload bytes to {objectKey} in Google Cloud Storage from queue",
+                        queuedWrite.ObjectKey);
+                    SetUnhealthy(ex);
+                    throw new InvalidOperationException(ex.Message, ex);
+                }
+            }
+
+            var finalEx = new InvalidOperationException($"Failed to upload {queuedWrite.ObjectKey} after multiple retries due to rate limiting.");
+            SetUnhealthy(finalEx);
+            throw finalEx;
+        }
 
         private async Task EnsureInitialized()
         {
@@ -50,7 +110,12 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
             for (var i = 0; i < 1000; i++)
             {
-                await Task.Delay(500);
+                if (_initializationTask.IsFaulted)
+                {
+                    await _initializationTask;
+                }
+
+                await _clock.Delay(TimeSpan.FromMilliseconds(500));
                 if (_initialized)
                     return;
             }
@@ -87,7 +152,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 {
                     SetUnhealthy(ex);
                     _logger.LogError(ex, "Failed to initialize storage provider, retrying...");
-                    await Task.Delay(5000);
+                    await _clock.Delay(TimeSpan.FromSeconds(5));
                 }
             }
         }
@@ -149,11 +214,11 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             {
                 try
                 {
-                    var projectId = Environment.GetEnvironmentVariable("GOOGLE_PROJECT_ID");
+                    var projectId = _projectId ?? Environment.GetEnvironmentVariable("GOOGLE_PROJECT_ID");
                     if (string.IsNullOrEmpty(projectId))
                     {
-                        _logger.LogError("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
-                        throw new InvalidOperationException("GOOGLE_PROJECT_ID environment variable not set. Cannot create bucket.");
+                        _logger.LogError("GOOGLE_PROJECT_ID environment variable not set and ProjectId not in config. Cannot create bucket.");
+                        throw new InvalidOperationException("GOOGLE_PROJECT_ID environment variable not set and ProjectId not in config. Cannot create bucket.");
                     }
                     await _storageClient.CreateBucketAsync(projectId, new Google.Apis.Storage.v1.Data.Bucket { Name = _bucketName, Location = "eu-north-1" });
                     SetHealthy();
@@ -204,8 +269,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 {
                     Range = new RangeHeaderValue(position, position + length - 1),
                 };
-                var emulatorHost = Environment.GetEnvironmentVariable("STORAGE_EMULATOR_HOST");
-                if (!string.IsNullOrEmpty(emulatorHost))
+                if (!string.IsNullOrEmpty(_emulatorHost))
                 {
                     // Configure for emulator use
                     options.DownloadValidationMode = DownloadValidationMode.Never;
@@ -301,6 +365,15 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
         public async Task UploadBytes(string objectKey, byte[] bytes)
         {
+            if (_disposed)
+                throw new ObjectDisposedException(typeof(GoogleCloudStorage<T>).FullName);
+
+            // Try to queue the write if it's within 2 seconds of the last write
+            if (_enableWriteQueue && await _writeQueueManager.TryQueueWriteAsync(objectKey, bytes))
+            {
+                return;
+            }
+
             await EnsureInitialized();
             for (var i = 0; i < 5; i++)
             {
@@ -309,13 +382,20 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                     using var stream = new MemoryStream(bytes);
                     await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream);
                     _logger.LogInformation("Uploaded {ObjectKey} ({Length} bytes) to Google Cloud Storage", objectKey, bytes.Length);
+                    
+                    // Mark this write as successful for queue timing purposes
+                    if (_enableWriteQueue)
+                    {
+                        await _writeQueueManager.MarkSuccessfulWriteAsync(objectKey);
+                    }
+                    
                     SetHealthy();
                     return;
                 }
                 catch (Exception ex) when (IsGcs429(ex))
                 {
                     _logger.LogWarning(ex, "Rate limit hit for {objectKey}. Retrying in 1.1s. Attempt {attempt}", objectKey, i + 1);
-                    await Task.Delay(1100);
+                    await _clock.Delay(TimeSpan.FromMilliseconds(1100));
                 }
                 catch (Exception ex)
                 {
@@ -332,6 +412,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
 
         public async Task UploadFileStream(string objectKey, Stream stream)
         {
+            if (_disposed)
+                throw new ObjectDisposedException(typeof(GoogleCloudStorage<T>).FullName);
+
             await EnsureInitialized();
             try
             {
@@ -344,6 +427,13 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 _logger.LogInformation("Uploaded {ObjectKey}{LengthSuffix} to Google Cloud Storage",
                     objectKey,
                     length is null ? string.Empty : $" ({length.Value} bytes)");
+                
+                // Mark this write as successful for queue timing purposes
+                if (_enableWriteQueue)
+                {
+                    await _writeQueueManager.MarkSuccessfulWriteAsync(objectKey);
+                }
+                
                 SetHealthy();
             }
             catch (Exception ex)
@@ -365,19 +455,87 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 (r.Status.Detail?.Contains("rate limit for object mutation",
                                            StringComparison.OrdinalIgnoreCase) == true);
 
-        private void SetHealthy()
+        private void SetHealthy() => _lastResult = (_clock.UtcNow, null);
+
+        private void SetUnhealthy(Exception ex) => _lastResult = (_clock.UtcNow, ex);
+
+        /// <summary>
+        /// Flushes all pending/queued writes to storage without disposing the provider.
+        /// </summary>
+        public async Task FlushAsync()
         {
-            _lastResult = (DateTimeOffset.UtcNow, null);
+            if (_enableWriteQueue)
+            {
+                await _writeQueueManager.FlushAsync();
+            }
         }
 
-        private void SetUnhealthy(Exception ex)
+        /// <summary>
+        /// Asynchronously disposes the storage provider, flushing all queued writes before closing.
+        /// </summary>
+        public async ValueTask DisposeAsync()
         {
-            _lastResult = (DateTimeOffset.UtcNow, ex);
+            if (_disposed)
+                return;
+
+            _disposed = true;
+
+            try
+            {
+                // Flush all queued writes before closing
+                if (_enableWriteQueue)
+                {
+                    await _writeQueueManager.FlushAndDisposeAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during queue flush on disposal");
+            }
+
+            try
+            {
+                // Dispose the Google Cloud Storage client
+                _storageClient?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error disposing Google Cloud Storage client");
+            }
+
+            GC.SuppressFinalize(this);
         }
 
         public void Dispose()
         {
-            _storageClient?.Dispose();
+            if (_disposed)
+                return;
+
+            _disposed = true;
+
+            try
+            {
+                // Try synchronous flush of queue (best effort)
+                if (_enableWriteQueue)
+                {
+                    _writeQueueManager.FlushAndDisposeAsync().GetAwaiter().GetResult();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during queue flush on synchronous disposal");
+            }
+
+            try
+            {
+                _storageClient?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error disposing Google Cloud Storage client");
+            }
+
+            GC.SuppressFinalize(this);
         }
     }
 }

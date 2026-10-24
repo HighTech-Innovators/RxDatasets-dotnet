@@ -1,8 +1,6 @@
 using RxDatasets.AliasingTests.Types;
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 using RxDatasets.Aliasing;
 using RxDatasets.InMemoryDataset;
@@ -23,7 +21,7 @@ public class AliasDatasetReaderDITests
     /// <summary>
     /// Extract aliases from a TestEntity protobuf message
     /// </summary>
-    private static IEnumerable<string> ExtractAliases(ReadOnlyMemory<byte> bytes)
+    private static IEnumerable<string> ExtractAliases(string name, ReadOnlyMemory<byte> bytes)
     {
         var entity = TestEntity.Parser.ParseFrom(bytes.Span);
         return entity.Aliases;
@@ -34,26 +32,19 @@ public class AliasDatasetReaderDITests
     {
         // Arrange - set up DI container
         var services = new ServiceCollection();
-        var logger = new ServiceCollection()
-            .AddLogging(b => b.AddConsole())
-            .BuildServiceProvider()
-            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
-
         // Create and register dataset
-        var dataset = new InMemoryDataset<TestEntity>();
-        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
-        services.AddSingleton(logger);
-        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
 
         // Register alias reader with name "prod-aliases"
-        services.AddDatasetAlias<TestEntity>("prod-aliases", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("prod-aliases", ExtractAliases, "h");
 
         var serviceProvider = services.BuildServiceProvider();
+        var dataset = serviceProvider.GetRequiredService<InMemoryDataset<TestEntity>>();
 
         // Create test data
         var relation = new TestEntity { Id = "relation/1" };
         relation.Aliases.Add("prod-product-1");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve the registered alias reader
         var aliasReader = serviceProvider.GetDatasetReader<TestEntity>("prod-aliases");
@@ -61,9 +52,6 @@ public class AliasDatasetReaderDITests
         // Assert
         aliasReader.Should().NotBeNull("alias reader should be registered with name 'prod-aliases'");
         aliasReader.Should().BeOfType<AliasDatasetReader<TestEntity>>();
-
-        // Wait a bit for initialization
-        await Task.Delay(100);
 
         // Verify the alias reader works
         var result = await aliasReader!.Get("prod-product-1");
@@ -77,26 +65,19 @@ public class AliasDatasetReaderDITests
     {
         // Arrange - set up DI container
         var services = new ServiceCollection();
-        var logger = new ServiceCollection()
-            .AddLogging(b => b.AddConsole())
-            .BuildServiceProvider()
-            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
-
-        var dataset = new InMemoryDataset<TestEntity>();
-        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
-        services.AddSingleton(logger);
-        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
 
         // Register two different alias readers
-        services.AddDatasetAlias<TestEntity>("staging-aliases", ExtractAliases);
-        services.AddDatasetAlias<TestEntity>("production-aliases", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("staging-aliases", ExtractAliases, "h");
+        services.AddDatasetAlias<TestEntity>("production-aliases", ExtractAliases, "h");
 
         var serviceProvider = services.BuildServiceProvider();
+        var dataset = serviceProvider.GetRequiredService<InMemoryDataset<TestEntity>>();
 
         // Create test data
         var relation = new TestEntity { Id = "relation/2" };
         relation.Aliases.Add("shared-product");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve both alias readers
         var stagingReader = serviceProvider.GetDatasetReader<TestEntity>("staging-aliases");
@@ -106,9 +87,6 @@ public class AliasDatasetReaderDITests
         stagingReader.Should().NotBeNull("staging alias reader should be registered");
         prodReader.Should().NotBeNull("production alias reader should be registered");
         stagingReader.Should().NotBeSameAs(prodReader, "each alias reader should be a separate instance");
-
-        // Wait for initialization
-        await Task.Delay(100);
 
         // Both should work independently
         var stagingResult = await stagingReader!.Get("shared-product");
@@ -129,20 +107,13 @@ public class AliasDatasetReaderDITests
     {
         // Arrange - set up DI container
         var services = new ServiceCollection();
-        var logger = new ServiceCollection()
-            .AddLogging(b => b.AddConsole())
-            .BuildServiceProvider()
-            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
-
-        var dataset = new InMemoryDataset<TestEntity>();
-        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
-        services.AddSingleton(logger);
-        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
 
         // Register one alias reader
-        services.AddDatasetAlias<TestEntity>("registered-name", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("registered-name", ExtractAliases, "h");
 
         var serviceProvider = services.BuildServiceProvider();
+        var dataset = serviceProvider.GetRequiredService<InMemoryDataset<TestEntity>>();
 
         // Act - try to retrieve an unregistered alias reader
         var unregisteredReader = serviceProvider.GetDatasetReader<TestEntity>("unregistered-name");
@@ -156,25 +127,18 @@ public class AliasDatasetReaderDITests
     {
         // Arrange - set up DI container with both direct dataset and alias readers
         var services = new ServiceCollection();
-        var logger = new ServiceCollection()
-            .AddLogging(b => b.AddConsole())
-            .BuildServiceProvider()
-            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
-
-        var dataset = new InMemoryDataset<TestEntity>();
-        services.AddSingleton<IDatasetReader<TestEntity>>(dataset); // Direct non-keyed access
-        services.AddSingleton(logger);
-        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
 
         // Register alias reader
-        services.AddDatasetAlias<TestEntity>("my-aliases", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("my-aliases", ExtractAliases, "h");
 
         var serviceProvider = services.BuildServiceProvider();
+        var dataset = serviceProvider.GetRequiredService<InMemoryDataset<TestEntity>>();
 
         // Create test data
         var relation = new TestEntity { Id = "relation/3" };
         relation.Aliases.Add("alias-name");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act
         // Access the dataset directly (non-keyed)
@@ -187,9 +151,6 @@ public class AliasDatasetReaderDITests
         directReader.Should().NotBeNull("direct dataset should be available");
         aliasReader.Should().NotBeNull("alias reader should be available");
         directReader.Should().Be(dataset, "direct reader should be the dataset itself");
-
-        // Wait for alias reader initialization
-        await Task.Delay(100);
 
         // Both should work, but in different ways
         // Direct reader requires knowing the primary ID
@@ -213,27 +174,20 @@ public class AliasDatasetReaderDITests
     {
         // Arrange - set up DI container with multiple alias readers
         var services = new ServiceCollection();
-        var logger = new ServiceCollection()
-            .AddLogging(b => b.AddConsole())
-            .BuildServiceProvider()
-            .GetRequiredService<ILogger<AliasDatasetReader<TestEntity>>>();
-
-        var dataset = new InMemoryDataset<TestEntity>();
-        services.AddSingleton<IDatasetReader<TestEntity>>(dataset);
-        services.AddSingleton(logger);
-        services.AddSingleton<IHostApplicationLifetime, DummyHostApplicationLifetime>();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
 
         // Register three different alias readers
-        services.AddDatasetAlias<TestEntity>("reader-1", ExtractAliases);
-        services.AddDatasetAlias<TestEntity>("reader-2", ExtractAliases);
-        services.AddDatasetAlias<TestEntity>("reader-3", ExtractAliases);
+        services.AddDatasetAlias<TestEntity>("reader-1", ExtractAliases, "h");
+        services.AddDatasetAlias<TestEntity>("reader-2", ExtractAliases, "h");
+        services.AddDatasetAlias<TestEntity>("reader-3", ExtractAliases, "h");
 
         var serviceProvider = services.BuildServiceProvider();
+        var dataset = serviceProvider.GetRequiredService<InMemoryDataset<TestEntity>>();
 
         // Create test data
         var relation = new TestEntity { Id = "relation/4" };
         relation.Aliases.Add("test-alias");
-        await dataset.Put(relation.Id, relation.ToByteArray());
+        await dataset.Put(relation.Id, relation.ToByteArray(), null, null);
 
         // Act - retrieve each reader by name
         var reader1 = serviceProvider.GetDatasetReader<TestEntity>("reader-1");
@@ -250,9 +204,6 @@ public class AliasDatasetReaderDITests
         reader1.Should().NotBeSameAs(reader2, "different readers should be different instances");
         reader2.Should().NotBeSameAs(reader3, "different readers should be different instances");
         reader1.Should().NotBeSameAs(reader3, "different readers should be different instances");
-
-        // Wait for all readers to initialize
-        await Task.Delay(100);
 
         // All should work
         var result1 = await reader1!.Get("test-alias");
@@ -272,12 +223,106 @@ public class AliasDatasetReaderDITests
         entity3.Id.Should().Be("relation/4");
     }
 
-    // Dummy implementation for IHostApplicationLifetime for testing purposes
-    private class DummyHostApplicationLifetime : IHostApplicationLifetime
+    [Fact]
+    public void GetAliasesFor_Returns_All_Tuples_For_All_Registered_Alias_Names()
     {
-        public CancellationToken ApplicationStarted => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped => CancellationToken.None;
-        public void StopApplication() { }
+        // Arrange
+        var services = new ServiceCollection();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
+
+        services.AddDatasetAlias<TestEntity>("byitem", ExtractAliases, "h");
+        services.AddDatasetAlias<TestEntity>("bybarcode", (_, bytes) =>
+        {
+            var entity = TestEntity.Parser.ParseFrom(bytes.Span);
+            return entity.Aliases.Select(a => "barcode:" + a);
+        }, "h");
+
+        var sp = services.BuildServiceProvider();
+        var dataset = sp.GetRequiredService<InMemoryDataset<TestEntity>>();
+
+        var dto = new TestEntity { Id = "relation/5" };
+        dto.Aliases.Add("item-abc");
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/5", dto);
+
+        // Assert
+        aliases.Should().HaveCount(2);
+        aliases.Should().Contain(("byitem", "item-abc"));
+        aliases.Should().Contain(("bybarcode", "barcode:item-abc"));
+    }
+
+    [Fact]
+    public void GetAliasesFor_Returns_Empty_When_No_Alias_Readers_Registered()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
+
+        var sp = services.BuildServiceProvider();
+        var dataset = sp.GetRequiredService<InMemoryDataset<TestEntity>>();
+        var dto = new TestEntity { Id = "relation/6" };
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/6", dto);
+
+        // Assert
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAliasesFor_Returns_Empty_When_Factory_Produces_No_Aliases()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
+
+        services.AddDatasetAlias<TestEntity>("empty-aliases", (_, _) => Enumerable.Empty<string>(), "h");
+
+        var sp = services.BuildServiceProvider();
+        var dataset = sp.GetRequiredService<InMemoryDataset<TestEntity>>();
+        var dto = new TestEntity { Id = "relation/7" };
+
+        // Act
+        var aliases = sp.GetAliasesFor("relation/7", dto);
+
+        // Assert
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAliasesFor_Passes_EntityId_To_Factory()
+    {
+        // Arrange
+        string? capturedEntityId = null;
+
+        var services = new ServiceCollection();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
+        services.AddDatasetAlias<TestEntity>("id-capture", (entityId, _) =>
+        {
+            capturedEntityId = entityId;
+            return ["captured"];
+        }, "h");
+
+        var sp = services.BuildServiceProvider();
+        var dto = new TestEntity { Id = "relation/8" };
+
+        // Act
+        sp.GetAliasesFor("relation/8", dto);
+
+        // Assert
+        capturedEntityId.Should().Be("relation/8");
+    }
+
+    [Fact]
+    public void GetAliasesFor_Returns_Empty_When_Factory_Throws()
+    {
+        var services = new ServiceCollection();
+        RxDatasets.InMemoryDataset.DI.ConfigureServices<TestEntity>(services);
+        services.AddDatasetAlias<TestEntity>("throws", (_, _) => throw new FormatException("bad"), "h");
+
+        var aliases = services.BuildServiceProvider().GetAliasesFor("relation/9", new TestEntity { Id = "relation/9" });
+
+        aliases.Should().BeEmpty();
     }
 }

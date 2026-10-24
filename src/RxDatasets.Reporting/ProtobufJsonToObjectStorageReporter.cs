@@ -17,21 +17,21 @@ public class ProtobufJsonToObjectStorageReporter<T>(
 
     public Task<object?> OpenDeltaTransaction(ulong deltaVersion) => Task.FromResult<object?>(deltaVersion);
 
-    public async Task OnNewDto(string name, byte[] newProtoBytes, object? version)
+    public async Task OnNewDto(string name, byte[] newProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "created/");
         var jsonBytes = ProtoBytesToJsonBytes(newProtoBytes);
         await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
-    public async Task OnChangedDto(string name, byte[] changedProtoBytes, object? version)
+    public async Task OnChangedDto(string name, byte[] changedProtoBytes, string? trackingId, DateTimeOffset? slaTimestamp, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "changed/");
         var jsonBytes = ProtoBytesToJsonBytes(changedProtoBytes);
         await storage.UploadBytes(customObjectKey, jsonBytes);
     }
 
-    public async Task OnDeletedDto(string name, object? version)
+    public async Task OnDeletedDto(string name, string? trackingId, DateTimeOffset? slaTimestamp, object? version)
     {
         var customObjectKey = GetObjectKey(name, version, "deleted/");
         await storage.UploadBytes(customObjectKey, "{}"u8.ToArray());

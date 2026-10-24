@@ -12,7 +12,7 @@ using RxDatasets.Notifications;
 
 namespace RxDatasets;
 
-public class DatasetReader<T> : IDatasetReader<T>, IHostedService
+public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 {
     private readonly ILogger<DatasetReader<T>> _logger;
     private readonly IReadOnlyStorageProvider<T> _storageProvider;
@@ -20,7 +20,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private readonly DatasetHelper _datasetHelper;
     private ImmutableDatasetState? _index;
     private ImmutableDatasetState? _mostRecentSnapshotIndex;
-    private readonly ParentsIndex _parentsIndex = new();
     private Task? _initializationTask;
     private readonly SemaphoreSlim _writerSemaphore = new(1);
     private readonly CompositeDisposable _subscriptions = [];
@@ -64,9 +63,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false);
                     try
                     {
-                        _initializationTask = Initialize();
-                        await _initializationTask;
-
+                        await Refresh(_cts.Token);
                     }
                     catch (Exception)
                     {
@@ -78,13 +75,13 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
 
     private async Task OnDatasetUpdated(DatasetUpdatedNotification datasetUpdatedNotification)
     {
-        using var updateSlot = await Lock(_writerSemaphore);
+        using var updateSlot = await _writerSemaphore.LockAsync();
         try
         {
             ThrowIfNotInitialized();
             _index = await UpdateIndexWithLatestDelta(_index!, datasetUpdatedNotification.Version);
             var tcs = IndexChangedTaskCompletionSource;
-            IndexChangedTaskCompletionSource = new TaskCompletionSource();
+            IndexChangedTaskCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             tcs.SetResult();
         }
         catch (InvalidOperationException)
@@ -109,7 +106,20 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         _subscriptions.Dispose();
     }
 
-    private TaskCompletionSource IndexChangedTaskCompletionSource { get; set; } = new();
+    /// <summary>
+    /// Completed, and replaced, after every update of <see cref="_index"/>. A waiter reads it before it checks the
+    /// version: the update moves the index first and swaps this second, so a waiter that still sees the old version
+    /// holds the completion source that is about to complete. Checked first and read second, a swap in between would
+    /// leave the waiter on the next one, and the update unseen (VLOW-30). Volatile, so the order holds on every CPU.
+    /// </summary>
+    private TaskCompletionSource IndexChangedTaskCompletionSource
+    {
+        get => _indexChangedTaskCompletionSource;
+        set => _indexChangedTaskCompletionSource = value;
+    }
+
+    private volatile TaskCompletionSource _indexChangedTaskCompletionSource =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 
     private async Task InitializationLoop()
@@ -126,6 +136,68 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 _logger.LogError(ex, "Failed to initialize Reader for {EntityType} Dataset", typeof(T).Name);
                 await Task.Delay(5 * 1000);
             }
+        }
+    }
+
+    /// <summary>
+    /// Reads the index from storage again, every five seconds in read-only mode: for an update whose notification
+    /// never came, and for a dataset that was rebuilt, whose version really went back.
+    /// </summary>
+    /// <remarks>
+    /// A reader that is ready keeps answering from the index it has while the new one is read. Assigned to the
+    /// initialisation task instead, the re-read made every request fail as not initialised while it ran, and failed
+    /// them all when it failed; and racing an update, it put back the older index it had read, so the version went
+    /// backwards until the next update. A reader that is not ready yet, or whose last attempt failed, is initialised
+    /// as at the start.
+    /// <para>
+    /// The index is read outside the lock <see cref="OnDatasetUpdated"/> holds, and only taken over under it: held
+    /// during the read, a slow storage read would hold up every update notification, and with it the writer that
+    /// sends them.
+    /// </para>
+    /// </remarks>
+    private async Task Refresh(CancellationToken cancellationToken)
+    {
+        if (_initializationTask is not { IsCompletedSuccessfully: true })
+        {
+            _initializationTask = Initialize();
+            await _initializationTask;
+            return;
+        }
+
+        var latestIndex = await _datasetHelper.GetLatestIndex();
+        ImmutableDatasetState? latestSnapshotIndex = null;
+        try
+        {
+            latestSnapshotIndex = await _datasetHelper.GetLatestSnapshotIndex();
+        }
+        catch (FileNotFoundException)
+        {
+            //ignored as we dont have a snapshot yet
+        }
+
+        using var updateSlot = await _writerSemaphore.LockAsync(cancellationToken);
+        var before = _index?.LatestVersion;
+        if (latestIndex.LatestVersion < before)
+        {
+            // Either an update arrived while the index was read, and the read is stale, or the dataset was rebuilt
+            // and its version really went back. Storage tells which.
+            var (_, newestDelta, _) = await _storageProvider.ListVersions();
+            if (newestDelta >= before)
+                return;
+
+            _logger.LogWarning("Dataset {EntityType} went back from version {Before} to {Version}; taking it over",
+                typeof(T).Name, before, latestIndex.LatestVersion);
+        }
+
+        _index = latestIndex;
+        if (latestSnapshotIndex != null)
+            _mostRecentSnapshotIndex = latestSnapshotIndex;
+
+        if (_index.LatestVersion != before)
+        {
+            var tcs = IndexChangedTaskCompletionSource;
+            IndexChangedTaskCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            tcs.SetResult();
         }
     }
 
@@ -186,7 +258,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         var indexRef = ThrowIfNotInitialized();
         var tasks = names.Select(async name =>
         {
-            if (!indexRef.Entities.TryGetValue(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+            if (!indexRef.TryGetEntity(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
             }
@@ -200,7 +272,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     private async Task<ReadOnlyMemory<byte>> ReadEntityBytes(string name)
     {
         // Precondition: calling method MUST have checked it exists AND is not deleted.
-        var entityInMainIndex = _index!.Entities[name];
+        var entityInMainIndex = _index!.GetEntity(name);
         var entityVersion = entityInMainIndex.GetLatestEntityVersion();
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
@@ -210,7 +282,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             // At this point, we KNOW it must be in there and be the latest version in existence,
             // because the latest version is smaller/equal to the snapshot,
             // AND it's not deleted (which should have been checked in the calling method)
-            var entityFromSnapshot = _mostRecentSnapshotIndex.Entities[name];
+            var entityFromSnapshot = _mostRecentSnapshotIndex.GetEntity(name);
             sources.Add((ObjectNameTypeEnum.Snapshot, _mostRecentSnapshotIndex.SnapshotVersion,
                 entityFromSnapshot.Position));
         }
@@ -238,9 +310,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         if (!_initializationTask!.IsCompleted)
             await _initializationTask;
 
-        while (fromVersion == ThrowIfNotInitialized().LatestVersion)
+        while (true)
         {
-            await IndexChangedTaskCompletionSource.Task.WaitAsync(cancellationToken);
+            var changed = IndexChangedTaskCompletionSource.Task;
+            if (fromVersion != ThrowIfNotInitialized().LatestVersion)
+            {
+                break;
+            }
+
+            await changed.WaitAsync(cancellationToken);
         }
 
         return await GetChangedNames(fromVersion);
@@ -250,7 +328,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         var indexRef = ThrowIfNotInitialized();
 
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        if (!indexRef.TryGetEntity(name, out var entity))
             return null;
 
         if (entity.GetLatestChangeType() == ChangeType.Deleted)
@@ -283,8 +361,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
     {
         List<(string key, ChangeType change)> changedNames = [];
 
-        indexRef.Entities
-            .Where(x => x.Value.GetLatestEntityVersion() > fromVersion && x.Value.GetLatestEntityVersion() <= toVersion)
+        indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
             .ToList()
             .ForEach(x =>
             {
@@ -313,43 +390,23 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return changedNames;
     }
 
-    public async Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
+    /// <summary>
+    /// The names of all live descendants of <paramref name="parent"/>, at any depth, and an entity named
+    /// <paramref name="parent"/> itself; everything for an empty parent or "/".
+    /// </summary>
+    public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
-
-
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        if (string.IsNullOrEmpty(parent) || parent is "/")
-        {
-            return (allNamesGetter.ToList(), indexRef.LatestVersion);
-        }
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (childrenIndex.ToList(), indexRef.LatestVersion);
-
+        var names = indexRef.EnumerateAll(parent, entity => entity.IsLive).Select(entity => entity.Key).ToList();
+        return Task.FromResult((names, indexRef.LatestVersion));
     }
 
-    public async Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
+    /// <summary>Counts what <see cref="List"/> returns, from the counts cached in the index.</summary>
+    public Task<uint> CountChildren(string parent, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var indexRef = ThrowIfNotInitialized();
-
-        if (string.IsNullOrEmpty(parent) || parent is "/")
-        {
-            // For root path, count all non-deleted entities
-            return (uint)indexRef.Entities
-                .Count(x => x.Value.GetLatestChangeType() != ChangeType.Deleted);
-        }
-
-        IEnumerable<string> allNamesGetter = indexRef.Entities
-            .Where(x => x.Value.GetLatestChangeType() != ChangeType.Deleted)
-            .Select(entity => entity.Key);
-
-        var childrenIndex = await _parentsIndex.GetOrCreateChildrenIndex(parent, allNamesGetter);
-        return (uint)childrenIndex.Count();
+        return Task.FromResult((uint)indexRef.Root.CountLive(parent));
     }
 
     private async Task<ImmutableDatasetState> UpdateIndexWithLatestDelta(ImmutableDatasetState datasetState, ulong latestDelta)
@@ -360,31 +417,19 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             var deltas = await _datasetHelper.GetChangedDeltas(tempState.LatestVersion, latestDelta);
             tempState = tempState.ApplyDeltas(deltas);
-            var thereIsStillData = await _parentsIndex.CleanIndex();
-            if (thereIsStillData)
-            {
-                foreach (DeltaIndex delta in deltas)
-                {
-                    foreach (var newEntity in delta.NewEntities)
-                    {
-                        await _parentsIndex.OnNew(newEntity.Name);
-                    }
-
-                    foreach (var deletedEntity in delta.DeletedNames)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity);
-                    }
-                    foreach (var deletedEntity in delta.DeletedEntities)
-                    {
-                        await _parentsIndex.OnDelete(deletedEntity.Name);
-                    }
-                }
-            }
 
             _logger.LogInformation($"Dataset updated to version {tempState.LatestVersion}");
         }
 
         return tempState;
+    }
+
+    public string? ResolveAlias(string aliasName, string alias) => ThrowIfNotInitialized().ResolveAlias(aliasName, alias);
+
+    public (IReadOnlyList<string> Aliases, ulong Version) ListAliases(string aliasName, string prefix)
+    {
+        var indexRef = ThrowIfNotInitialized();
+        return (indexRef.ListAliases(aliasName, prefix), indexRef.LatestVersion);
     }
 
     public ulong GetLatestVersion()
@@ -441,16 +486,11 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         return await GetHealthCheckResult();
     }
 
-    private async Task<IDisposable> Lock(SemaphoreSlim semaphore)
-    {
-        await semaphore.WaitAsync();
-        return new ActionDisposable(() => semaphore.Release());
-    }
 
     public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
-        if (!indexRef.Entities.TryGetValue(name, out var entity))
+        if (!indexRef.TryGetEntity(name, out var entity))
         {
             return [];
         }
@@ -477,41 +517,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 break;
             }
 
-            ChangeType changeType = ChangeType.None;
-            ulong previousVersion = 0;
-
-            var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-            if (newEntity != null)
-            {
-                changeType = ChangeType.New;
-                previousVersion = newEntity.PreviousVersion;
-            }
-
-            if (changeType == ChangeType.None)
-            {
-                var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
-                if (changedEntity != null)
-                {
-                    changeType = ChangeType.Changed;
-                    previousVersion = changedEntity.PreviousVersion;
-                }
-            }
-
-            if (changeType == ChangeType.None)
-            {
-                // Prefer DeletedEntity (with PreviousVersion) over DeletedNames (legacy, without previous version)
-                var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-                if (deletedEntity != null)
-                {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = deletedEntity.PreviousVersion;
-                }
-                else if (deltaIndex.DeletedNames.Contains(name))
-                {
-                    changeType = ChangeType.Deleted;
-                    previousVersion = 0;
-                }
-            }
+            var (changeType, previousVersion, _) = deltaIndex.FindChange(name);
 
             if (changeType != ChangeType.None)
             {
@@ -540,9 +546,15 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         // Wait for version to advance beyond sinceVersion if requested
         if (waitIfNone)
         {
-            while (sinceVersion >= ThrowIfNotInitialized().LatestVersion)
+            while (true)
             {
-                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+                var changed = IndexChangedTaskCompletionSource.Task;
+                if (sinceVersion < ThrowIfNotInitialized().LatestVersion)
+                {
+                    break;
+                }
+
+                await changed.WaitAsync(ct);
             }
         }
 
@@ -563,45 +575,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 break;
             }
 
-            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-
-            // Create a set of deleted entity names that have the richer deleted entity info (with previous version)
-            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
-
-            foreach (var newEntity in deltaIndex.NewEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
-                }
-            }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
-                }
-            }
-
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-                }
-            }
-
-            // Only yield deleted names that don't have a corresponding deleted entity (avoid duplicates)
-            // Prefer the richer deleted entity info when both exist
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
-                {
-                    yield return new HistoryEntry(currentVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
-                }
-            }
+            foreach (var entry in deltaIndex.EnumerateHistoryEntries(currentVersion, parent))
+                yield return entry;
 
             // We need to find the next version to check.
             // Since we are streaming all history, we just go to the previous version of the dataset.
@@ -645,6 +620,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
         {
             ct.ThrowIfCancellationRequested();
 
+            var changed = IndexChangedTaskCompletionSource.Task;
             var currentLatest = ThrowIfNotInitialized().LatestVersion;
 
             if (nextVersion > currentLatest)
@@ -653,7 +629,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                     yield break;
 
                 // Wait for the dataset to advance
-                await IndexChangedTaskCompletionSource.Task.WaitAsync(ct);
+                await changed.WaitAsync(ct);
                 continue;
             }
 
@@ -671,43 +647,8 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
                 continue;
             }
 
-            var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-
-            // Yield in a stable order: New, Changed, DeletedEntities, DeletedNames (avoid duplicates)
-            var deletedEntityNames = new HashSet<string>(deltaIndex.DeletedEntities.Select(e => e.Name));
-
-            foreach (var newEntity in deltaIndex.NewEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || newEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(nextVersion, ChangeType.New, timestamp, newEntity.PreviousVersion) { Id = newEntity.Name };
-                }
-            }
-
-            foreach (var changedEntity in deltaIndex.ChangedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || changedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Changed, timestamp, changedEntity.PreviousVersion) { Id = changedEntity.Name };
-                }
-            }
-
-            foreach (var deletedEntity in deltaIndex.DeletedEntities)
-            {
-                if (string.IsNullOrEmpty(parent) || deletedEntity.Name.StartsWith(parent, StringComparison.Ordinal))
-                {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, deletedEntity.PreviousVersion) { Id = deletedEntity.Name };
-                }
-            }
-
-            foreach (var deletedName in deltaIndex.DeletedNames)
-            {
-                if (!deletedEntityNames.Contains(deletedName) &&
-                    (string.IsNullOrEmpty(parent) || deletedName.StartsWith(parent, StringComparison.Ordinal)))
-                {
-                    yield return new HistoryEntry(nextVersion, ChangeType.Deleted, timestamp, 0) { Id = deletedName };
-                }
-            }
+            foreach (var entry in deltaIndex.EnumerateHistoryEntries(nextVersion, parent))
+                yield return entry;
 
             nextVersion++;
         }
@@ -732,22 +673,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IHostedService
             throw new ArgumentException("Delta not found", nameof(version));
         }
 
-        // Check if it was deleted in this version
-        var deletedEntity = deltaIndex.DeletedEntities.FirstOrDefault(e => e.Name == name);
-        if (deletedEntity != null || deltaIndex.DeletedNames.Contains(name))
+        var (changeType, _, changedEntity) = deltaIndex.FindChange(name);
+        if (changeType == ChangeType.Deleted)
         {
             return null;
         }
 
-        // Check if it was New or Changed
-        var newEntity = deltaIndex.NewEntities.FirstOrDefault(e => e.Name == name);
-        if (newEntity != null)
-        {
-            var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, newEntity.Position)], newEntity.Length);
-            return (name, data);
-        }
-
-        var changedEntity = deltaIndex.ChangedEntities.FirstOrDefault(e => e.Name == name);
         if (changedEntity != null)
         {
             var data = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, version, changedEntity.Position)], changedEntity.Length);

@@ -12,7 +12,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Delete(request.Name, context.CancellationToken));
+            return Map(await dataset.Delete(request.Name, null, null, context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {
@@ -24,7 +24,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
     {
         try
         {
-            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), context.CancellationToken));
+            return Map(await dataset.Put(entity.Name, entity.ToByteArray(), null, null, context.CancellationToken));
         }
         catch (InvalidOperationException ex)
         {
@@ -34,7 +34,7 @@ public class WriterServiceImpl(IDatasetWriter<Testdto> dataset) : WriterService.
 
     public override async Task<WriteResponse> PutAll(IAsyncStreamReader<Testdto> requestStream, ServerCallContext context)
     {
-        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray()));
+        var stream = requestStream.ReadAllAsync(context.CancellationToken).Select(vodtitle => (vodtitle.Name, vodtitle.ToByteArray(), (string?)null, (DateTimeOffset?)null));
         try
         {
             return Map(await dataset.PutAll(stream, context.CancellationToken));

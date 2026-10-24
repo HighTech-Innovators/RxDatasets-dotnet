@@ -9,12 +9,36 @@ message SnapshotEntity {
 	int64 position = 4;
 	int32 length = 5;
 	uint32 crc32 = 7;
+	repeated AliasRef aliases = 8; // the full set of aliases the entity owns
+}
+
+// An alias value under an alias name; unique within the alias name
+message AliasRef {
+	string name = 1;
+	string value = 2;
+}
+
+// Hierarchical index: see IndexKeys for how a name maps onto nodes, templates and variables.
+message SnapshotNode {
+	map<string, SnapshotChildGroup> children = 1; // by collection
+	map<string, SnapshotLeafGroup> leaves = 2; // by template
+}
+
+message SnapshotChildGroup {
+	map<string, SnapshotNode> nodes = 1; // by id
+}
+
+message SnapshotLeafGroup {
+	map<string, SnapshotEntity> entities = 1; // by variable
 }
 
 message SnapshotIndex {
 	uint64 snapshot_version_legacy = 1;
-	map<string, SnapshotEntity> entities = 2;
+	map<string, SnapshotEntity> entities = 2; // Legacy flat index: read, never written
 	uint64 snapshot_version = 32;
+	reserved 33; // root of an unreleased earlier tree format
+	SnapshotNode root = 34;
+	string alias_definitions_hash = 3;
 }
 
 message DeltaEntity {
@@ -23,13 +47,44 @@ message DeltaEntity {
 	int32 length = 3;
 	uint32 crc32 = 5;
 	uint64 previous_version = 6;
+	string tracking_id = 7;
+	google.protobuf.Timestamp sla_timestamp = 8;
+	repeated AliasRef added_aliases = 9;
+	repeated AliasRef removed_aliases = 10;
 }
 
 message DeletedEntity {
 	string name = 1;
 	uint64 previous_version = 2;
+	string tracking_id = 3;
+	google.protobuf.Timestamp sla_timestamp = 4;
+	repeated AliasRef removed_aliases = 5; // the aliases the delete released
 }
 
+// An alias change without a data change, by the full entity name (written by an alias definitions rebuild)
+message AliasOnlyChange {
+	string name = 1;
+	repeated AliasRef added_aliases = 2;
+	repeated AliasRef removed_aliases = 3;
+}
+
+message DeltaNode {
+	map<string, DeltaChildGroup> children = 1; // by collection
+	map<string, DeltaLeafGroup> leaves = 2; // by template
+}
+
+message DeltaChildGroup {
+	map<string, DeltaNode> nodes = 1; // by id
+}
+
+// Entities in a tree leave their name empty: the tree position is the name
+message DeltaLeafGroup {
+	map<string, DeltaEntity> new_entities = 1; // by variable
+	map<string, DeltaEntity> changed_entities = 2;
+	map<string, DeletedEntity> deleted_entities = 3;
+}
+
+// The flat lists are the legacy format: read, never written
 message DeltaIndex {
 	uint64 delta_version_legacy = 1;
 	repeated string deleted_names = 2; // Obsolete - no previous version
@@ -38,6 +93,10 @@ message DeltaIndex {
   google.protobuf.Timestamp timestamp = 5;
   repeated DeletedEntity deleted_entities = 6;
 	uint64 delta_version = 32;
+	reserved 33; // root of an unreleased earlier tree format
+	DeltaNode root = 34;
+	repeated AliasOnlyChange alias_changes = 7;
+	string alias_definitions_hash = 8; // written on every delta
 }
 
 message ProcessedVersionsInfo {

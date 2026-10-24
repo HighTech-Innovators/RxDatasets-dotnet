@@ -1,8 +1,8 @@
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -15,18 +15,22 @@ namespace RxDatasets.Aliasing;
 public static class DI
 {
     /// <summary>
-    /// Registers an alias-based dataset reader for type T.
+    /// Registers an alias name for the dataset of <typeparamref name="T"/>: the dataset's writer checks and stores its
+    /// aliases, and a keyed <see cref="IDatasetReader{T}"/> named <paramref name="aliasName"/> looks entities up by them.
     /// </summary>
     /// <typeparam name="T">The DTO type (must be a protobuf message)</typeparam>
     /// <param name="services">The service collection</param>
     /// <param name="aliasName">A unique name for this alias reader (used to retrieve it later)</param>
-    /// <param name="aliasFactory">A function that converts entity bytes to a list of aliases for that entity.
-    /// More than one alias name can exist per entity type, and multiple alias readers can be registered.</param>
+    /// <param name="aliasFactory">Gives the aliases of an entity from its name and bytes, and throws on bytes it
+    /// can't evaluate. More than one alias name can exist per entity type.</param>
+    /// <param name="definitionHash">Changes whenever <paramref name="aliasFactory"/> would give other aliases, so the
+    /// writer recomputes the stored ones.</param>
     /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddDatasetAlias<T>(
         this IServiceCollection services,
         string aliasName,
-        Func<ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory)
+        Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> aliasFactory,
+        string definitionHash)
         where T : class, IMessage<T>, new()
     {
         if (string.IsNullOrWhiteSpace(aliasName))
@@ -35,27 +39,16 @@ public static class DI
         if (aliasFactory == null)
             throw new ArgumentNullException(nameof(aliasFactory));
 
-        // Register a factory that creates the alias reader
-        services.AddKeyedSingleton<IDatasetReader<T>>(
-            aliasName,
-            (serviceProvider, key) =>
-            {
-                var sourceReader = serviceProvider.GetRequiredService<IDatasetReader<T>>();
-                var logger = serviceProvider.GetRequiredService<ILogger<AliasDatasetReader<T>>>();
-                var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
+        services.Configure<AliasOptions<T>>(options =>
+            options.Definitions.Add(new AliasDefinition(aliasName, aliasFactory, definitionHash)));
 
-                var aliasReader = new AliasDatasetReader<T>(
-                    sourceReader,
-                    aliasFactory,
-                    aliasName,
-                    logger,
-                    appLifetime);
+        services.AddKeyedSingleton<IDatasetReader<T>>(aliasName, (serviceProvider, _) =>
+            new AliasDatasetReader<T>(serviceProvider.GetRequiredService<IDatasetReader<T>>(), aliasName, aliasFactory));
 
-                // Start initialization in background
-                aliasReader.StartInitialization();
-
-                return aliasReader;
-            });
+        // Also register as non-keyed AliasDatasetReader<T> so GetServices<AliasDatasetReader<T>>()
+        // returns all readers for this type (one entry per alias name).
+        services.AddSingleton<AliasDatasetReader<T>>(
+            sp => (AliasDatasetReader<T>)sp.GetRequiredKeyedService<IDatasetReader<T>>(aliasName));
 
         return services;
     }
@@ -96,12 +89,12 @@ public static class DI
     /// <typeparam name="TEntity"></typeparam>
     /// <param name="services"></param>
     /// <param name="protoParser">The MessageParser for the protobuf message type (e.g., Link.Parser)</param>
-    /// <param name="idPattern"></param>
+    /// <param name="idPatterns">One or more ID patterns (e.g. "t/{tenantid}/fonts/{fontid}"). Each entity ID is matched to the first pattern whose segment count equals the ID's segment count.</param>
     /// <param name="aliasConfigs"></param>
     public static void AddDatasetAliases<TEntity>(
     this IServiceCollection services,
     MessageParser<TEntity> protoParser,
-    string idPattern,
+    string[] idPatterns,
     params (string AliasName, string AliasPattern)[] aliasConfigs)
     where TEntity : class, IMessage<TEntity>, new()
     {
@@ -110,9 +103,9 @@ public static class DI
             var aliasName = aliasNameValues.Key;
             var aliasPatterns = aliasNameValues.Select(av => av.AliasPattern).ToList();
 
-            // Create alias factory
-            var aliasFactory = PatternsAndExpressions.CreateAliasFactoryDelegate(idPattern, aliasPatterns, protoParser);
-            services.AddDatasetAlias<TEntity>(aliasName, aliasFactory);
+            var aliasFactory = PatternsAndExpressions.CreateStrictAliasFactory(idPatterns, aliasPatterns, protoParser);
+            services.AddDatasetAlias<TEntity>(aliasName, aliasFactory,
+                PatternsAndExpressions.DefinitionHash(aliasName, idPatterns, aliasPatterns));
         }
     }
 }
@@ -121,36 +114,77 @@ public static class PatternsAndExpressions
 {
     private static readonly Regex PlaceholderRegex = new(@"\{([^}]+)\}", RegexOptions.Compiled);
 
+    /// <summary>
+    /// The alias factory the writer uses: takes the id variables from the entity name (not from its <c>Id</c>),
+    /// and throws when the bytes don't parse or a pattern can't be evaluated, so a bad payload is rejected instead of
+    /// silently losing its aliases.
+    /// </summary>
+    public static Func<string, ReadOnlyMemory<byte>, IEnumerable<string>> CreateStrictAliasFactory<TEntity>(
+        string[] idPatterns,
+        List<string> aliasPatterns,
+        MessageParser<TEntity> protoParser)
+        where TEntity : class, IMessage<TEntity>, new()
+    {
+        var patternInfos = idPatterns
+            .Select(p => (segmentCount: p.Split('/').Length, variables: ExtractPatternVariables(p)))
+            .ToArray();
+
+        return (entityName, entityBytes) =>
+        {
+            var entity = protoParser.ParseFrom(entityBytes.Span);
+            var idSegmentCount = entityName.Split('/').Length;
+            var idVariables = Array.Find(patternInfos, p => p.segmentCount == idSegmentCount).variables ?? [];
+            return aliasPatterns
+                .SelectMany(aliasPattern => EvaluateAliasPattern(aliasPattern, idVariables, entity, entityName))
+                .ToList(); // AliasStaging.Evaluate drops duplicates
+        };
+    }
+
+    /// <summary>
+    /// A hash of an alias name with its alias patterns and the id patterns, independent of their order: the
+    /// <see cref="AliasDefinition.DefinitionHash"/> of <see cref="CreateStrictAliasFactory{TEntity}"/>.
+    /// </summary>
+    public static string DefinitionHash(string aliasName, IEnumerable<string> idPatterns, IEnumerable<string> aliasPatterns)
+    {
+        string[] parts =
+        [
+            aliasName, .. aliasPatterns.Order(StringComparer.Ordinal), "", .. idPatterns.Order(StringComparer.Ordinal)
+        ];
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', parts))));
+    }
+
     public static Func<ReadOnlyMemory<byte>, IEnumerable<string>> CreateAliasFactoryDelegate<TEntity>(
-        string idPattern,
+        string[] idPatterns,
         List<string> aliasPatterns,
         MessageParser<TEntity> protoParser)
     where TEntity : class, IMessage<TEntity>, new()
     {
-        // Extract variables from the ID pattern: e.g., "t/{tenantid}/s/{storeid}/links/{linkid}"
-        // This produces: [("tenantid", 0), ("storeid", 1), ("linkid", 2)] with their positions in the split result
-        var idVariables = ExtractPatternVariables(idPattern);
+        // Pre-compute (segmentCount, variables) for each pattern so we can pick the right one per entity at runtime.
+        var patternInfos = idPatterns
+            .Select(p => (segmentCount: p.Split('/').Length, variables: ExtractPatternVariables(p)))
+            .ToArray();
 
         return (ReadOnlyMemory<byte> entityBytes) =>
         {
             try
             {
-                // Parse the proto message using the typed parser
                 var entity = protoParser.ParseFrom(entityBytes.Span);
                 if (entity == null)
                     return Enumerable.Empty<string>();
 
-                // Generate aliases from each alias pattern and flatten, then deduplicate
-                var allAliases = aliasPatterns
+                // Pick the first pattern whose segment count matches the entity's ID segment count.
+                var entityId = entity.GetType().GetProperty("Id")?.GetValue(entity) as string ?? string.Empty;
+                var idSegmentCount = entityId.Split('/').Length;
+                var matched = Array.Find(patternInfos, p => p.segmentCount == idSegmentCount);
+                var idVariables = matched.variables ?? new Dictionary<string, int>();
+
+                return aliasPatterns
                     .SelectMany(aliasPattern => EvaluateAliasPattern(aliasPattern, idVariables, entity))
                     .Distinct()
                     .ToList();
-
-                return allAliases;
             }
             catch
             {
-                // Silently fail and return empty aliases
                 return Enumerable.Empty<string>();
             }
         };
@@ -217,86 +251,99 @@ public static class PatternsAndExpressions
             if (string.IsNullOrEmpty(entityId))
                 return Enumerable.Empty<string>();
 
-            // Parse the ID according to the ID pattern
-            var idParts = entityId.Split('/');
-            var idValues = new Dictionary<string, string>();
-
-            foreach (var (varName, position) in idVariables)
-            {
-                if (position < idParts.Length)
-                {
-                    idValues[varName] = idParts[position];
-                }
-            }
-
-            // Parse the pattern into alternating literal and placeholder segments
-            var matches = PlaceholderRegex.Matches(aliasPattern);
-            var segments = new List<(bool isPlaceholder, string content)>();
-            int lastIndex = 0;
-
-            foreach (Match match in matches)
-            {
-                // Add literal text before this placeholder
-                if (match.Index > lastIndex)
-                {
-                    segments.Add((false, aliasPattern.Substring(lastIndex, match.Index - lastIndex)));
-                }
-
-                // Add placeholder
-                var placeholder = match.Groups[1].Value;
-                segments.Add((true, placeholder));
-                lastIndex = match.Index + match.Length;
-            }
-
-            // Add any remaining literal text
-            if (lastIndex < aliasPattern.Length)
-            {
-                segments.Add((false, aliasPattern.Substring(lastIndex)));
-            }
-
-            // Evaluate each placeholder to get all possible values
-            var allValues = new List<List<string>>();
-            foreach (var (isPlaceholder, content) in segments)
-            {
-                if (!isPlaceholder)
-                    continue;
-
-                if (content.StartsWith('.'))
-                {
-                    // JSON-style field access - may return multiple values for array iteration
-                    var values = EvaluateJsonPath(content, entity).ToList();
-                    if (values.Count == 0)
-                    {
-                        // If field doesn't exist or is empty, skip this alias pattern entirely
-                        return Enumerable.Empty<string>();
-                    }
-                    allValues.Add(values);
-                }
-                else
-                {
-                    // Variable reference from ID pattern
-                    if (idValues.TryGetValue(content, out var value))
-                    {
-                        allValues.Add(new List<string> { value });
-                    }
-                    else
-                    {
-                        // Variable not found in ID, skip this alias
-                        return Enumerable.Empty<string>();
-                    }
-                }
-            }
-
-            // Generate all combinations of values
-            var results = new List<string>();
-            GenerateAliasCombinations(segments, allValues, 0, "", results);
-
-            return results;
+            return EvaluateAliasPattern(aliasPattern, idVariables, entity, entityId);
         }
         catch
         {
             return Enumerable.Empty<string>();
         }
+    }
+
+    /// <summary>
+    /// <see cref="EvaluateAliasPattern(string, Dictionary{string, int}, object)"/> with the id variables taken from
+    /// <paramref name="entityId"/>; throws when a pattern can't be evaluated.
+    /// </summary>
+    public static IEnumerable<string> EvaluateAliasPattern(
+        string aliasPattern,
+        Dictionary<string, int> idVariables,
+        object entity,
+        string entityId)
+    {
+        // Parse the ID according to the ID pattern
+        var idParts = entityId.Split('/');
+        var idValues = new Dictionary<string, string>();
+
+        foreach (var (varName, position) in idVariables)
+        {
+            if (position < idParts.Length)
+            {
+                idValues[varName] = idParts[position];
+            }
+        }
+
+        // Parse the pattern into alternating literal and placeholder segments
+        var matches = PlaceholderRegex.Matches(aliasPattern);
+        var segments = new List<(bool isPlaceholder, string content)>();
+        int lastIndex = 0;
+
+        foreach (Match match in matches)
+        {
+            // Add literal text before this placeholder
+            if (match.Index > lastIndex)
+            {
+                segments.Add((false, aliasPattern.Substring(lastIndex, match.Index - lastIndex)));
+            }
+
+            // Add placeholder
+            var placeholder = match.Groups[1].Value;
+            segments.Add((true, placeholder));
+            lastIndex = match.Index + match.Length;
+        }
+
+        // Add any remaining literal text
+        if (lastIndex < aliasPattern.Length)
+        {
+            segments.Add((false, aliasPattern.Substring(lastIndex)));
+        }
+
+        // Evaluate each placeholder to get all possible values
+        var allValues = new List<List<string>>();
+        foreach (var (isPlaceholder, content) in segments)
+        {
+            if (!isPlaceholder)
+                continue;
+
+            if (content.StartsWith('.'))
+            {
+                // JSON-style field access - may return multiple values for array iteration
+                var values = EvaluateJsonPath(content, entity).ToList();
+                if (values.Count == 0)
+                {
+                    // If field doesn't exist or is empty, skip this alias pattern entirely
+                    return Enumerable.Empty<string>();
+                }
+                allValues.Add(values);
+            }
+            else
+            {
+                // Variable reference from ID pattern
+                if (idValues.TryGetValue(content, out var value))
+                {
+                    allValues.Add(new List<string> { value });
+                }
+                else
+                {
+                    // Variable not found in ID, skip this alias
+                    return Enumerable.Empty<string>();
+                }
+            }
+        }
+
+        // Generate all combinations of values
+        var results = new List<string>();
+        GenerateAliasCombinations(segments, allValues, 0, "", results);
+
+        return results;
     }
 
     /// <summary>

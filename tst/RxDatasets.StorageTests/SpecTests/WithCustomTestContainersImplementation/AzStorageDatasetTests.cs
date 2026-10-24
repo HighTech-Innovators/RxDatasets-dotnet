@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -87,7 +87,7 @@ public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixtu
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization", bytes);
+        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization", bytes, null, null);
         await putAction.Should().ThrowAsync<InvalidOperationException>();
     }
 
@@ -98,7 +98,7 @@ public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixtu
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_AZ_Storage", bytes);
+        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_AZ_Storage", bytes, null, null);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
 }

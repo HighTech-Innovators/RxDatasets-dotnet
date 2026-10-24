@@ -56,30 +56,41 @@ namespace RxDatasets.BackgroundServices
             var optionalState = await _reportingImplementation.OpenDeltaTransaction(deltaVersion);
             try
             {
-                if (deltaIndexParsed.NewEntities.Count > 0)
-                    logger.LogDebug("Processing {NewCount} new entities", deltaIndexParsed.NewEntities.Count);
+                int newCount = deltaIndexParsed.EnumerateNewEntities().Count();
+                if (newCount > 0)
+                    logger.LogDebug("Processing {NewCount} new entities", newCount);
 
-                if (deltaIndexParsed.ChangedEntities.Count > 0)
-                    logger.LogDebug("Processing {ChangeCount} changed entities", deltaIndexParsed.ChangedEntities.Count);
+                int changeCount = deltaIndexParsed.EnumerateChangedEntities().Count();
+                if (changeCount > 0)
+                    logger.LogDebug("Processing {ChangeCount} changed entities", changeCount);
 
-                if (deltaIndexParsed.DeletedNames.Count > 0 || deltaIndexParsed.DeletedEntities.Count > 0)
-                    logger.LogDebug("Processing {DeleteCount} deleted entities", deltaIndexParsed.DeletedNames.Count + deltaIndexParsed.DeletedEntities.Count);
+                int deleteCount = deltaIndexParsed.DeletedNames.Count + deltaIndexParsed.EnumerateDeletedEntities().Count();
+                if (deleteCount > 0)
+                    logger.LogDebug("Processing {DeleteCount} deleted entities", deleteCount);
 
-                foreach (var newEntity in deltaIndexParsed.NewEntities)
+                foreach (var (name, newEntity) in deltaIndexParsed.EnumerateNewEntities())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, newEntity.Position)], newEntity.Length);
-                    await _reportingImplementation.OnNewDto(newEntity.Name, data.ToArray(),
+                    await _reportingImplementation.OnNewDto(name, data.ToArray(),
+                        string.IsNullOrEmpty(newEntity.TrackingId) ? null : newEntity.TrackingId,
+                        newEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, newEntity.AddedAliases, newEntity.RemovedAliases, newEntity.TrackingId,
+                        newEntity.SlaTimestamp, optionalState);
                 }
 
-                foreach (var updatedEntity in deltaIndexParsed.ChangedEntities)
+                foreach (var (name, updatedEntity) in deltaIndexParsed.EnumerateChangedEntities())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var data = await storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, deltaVersion, updatedEntity.Position)], updatedEntity.Length);
 
-                    await _reportingImplementation.OnChangedDto(updatedEntity.Name, data.ToArray(),
+                    await _reportingImplementation.OnChangedDto(name, data.ToArray(),
+                        string.IsNullOrEmpty(updatedEntity.TrackingId) ? null : updatedEntity.TrackingId,
+                        updatedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, updatedEntity.AddedAliases, updatedEntity.RemovedAliases,
+                        updatedEntity.TrackingId, updatedEntity.SlaTimestamp, optionalState);
                 }
 
                 foreach (var deletedEntity in deltaIndexParsed.DeletedNames)
@@ -87,14 +98,25 @@ namespace RxDatasets.BackgroundServices
 
                     cancellationToken.ThrowIfCancellationRequested();
                     await _reportingImplementation.OnDeletedDto(deletedEntity,
+                        null, null,
                         optionalState);
                 }
 
-                foreach (var deletedEntity in deltaIndexParsed.DeletedEntities)
+                foreach (var (name, deletedEntity) in deltaIndexParsed.EnumerateDeletedEntities())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await _reportingImplementation.OnDeletedDto(deletedEntity.Name,
+                    await _reportingImplementation.OnDeletedDto(name,
+                        string.IsNullOrEmpty(deletedEntity.TrackingId) ? null : deletedEntity.TrackingId,
+                        deletedEntity.SlaTimestamp?.ToDateTimeOffset(),
                         optionalState);
+                    await ReportAliasChanges(name, [], deletedEntity.RemovedAliases, deletedEntity.TrackingId,
+                        deletedEntity.SlaTimestamp, optionalState);
+                }
+
+                foreach (var change in deltaIndexParsed.AliasChanges)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await ReportAliasChanges(change.Name, change.AddedAliases, change.RemovedAliases, "", null, optionalState);
                 }
 
                 if (optionalState != null)
@@ -116,6 +138,18 @@ namespace RxDatasets.BackgroundServices
                     logger.LogInformation("Rolling back my delta {Version} transaction", deltaVersion);
                     await _reportingImplementation.RollBackDeltaTransaction(optionalState);
                 }
+            }
+        }
+
+        private async Task ReportAliasChanges(string name, IEnumerable<AliasRef> added, IEnumerable<AliasRef> removed,
+            string trackingId, Google.Protobuf.WellKnownTypes.Timestamp? slaTimestamp, object? optionalState)
+        {
+            var changes = removed.Select(alias => (alias, ChangeType.Deleted))
+                .Concat(added.Select(alias => (alias, ChangeType.New)));
+            foreach (var (alias, change) in changes)
+            {
+                await _reportingImplementation.OnAliasChanged(alias.Name, alias.Value, name, change,
+                    string.IsNullOrEmpty(trackingId) ? null : trackingId, slaTimestamp?.ToDateTimeOffset(), optionalState);
             }
         }
 

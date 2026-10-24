@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -82,7 +82,7 @@ public class S3StorageDatasetTests(LocalStackS3TestContainerFixture localstack)
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => datasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_Storage_After_Initialization", bytes);
+        var putAction = () => datasetWriter.Put("Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_Storage_After_Initialization", bytes, null, null);
         await putAction.Should().ThrowAsync<InvalidOperationException>();
     }
 
@@ -93,7 +93,7 @@ public class S3StorageDatasetTests(LocalStackS3TestContainerFixture localstack)
 
         var bytes = GenerateRandomData();
 
-        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes);
+        var putAction = () => azBlobStorageDatasetWriter.Put("Should_Not_Throw_Invalid_Operation_Exception_On_Accessible_S3_Storage", bytes, null, null);
         await putAction.Should().NotThrowAsync<InvalidOperationException>();
     }
 
@@ -107,7 +107,7 @@ public class S3StorageDatasetTests(LocalStackS3TestContainerFixture localstack)
         for (var i = 0; i < expectedMax; i++)
         {
             var bytes = GenerateRandomData(10, i);
-            await datasetWriter.Put(nameof(Should_retrieve_more_than_1000_items), bytes);
+            await datasetWriter.Put(nameof(Should_retrieve_more_than_1000_items), bytes, null, null);
         }
 
 

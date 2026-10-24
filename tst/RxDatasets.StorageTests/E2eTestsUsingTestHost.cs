@@ -60,7 +60,9 @@ namespace RxDatasets.StorageTests
             });
 
             var healthClient = customFactory.CreateClient();
-            var grpcWebHandler = new GrpcWebHandler(GrpcWebMode.GrpcWebText, customFactory.Server.CreateHandler());
+            // Binary gRPC-Web, as real clients use: with GrpcWebText, a streaming call over the TestServer
+            // intermittently failed decoding its response ("Unexpected end of data when reading base64 content")
+            var grpcWebHandler = new GrpcWebHandler(GrpcWebMode.GrpcWeb, customFactory.Server.CreateHandler());
             var httpClient = customFactory.CreateDefaultClient(grpcWebHandler);
             var channel = GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpClient = httpClient });
 
@@ -96,7 +98,6 @@ namespace RxDatasets.StorageTests
 
             // Start the second host
             (var factory2, HttpClient healthClient2, _) = await CreateWebhostFactoryAsync(storage: storageProvider, false);
-            //await Task.Delay(TimeSpan.FromSeconds(3));
 
 
             // Check that the second host is not healthy
@@ -157,6 +158,7 @@ namespace RxDatasets.StorageTests
             var storageConfig = new StorageConfig { CustomRootFolder = _customPrefix + "/customRootFolder/" };
 
             ulong latestSnapshotVersion;
+            var snapshotDeadline = DateTime.UtcNow.AddSeconds(15);
             while (true)
             {
                 var listOfSnapshots = await storageProvider.ListObjects(DatasetHelper.GetObjectNamePrefix<Demodto>(storageConfig) + FolderNames.SnapshotsFolderNameWithSlash);
@@ -169,6 +171,9 @@ namespace RxDatasets.StorageTests
                     if (latestSnapshotVersion > 1)
                         break;
                 }
+
+                if (DateTime.UtcNow > snapshotDeadline)
+                    throw new TimeoutException("No snapshot past version 1 within 15 s");
 
                 await Task.Delay(10);
             }
@@ -297,6 +302,26 @@ namespace RxDatasets.StorageTests
             return basePayload;
         }
 
+        /// <summary>
+        /// The test host reads through a separate reader, which catches up with the writes asynchronously: waits until
+        /// it has reached <paramref name="version"/>. It asks the reader for its version first, because it rejects a
+        /// version beyond its own, and then waits for it to move on with ListChanges' wait_for_changes.
+        /// </summary>
+        private static async Task WaitForReaderToReach(ReaderService.ReaderServiceClient readerClient, ulong version)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            var readerVersion = (await readerClient.ListChangesAsync(
+                new ListChangesRequest { FromDatasetVersion = 0, PageSize = int.MaxValue },
+                deadline: deadline)).ToDatasetVersion;
+
+            while (readerVersion < version)
+            {
+                readerVersion = (await readerClient.ListChangesAsync(
+                    new ListChangesRequest { FromDatasetVersion = readerVersion, PageSize = int.MaxValue, WaitForChanges = true },
+                    deadline: deadline)).ToDatasetVersion;
+            }
+        }
+
         private static bool VerifyResponseIsExpected(WriteResponse response, uint expectedAdded, uint expectedUpdated)
         {
             var numAdded = response.NumAddedEntities;
@@ -320,9 +345,6 @@ namespace RxDatasets.StorageTests
             var putResponse = await writerClient.PutAsync(basePayload);
             VerifyResponseIsExpected(putResponse, 1, 0).Should().BeTrue("Initial put should add one entity");
 
-            // Add small delay to ensure initial put is fully processed
-            await Task.Delay(100);
-
             try
             {
                 // Act: Delete then put same entity in batch using PutOrDeleteMany gRPC streaming
@@ -335,9 +357,6 @@ namespace RxDatasets.StorageTests
                     IsDelete = true
                 });
 
-                // Small delay between operations
-                await Task.Delay(50);
-
                 // Put back same entity
                 await call.RequestStream.WriteAsync(new PutOrDelete
                 {
@@ -346,10 +365,6 @@ namespace RxDatasets.StorageTests
                 });
 
                 await call.RequestStream.CompleteAsync();
-
-                // Add delay before reading response
-                await Task.Delay(100);
-
                 var batchResponse = await call;
 
                 // Assert: Should report no net change
@@ -359,14 +374,10 @@ namespace RxDatasets.StorageTests
                 batchResponse.NumDeletedEntities.Should().Be(0u, "No entities should be deleted when delete+put results in same state");
 
                 // Verify entity still exists with original data using gRPC reader
+                await WaitForReaderToReach(readerClient, putResponse.NewDatasetVersion);
                 var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
                 retrievedEntity.Should().NotBeNull("Entity should still exist after delete+put with same data");
                 retrievedEntity.SomeString.Should().Be(basePayload.SomeString, "Entity data should be unchanged");
-            }
-            catch (Exception ex)
-            {
-                // Add detailed error information
-                throw new Exception($"gRPC streaming test failed. Error: {ex.Message}. InnerException: {ex.InnerException?.Message}", ex);
             }
             finally
             {
@@ -417,6 +428,7 @@ namespace RxDatasets.StorageTests
             batchResponse.NumDeletedEntities.Should().Be(0u, "Should not count as deleted since entity exists after batch");
 
             // Verify entity exists with modified data using gRPC reader
+            await WaitForReaderToReach(readerClient, batchResponse.NewDatasetVersion);
             var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
             retrievedEntity.Should().NotBeNull("Entity should exist after delete+put with different data");
             retrievedEntity.SomeString.Should().Be(modifiedPayload.SomeString, "Entity should have the modified data");
@@ -439,9 +451,6 @@ namespace RxDatasets.StorageTests
             var putResponse = await writerClient.PutAsync(basePayload);
             VerifyResponseIsExpected(putResponse, 1, 0).Should().BeTrue("Initial put should add one entity");
 
-            // Add delay to ensure initial put is fully processed
-            await Task.Delay(100);
-
             try
             {
                 // Act: Multiple operations ending with original data
@@ -456,18 +465,12 @@ namespace RxDatasets.StorageTests
                     EntityBytes = tempPayload1.ToByteString()
                 });
 
-                // Small delay between operations
-                await Task.Delay(50);
-
                 // Put more different data
                 await call.RequestStream.WriteAsync(new PutOrDelete
                 {
                     Name = tempPayload2.Name,
                     EntityBytes = tempPayload2.ToByteString()
                 });
-
-                // Small delay between operations
-                await Task.Delay(50);
 
                 // Put back original data
                 await call.RequestStream.WriteAsync(new PutOrDelete
@@ -477,10 +480,6 @@ namespace RxDatasets.StorageTests
                 });
 
                 await call.RequestStream.CompleteAsync();
-
-                // Add delay before reading response
-                await Task.Delay(100);
-
                 var batchResponse = await call;
 
                 // Assert: Should report no net change
@@ -491,6 +490,7 @@ namespace RxDatasets.StorageTests
                 batchResponse.NumDeletedEntities.Should().Be(0u, "No entities should be deleted when ending with original state");
 
                 // Verify entity still exists with original data using gRPC reader
+                await WaitForReaderToReach(readerClient, putResponse.NewDatasetVersion);
                 var retrievedEntity = await readerClient.GetDemodtoAsync(new GetDemodtoRequest { Name = basePayload.Name });
                 retrievedEntity.Should().NotBeNull("Entity should still exist with original data");
                 retrievedEntity.SomeString.Should().Be(basePayload.SomeString, "Entity data should be back to original");
@@ -526,14 +526,15 @@ namespace RxDatasets.StorageTests
             };
 
             // Write child entities
+            ulong writtenVersion = 0;
             foreach (var entity in childEntities)
             {
                 var response = await writerClient.PutAsync(entity);
+                writtenVersion = response.NewDatasetVersion;
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
 
-            // Allow time for entities to be indexed
-            await Task.Delay(100);
+            await WaitForReaderToReach(readerClient, writtenVersion);
 
             // Act: Call CountChildren RPC
             var countRequest = new CountChildrenRequest { Parent = parentPath };
@@ -588,6 +589,7 @@ namespace RxDatasets.StorageTests
             const int childCount = 10;
 
             // Write multiple child entities
+            ulong writtenVersion = 0;
             for (int i = 0; i < childCount; i++)
             {
                 var entity = new Demodto
@@ -596,11 +598,11 @@ namespace RxDatasets.StorageTests
                     SomeString = $"developer_{i}"
                 };
                 var response = await writerClient.PutAsync(entity);
+                writtenVersion = response.NewDatasetVersion;
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
 
-            // Allow time for entities to be indexed
-            await Task.Delay(100);
+            await WaitForReaderToReach(readerClient, writtenVersion);
 
             // Act: Make multiple concurrent CountChildren calls
             var countTasks = Enumerable.Range(0, 5)
@@ -638,14 +640,15 @@ namespace RxDatasets.StorageTests
                 new Demodto { Name = "company/division/department/section/unit", SomeString = "deep_nested" },
             };
 
+            ulong writtenVersion = 0;
             foreach (var entity in entities)
             {
                 var response = await writerClient.PutAsync(entity);
+                writtenVersion = response.NewDatasetVersion;
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
 
-            // Allow time for entities to be indexed
-            await Task.Delay(100);
+            await WaitForReaderToReach(readerClient, writtenVersion);
 
             // Act: Count children of "company/division"
             const string parentPath = "company/division";
@@ -682,13 +685,15 @@ namespace RxDatasets.StorageTests
                 new Demodto { Name = "projects/mobile/android/app", SomeString = "android_app" },
             };
 
+            ulong writtenVersion = 0;
             foreach (var entity in initialEntities)
             {
                 var response = await writerClient.PutAsync(entity);
+                writtenVersion = response.NewDatasetVersion;
                 VerifyResponseIsExpected(response, 1, 0).Should().BeTrue();
             }
 
-            await Task.Delay(100);
+            await WaitForReaderToReach(readerClient, writtenVersion);
 
             // Act & Assert: Verify initial count
             var initialCount = await readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = mainParent });
@@ -696,8 +701,8 @@ namespace RxDatasets.StorageTests
 
             // Add more children
             var newEntity = new Demodto { Name = "projects/mobile/web/app", SomeString = "web_app" };
-            await writerClient.PutAsync(newEntity);
-            await Task.Delay(100);
+            var newResponse = await writerClient.PutAsync(newEntity);
+            await WaitForReaderToReach(readerClient, newResponse.NewDatasetVersion);
 
             // Assert: Verify count increased
             var updatedCount = await readerClient.CountChildrenAsync(new CountChildrenRequest { Parent = mainParent });

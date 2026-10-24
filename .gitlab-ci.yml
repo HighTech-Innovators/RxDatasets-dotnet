@@ -3,10 +3,12 @@ variables:
   REGISTRY_PREFIX: "${REGISTRY_PREFIX:-}"
   PRIVATE_NUGET: "${PRIVATE_NUGET:-}"
   NUGET_PROXY: "${NUGET_PROXY:-}"
-  TARGET_NUGET: "${TARGET_NUGET:-}"
-  TARGET_NUGET_APIKEY: "${TARGET_NUGET_APIKEY:-}"
+  # TARGET_NUGET / TARGET_NUGET_APIKEY: only for the disabled "dotnet nuget push" job below; when re-enabling,
+  # also pass them again as --build-arg in .docker_build_target
+  # TARGET_NUGET: "${TARGET_NUGET:-}"
+  # TARGET_NUGET_APIKEY: "${TARGET_NUGET_APIKEY:-}"
   DOCKER_BUILD_IMAGE: "${REGISTRY_PREFIX}docker:cli"
-  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+  # SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # SonarQube no longer exists
   GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
 
 stages:
@@ -15,8 +17,17 @@ stages:
   - test
   - publish
   - push
-  - sonarqube-check
-  - sonarqube-vulnerability-report
+  - release
+  # - sonarqube-check  # SonarQube no longer exists
+  # - sonarqube-vulnerability-report
+
+# Jobs run in branch and tag pipelines by default; also run them in merge request pipelines,
+# so tests gate merges without depending on the sonarqube-check job.
+.branches_and_merge_requests:
+  only:
+    - branches
+    - tags
+    - merge_requests
 
 .only_tagged:
   rules:
@@ -45,39 +56,38 @@ stages:
       --build-arg REGISTRY_PREFIX=$REGISTRY_PREFIX
       --build-arg PRIVATE_NUGET=$PRIVATE_NUGET
       --build-arg NUGET_PROXY=$NUGET_PROXY
-      --build-arg TARGET_NUGET=$TARGET_NUGET
-      --build-arg TARGET_NUGET_APIKEY=$TARGET_NUGET_APIKEY
       --target ${DOCKERFILE_TARGET}
       -f Dockerfile
       .
   image: ${DOCKER_BUILD_IMAGE}
 
-.sonar_docker_build_target:
-  cache: []
-  variables:
-    DOCKER_BUILDKIT: 1
-  script:   
-    - test -n "$DOCKER_HOST" || ( echo "Error in gitlab-ci config - variable DOCKER_HOST is required but is blank" && exit 1 )
-    - test -n "$DOCKERFILE_TARGET" || ( echo "Error in gitlab-ci config - variable DOCKERFILE_TARGET is required but is blank" && exit 1 )
-    - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild }"
-    - >
-      docker build
-      -f sonar.Dockerfile
-      --pull
-      --build-arg DOCKER_HOST=$DOCKER_HOST
-      --build-arg VERSION=$VERSION
-      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
-      --build-arg RunExternalProvidersTests=true
-      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
-      --build-arg SONAR_TOKEN=$SONAR_TOKEN
-      --build-arg SONAR_USER_HOME=$SONAR_USER_HOME
-      --build-arg CI_COMMIT_REF_NAME=$CI_COMMIT_REF_NAME
-      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
-      --build-arg CI_MERGE_REQUEST_TARGET_BRANCH_NAME=$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
-      --build-arg CI_PROJECT_ID=$CI_PROJECT_ID
-      --target ${DOCKERFILE_TARGET}
-      .
-  image: ${DOCKER_BUILD_IMAGE}
+# Disabled: SonarQube (sonar.developer.htiprojects.nl) no longer exists.
+#.sonar_docker_build_target:
+#  cache: []
+#  variables:
+#    DOCKER_BUILDKIT: 1
+#  script:   
+#    - test -n "$DOCKER_HOST" || ( echo "Error in gitlab-ci config - variable DOCKER_HOST is required but is blank" && exit 1 )
+#    - test -n "$DOCKERFILE_TARGET" || ( echo "Error in gitlab-ci config - variable DOCKERFILE_TARGET is required but is blank" && exit 1 )
+#    - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild }"
+#    - >
+#      docker build
+#      -f sonar.Dockerfile
+#      --pull
+#      --build-arg DOCKER_HOST=$DOCKER_HOST
+#      --build-arg VERSION=$VERSION
+#      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
+#      --build-arg RunExternalProvidersTests=true
+#      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
+#      --build-arg SONAR_TOKEN=$SONAR_TOKEN
+#      --build-arg SONAR_USER_HOME=$SONAR_USER_HOME
+#      --build-arg CI_COMMIT_REF_NAME=$CI_COMMIT_REF_NAME
+#      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
+#      --build-arg CI_MERGE_REQUEST_TARGET_BRANCH_NAME=$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+#      --build-arg CI_PROJECT_ID=$CI_PROJECT_ID
+#      --target ${DOCKERFILE_TARGET}
+#      .
+#  image: ${DOCKER_BUILD_IMAGE}
 
 ###########################################################################################################
 ###########################################################################################################
@@ -89,6 +99,7 @@ stages:
 
 dotnet restore:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: restore
@@ -96,6 +107,7 @@ dotnet restore:
 
 dotnet build:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: build
@@ -105,6 +117,7 @@ dotnet build:
 
 dotnet test:
   extends:
+    - .branches_and_merge_requests
     - .docker_build_target
   variables:
     DOCKERFILE_TARGET: test
@@ -114,6 +127,8 @@ dotnet test:
 
 
 e2e test:
+  extends:
+    - .branches_and_merge_requests
   stage: test
   needs:
     - dotnet build
@@ -141,64 +156,113 @@ dotnet pack:
   needs:
     - dotnet build
 
-dotnet nuget push:
-  before_script:
-  - test -n "$TARGET_NUGET" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET is not filled" && exit 1)
-  - test -n "$TARGET_NUGET_APIKEY" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET_APIKEY is not filled" && exit 1)
-  extends:
-    - .only_tagged
-    - .docker_build_target
-  variables:
-    DOCKERFILE_TARGET: nugetpush
-  stage: push
+# Disabled: nuget.org Trusted Publishing doesn't support self-hosted GitLab yet, so publishing moved to the
+# GitHub mirror (.github/workflows/publish.yml). Re-enable when nuget.org supports it.
+#dotnet nuget push:
+#  before_script:
+#  - test -n "$TARGET_NUGET" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET is not filled" && exit 1)
+#  - test -n "$TARGET_NUGET_APIKEY" || ( echo "Error, in gitlab-ci config - variable TARGET_NUGET_APIKEY is not filled" && exit 1)
+#  extends:
+#    - .only_tagged
+#    - .docker_build_target
+#  variables:
+#    DOCKERFILE_TARGET: nugetpush
+#  stage: push
+#  needs:
+#    - dotnet pack
+#    - dotnet test
+#    - e2e test
+
+# Disabled: SonarQube (sonar.developer.htiprojects.nl) no longer exists.
+#sonarqube-check:
+#  extends:
+#    - .sonar_docker_build_target
+#  variables:
+#    DOCKERFILE_TARGET: sonarqube-check
+#  stage: sonarqube-check
+#  dependencies:
+#    - dotnet test
+#  # The SonarQube host (sonar.developer.htiprojects.nl) is gone; don't block merges on it.
+#  # Set back to false once SonarQube is available again.
+#  allow_failure: true
+#  only:
+#    - merge_requests
+#    - master
+#    - main
+#    - develop
+
+#sonarqube-vulnerability-report:
+#  script:   
+#    - >
+#      docker buildx build
+#      --pull
+#      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
+#      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
+#      --build-arg SONAR_TOKEN=$SONAR_TOKEN
+#      --build-arg CI_COMMIT_BRANCH=$CI_COMMIT_BRANCH
+#      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
+#      --target ${DOCKERFILE_TARGET}
+#      --output type=local,dest=./
+#      -f sonar.Dockerfile
+#      .
+#  image: ${DOCKER_BUILD_IMAGE}
+#  variables:
+#    DOCKERFILE_TARGET: sonar-report-downloader
+#    DOCKER_BUILDKIT: 1
+#  stage: sonarqube-vulnerability-report
+#  needs:
+#    - sonarqube-check
+#  allow_failure: true
+#  only:
+#    - merge_requests
+#    - master
+#    - main
+#    - develop
+#  artifacts:
+#    expire_in: 1 day
+#    reports:
+#      sast: ./gl-sast-sonar-report.json 
+
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
+###                                               RELEASE                                              ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
+
+# Manual git-flow release of the tested develop commit; all logic is in release.sh so it also runs locally.
+# Needs CI/CD variable RELEASE_TOKEN: a project access token with write_repository (allowed to push master/develop).
+.release:
+  stage: release
+  image:
+    name: ${REGISTRY_PREFIX}alpine/git
+    entrypoint: [""]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"
+      when: manual
+      allow_failure: true
   needs:
-    - dotnet pack
     - dotnet test
     - e2e test
+  script:
+    - test -n "$RELEASE_TOKEN" || ( echo "Error in gitlab-ci config - variable RELEASE_TOKEN is required but is blank" && exit 1 )
+    - git config user.name "$GITLAB_USER_NAME"
+    - git config user.email "$GITLAB_USER_EMAIL"
+    - git remote set-url origin "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - RELEASE_REF="$CI_COMMIT_SHA" sh ./release.sh "$BUMP"
 
-sonarqube-check:
-  extends:
-    - .sonar_docker_build_target
+release patch:
+  extends: .release
   variables:
-    DOCKERFILE_TARGET: sonarqube-check
-  stage: sonarqube-check
-  dependencies:
-    - dotnet test
-  allow_failure: false
-  only:
-    - merge_requests
-    - master
-    - main
-    - develop
+    BUMP: patch
 
-sonarqube-vulnerability-report:
-  script:   
-    - >
-      docker buildx build
-      --pull
-      --build-arg SONAR_PROJECT_KEY=$SONAR_PROJECT_KEY
-      --build-arg SONAR_HOST_URL=$SONAR_HOST_URL
-      --build-arg SONAR_TOKEN=$SONAR_TOKEN
-      --build-arg CI_COMMIT_BRANCH=$CI_COMMIT_BRANCH
-      --build-arg CI_MERGE_REQUEST_IID=$CI_MERGE_REQUEST_IID
-      --target ${DOCKERFILE_TARGET}
-      --output type=local,dest=./
-      -f sonar.Dockerfile
-      .
-  image: ${DOCKER_BUILD_IMAGE}
+release minor:
+  extends: .release
   variables:
-    DOCKERFILE_TARGET: sonar-report-downloader
-    DOCKER_BUILDKIT: 1
-  stage: sonarqube-vulnerability-report
-  needs:
-    - sonarqube-check
-  allow_failure: true
-  only:
-    - merge_requests
-    - master
-    - main
-    - develop
-  artifacts:
-    expire_in: 1 day
-    reports:
-      sast: ./gl-sast-sonar-report.json 
+    BUMP: minor
+
+release major:
+  extends: .release
+  variables:
+    BUMP: major

@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Collections.Immutable;
 using System.Reactive.Concurrency;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -38,7 +37,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
     private async Task CreateSnapshotIfNecessary(CancellationToken stoppingToken)
     {
-        using var slot = await Lock(stoppingToken);
+        using var slot = await _semaphore.LockAsync(stoppingToken);
         var (_, newestDelta, snapshots) = await _storageProvider.ListVersions();
         var conditionsAreMet = AreSnapshotCreationConditionsMet(newestDelta, snapshots);
         if (!conditionsAreMet)
@@ -113,7 +112,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
 
         _logger.LogInformation($"Creating snapshot version {newSnapshotVersion}");
 
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities = [];
+        var newSnapshotEntities = ImmutableIndexNode<ImmutableSnapshotEntity>.Empty.ToBuilder();
 
         var tempPath = DatasetHelper.GetTempFilePath();
 
@@ -137,9 +136,12 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
             targetSnapshotStream.Close();
 
             await using var localSnapshotReader = File.OpenRead(tempPath);
-            var newSnapshotIndex =
-                new ImmutableDatasetState(newSnapshotEntities.ToImmutableDictionary(), newSnapshotVersion,
-                    currentIndex.LatestVersion);
+            // With, so the alias definitions hash (and the entities' aliases) carry over
+            var newSnapshotIndex = currentIndex with
+            {
+                Root = newSnapshotEntities.ToImmutable(),
+                SnapshotVersion = newSnapshotVersion
+            };
             localSnapshotReader.Position = 0;
             stoppingToken.ThrowIfCancellationRequested();
 
@@ -158,18 +160,18 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromDeltas(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        ImmutableIndexNode<ImmutableSnapshotEntity>.Builder newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        foreach (var entity in currentIndex.Entities.Where(x =>
-                     x.Value.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        foreach (var entity in currentIndex.EnumerateAll(where: x =>
+                     x.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
 
             if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
             {
                 var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
             }
             else
             {
@@ -185,7 +187,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 targetSnapshotStreamPosition += entityLength;
 
                 var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Add(entity.Key, newSnapshotEntity);
+                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
             }
         }
 
@@ -193,15 +195,15 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     }
 
     private async Task<long> CopyRelevantItemsFromOldSnapshot(ImmutableDatasetState currentIndex,
-        Dictionary<string, ImmutableSnapshotEntity> newSnapshotEntities,
+        ImmutableIndexNode<ImmutableSnapshotEntity>.Builder newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
         await _storageProvider.ReadSnapshotData(currentIndex.SnapshotVersion, sourceStream =>
         {
             long sourceStreamPosition = 0;
 
-            foreach (var entity in currentIndex.Entities
-                         .Where(x => x.Value.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
+            foreach (var entity in currentIndex.EnumerateAll(
+                         where: x => x.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)
@@ -210,7 +212,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                 if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
                 {
                     ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
                 }
                 else
                 {
@@ -232,7 +234,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
                         Position = targetEntityPosition,
                         Length = entityLength
                     };
-                    newSnapshotEntities.Add(entity.Key, newSnapshotSnapshotEntity);
+                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
                 }
             }
         });
@@ -273,7 +275,7 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     /// <param name="sourceStream"></param>
     /// <param name="relative"></param>
     /// <returns>The 'relative' value</returns>
-    private static long SeekForwardBy(Stream sourceStream, long relative)
+    internal static long SeekForwardBy(Stream sourceStream, long relative)
     {
         switch (relative)
         {
@@ -309,11 +311,5 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
     public async Task HandleNewDeltas(CancellationToken stoppingToken)
     {
         await CreateSnapshotIfNecessary(stoppingToken);
-    }
-
-    private async Task<IDisposable> Lock(CancellationToken cancellationToken)
-    {
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _semaphore.Release());
     }
 }

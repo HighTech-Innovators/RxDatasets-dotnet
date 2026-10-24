@@ -9,6 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="RxDatasets.Tests" />
+    <InternalsVisibleTo Include="RxDatasets.StorageTests" />
+    <InternalsVisibleTo Include="RxDatasets.InMemoryDataset" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="Models\Config\**" />
     <EmbeddedResource Remove="Models\Config\**" />
     <None Remove="Models\Config\**" />

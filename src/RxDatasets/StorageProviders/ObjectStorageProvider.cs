@@ -71,7 +71,7 @@ public class ObjectStorageProvider<T>(
     {
         ThrowIfNoLockIsAcquired();
 
-        using var slotSnapshot = await SnapshotLock();
+        using var slotSnapshot = await SnapshotLockAsync();
 
         if (Snapshots.All(x => x.Version != version))
             throw new InvalidOperationException($"Snapshot version {version} does not exist");
@@ -89,7 +89,7 @@ public class ObjectStorageProvider<T>(
 
         if (!keepAllDeltas)
         {
-            using var slotDelta = await DeltaLock();
+            using var slotDelta = await DeltaLockAsync();
 
             for (var deltaToDelete = DeltaInfo.EarliestDeltaVersion;
                  deltaToDelete <= version;
@@ -108,7 +108,7 @@ public class ObjectStorageProvider<T>(
     {
         ThrowIfNoLockIsAcquired();
 
-        using var slot = await DeltaLock();
+        using var slot = await DeltaLockAsync();
         var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
             _storageConfig.Value);
         var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
@@ -133,7 +133,7 @@ public class ObjectStorageProvider<T>(
     {
         ThrowIfNoLockIsAcquired();
 
-        using var slot = await DeltaLock();
+        using var slot = await DeltaLockAsync();
         var indexObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Delta,
             _storageConfig.Value);
         var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
@@ -209,7 +209,7 @@ public class ObjectStorageProvider<T>(
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
         ThrowIfNoLockIsAcquired();
-        using var slot = await SnapshotLock();
+        using var slot = await SnapshotLockAsync();
         var indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Index,
             ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
         var dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot,
@@ -255,7 +255,7 @@ public class ObjectStorageProvider<T>(
     {
         ThrowIfNoLockIsAcquired();
 
-        using var slot = await SnapshotLock();
+        using var slot = await SnapshotLockAsync();
         string indexObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
         string dataObjectName = DatasetHelper.GetObjectName<T>(snapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, _storageConfig.Value);
 
@@ -293,8 +293,7 @@ public class ObjectStorageProvider<T>(
         ThrowIfNoLockIsAcquired();
         await EnsureProviderIsInitialized();
 
-        await _processedVersionsSemaphore.WaitAsync().ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        try
+        using (await _processedVersionsSemaphore.LockAsync())
         {
             if (_processedVersionsInfo.ProcessedVersions.ContainsKey(who))
                 _processedVersionsInfo.ProcessedVersions[who] = version;
@@ -303,11 +302,6 @@ public class ObjectStorageProvider<T>(
 
             await SaveProcessedVersionsInfo();
             await _notificationsHub.Notify(new VersionProcessedNotification(who, version));
-
-        }
-        finally
-        {
-            _processedVersionsSemaphore.Release();
         }
     }
 
@@ -474,20 +468,18 @@ public class ObjectStorageProvider<T>(
         await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
 
-    private async Task<IDisposable> DeltaLock(CancellationToken cancellationToken = default)
+    private async Task<IDisposable> DeltaLockAsync(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
 
-        await _deltaSemaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _deltaSemaphore.Release());
+        return await _deltaSemaphore.LockAsync(cancellationToken);
     }
 
-    private async Task<IDisposable> SnapshotLock(CancellationToken cancellationToken = default)
+    private async Task<IDisposable> SnapshotLockAsync(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
 
-        await _snapshotSemaphore.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext);
-        return new ActionDisposable(() => _snapshotSemaphore.Release());
+        return await _snapshotSemaphore.LockAsync(cancellationToken);
     }
 
 }

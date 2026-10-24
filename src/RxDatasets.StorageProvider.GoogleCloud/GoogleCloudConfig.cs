@@ -8,4 +8,6 @@ public class GoogleCloudConfig
     public string BucketName { get; set; } = "";
     public string? ProjectId { get; set; }
     public string? JsonCredentials { get; set; }
+    public string? EmulatorHost { get; set; }
+    public bool EnableWriteQueue { get; set; } = true;
 }

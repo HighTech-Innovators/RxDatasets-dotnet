@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Reactive.Testing;
@@ -40,6 +40,11 @@ public class SnapshotCreationPluginTests
         return (inMemoryStorage, datasetReader, datasetWriter);
     }
 
+    // This test has failed in CI with one snapshot where it expected two; the state helps find out why
+    private static string Describe(TestScheduler scheduler, ulong newestDelta, List<SnapshotType> snapshots) =>
+        $"scheduler time {scheduler.Now:O}, newest delta {newestDelta}, snapshots [" +
+        string.Join(", ", snapshots.OrderBy(s => s.Version).Select(s => $"{s.Version} at {s.DateTime:O}")) + "]";
+
     private static byte[] GenerateRandomData(ulong length = UNIT_KB, int seed = 0)
     {
         var randomData = new byte[length];
@@ -67,17 +72,19 @@ public class SnapshotCreationPluginTests
 
         const ulong howManyDeltasToCreate = 4ul;
         await CreateNumberDeltas(howManyDeltasToCreate, datasetWriter);
-        await Task.Delay(TimeSpan.FromSeconds(.1));
 
         var (_, newestDelta, snapshots) = await storageProvider.ListVersions();
         newestDelta.Should().Be(howManyDeltasToCreate);
-        snapshots.Count.Should().Be(1);
+        snapshots.Count.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
+        // Taken right after the first delta, so the next one is scheduled an hour later; taken later, nothing is
+        snapshots.Single().Version.Should().Be(1, Describe(scheduler, newestDelta, snapshots));
         scheduler.AdvanceBy(TimeSpan.FromHours(2).Ticks); //this should trigger a call to create a snapshot for up to delta number 4, currently nothing happens
 
         (var oldestDelta, newestDelta, snapshots) = await storageProvider.ListVersions();
-        snapshots.Count.Should().Be(2);
-        snapshots.First().Version.Should().Be(oldestDelta);
-        snapshots.Last().Version.Should().Be(newestDelta);
+        snapshots.Count.Should().Be(2, Describe(scheduler, newestDelta, snapshots));
+        var byVersion = snapshots.OrderBy(s => s.Version).ToList();
+        byVersion.First().Version.Should().Be(oldestDelta);
+        byVersion.Last().Version.Should().Be(newestDelta);
         await storageProvider.StoreProcessedVersion("unittest", howManyDeltasToCreate);
     }
 
@@ -214,12 +221,12 @@ public class SnapshotCreationPluginTests
             {
                 var randomBytes = GenerateRandomData((i + 6) * UNIT_KB, (int)i);
 
-                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes)!;
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes, null, null)!;
             }
             else
             {
                 var randomBytes2 = GenerateRandomData((i + 6) * UNIT_KB, 1);
-                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes2)!;
+                await s3DatasetWriter?.Put("Same_DTO" + i, randomBytes2, null, null)!;
             }
         }
     }

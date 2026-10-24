@@ -133,11 +133,8 @@ public class DataMigrator<T> : IDataMigrator
             var bytes = await _storage.DownloadBytes(snapshotFile.Key);
             var snapshotIndex = SnapshotIndex.Parser.ParseFrom(bytes.ToArray());
 
-            foreach (var kvp in snapshotIndex.Entities)
+            foreach (var (entityName, entity) in snapshotIndex.EnumerateEntities())
             {
-                string entityName = kvp.Key;
-                var entity = kvp.Value;
-
                 // Calculate max version from all version fields
                 ulong maxVersion = entity.LastUpdatedVersion;
 
@@ -203,54 +200,55 @@ public class DataMigrator<T> : IDataMigrator
             }
 
             // Process changed entities
-            foreach (var entity in deltaIndex.ChangedEntities)
+            foreach (var (name, entity) in deltaIndex.EnumerateChangedEntities())
             {
-                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(entity.Name, out var lastVersion))
+                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(name, out var lastVersion))
                 {
                     entity.PreviousVersion = lastVersion;
                     changed = true;
-                    log($"  Set previous_version for changed entity '{entity.Name}' to {lastVersion}");
+                    log($"  Set previous_version for changed entity '{name}' to {lastVersion}");
                 }
             }
 
             // Update tracking for changed entities
-            foreach (var entity in deltaIndex.ChangedEntities)
+            foreach (var (name, _) in deltaIndex.EnumerateChangedEntities())
             {
-                entityVersions[entity.Name] = currentVersion;
+                entityVersions[name] = currentVersion;
             }
 
             // Process new entities
-            foreach (var entity in deltaIndex.NewEntities)
+            foreach (var (name, entity) in deltaIndex.EnumerateNewEntities())
             {
-                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(entity.Name, out var lastVersion))
+                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(name, out var lastVersion))
                 {
                     entity.PreviousVersion = lastVersion;
                     changed = true;
-                    log($"  Set previous_version for new entity '{entity.Name}' to {lastVersion}");
+                    log($"  Set previous_version for new entity '{name}' to {lastVersion}");
                 }
             }
 
             // Update tracking for new entities
-            foreach (var entity in deltaIndex.NewEntities)
+            foreach (var (name, _) in deltaIndex.EnumerateNewEntities())
             {
-                entityVersions[entity.Name] = currentVersion;
+                entityVersions[name] = currentVersion;
             }
 
             // Process deleted entities (new format)
-            foreach (var entity in deltaIndex.DeletedEntities)
+            foreach (var (name, entity) in deltaIndex.EnumerateDeletedEntities())
             {
-                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(entity.Name, out var lastVersion))
+                if (entity.PreviousVersion == 0 && entityVersions.TryGetValue(name, out var lastVersion))
                 {
                     entity.PreviousVersion = lastVersion;
                     changed = true;
-                    log($"  Set previous_version for deleted entity '{entity.Name}' to {lastVersion}");
+                    log($"  Set previous_version for deleted entity '{name}' to {lastVersion}");
                 }
             }
 
             // Update tracking for deleted entities
-            foreach (var entity in deltaIndex.DeletedEntities)
+            var deletedEntityNames = deltaIndex.EnumerateDeletedEntities().Select(e => e.Name).ToHashSet();
+            foreach (var name in deletedEntityNames)
             {
-                entityVersions[entity.Name] = currentVersion;
+                entityVersions[name] = currentVersion;
             }
 
             // Migrate deleted_names to deleted_entities (backward compatible)
@@ -260,7 +258,7 @@ public class DataMigrator<T> : IDataMigrator
                 foreach (var deletedName in deltaIndex.DeletedNames)
                 {
                     // Check if already in deleted_entities
-                    if (!deltaIndex.DeletedEntities.Any(e => e.Name == deletedName))
+                    if (!deletedEntityNames.Contains(deletedName))
                     {
                         if (!hasMigrations)
                         {

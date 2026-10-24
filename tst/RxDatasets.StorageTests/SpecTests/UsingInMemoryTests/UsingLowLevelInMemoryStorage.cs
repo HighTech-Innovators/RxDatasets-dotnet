@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using Microsoft.Extensions.Hosting;
@@ -69,11 +69,15 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
         // Act
-        await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
+        var latestSnapshot = snapshotVersions[^1];
 
         // Assert
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
-        newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
+        newReader.GetLastUsedSnapshotVersion().Should().Be(latestSnapshot, "Create a new Dataset instance, they should return identical results");
     }
 
     [Fact]
@@ -82,17 +86,24 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
-        // Act
-        await SnapshotCreationPluginTests.CreateNumberDeltas(10, datasetWriter);
-        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
+        // Act — write enough deltas to guarantee at least 2 snapshots, then PutAll to delete everything
+        // and trigger one more snapshot that captures the all-deleted state
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var preDeleteSnapshots = await AssertSnapshotVersionsAtLeast(2);
 
-        // Assert
-        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
-        var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
-        actualSnapshotLength.Should().Be(1);
+        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
+        // Write more deltas to guarantee another snapshot that includes the PutAll delete state
+        await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
+        var allSnapshots = await AssertSnapshotVersionsAtLeast(3);
+        var deleteAllSnapshot = allSnapshots[^1];
 
+        // Assert — the latest snapshot should only contain deleted entities for the original
+        // entities (which were deleted by PutAll) plus the new entities from the last batch.
+        // Re-initialization from this snapshot should work correctly.
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
-        newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
+        newReader.GetLastUsedSnapshotVersion().Should().Be(deleteAllSnapshot, "Create a new Dataset instance, they should return identical results");
     }
 
     [Fact]
@@ -101,14 +112,23 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
 
-        // Act
-        await SnapshotCreationPluginTests.CreateNumberDeltas(10, datasetWriter);
-        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[])>());
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
+        // Act — write enough deltas to guarantee snapshots, then PutAll + more deltas to trigger a snapshot
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        await AssertSnapshotVersionsAtLeast(2);
 
-        // Assert
+        await datasetWriter.PutAll(AsyncEnumerable.Empty<(string, byte[], string?, DateTimeOffset?)>());
+        await CreateNumberDeltasWithOffset(datasetWriter, 11, 5);
+        var allSnapshots = await AssertSnapshotVersionsAtLeast(3);
+        var latestSnapshot = allSnapshots[^1];
+        var previousSnapshot = allSnapshots[^2];
+
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(latestSnapshot, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
+
+        // Assert — should fall back to previous snapshot
         var (newReader, _) = await SetupStorageAsync(CancellationToken.None);
-        newReader.GetLastUsedSnapshotVersion().Should().Be(11, "Create a new Dataset instance, they should return identical results");
+        newReader.GetLastUsedSnapshotVersion().Should().Be(previousSnapshot, "Should fall back to previous snapshot when latest data is absent");
     }
 
     [Fact]
@@ -116,20 +136,51 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
     {
         // Arrange
         var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
-        await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
-        datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
+        var latestSnapshotVersion = snapshotVersions[^1];
+        var previousSnapshotVersion = snapshotVersions[^2];
+
+        datasetReader.GetLastUsedSnapshotVersion().Should().Be(latestSnapshotVersion, "Reader should use latest available snapshot");
 
         // Act
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.Index, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
 
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
-        toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we removed the last snapshot version 11 data");
+        toTestReader.GetLastUsedSnapshotVersion().Should().Be(previousSnapshotVersion, "Because we removed the last snapshot index data");
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
         var changes = await toTestReader.GetChangedNames(0);
         changes.Changes.Where(ch => ch.ChangeType == ChangeType.New).Should().HaveCount(11, "We should observe all 11 insertions, so there is no possibility of lying about versions based on assumptions from the published snapshot version");
+    }
+
+    private static async Task CreateNumberDeltasWithOffset(DatasetWriter<object> datasetWriter, ulong offset, ulong count)
+    {
+        for (var i = 0ul; i < count; i++)
+        {
+            var version = offset + i;
+            await datasetWriter.Put($"Same_DTO{version}", BitConverter.GetBytes(version), null, null);
+        }
+    }
+    // With the synchronous notifications hub a write returns only after the snapshot service has handled it
+    private async Task<List<ulong>> AssertSnapshotVersionsAtLeast(int minimumSnapshots)
+    {
+        var snapshotPrefix = DatasetHelper.GetObjectNamePrefix<object>(new StorageConfig()) + FolderNames.SnapshotsFolderNameWithSlash;
+        var snapshotVersions = (await _storage.ListObjects(snapshotPrefix))
+            .Select(s => (ulong)SharedMethods.ExtractNumber(s.ObjectKey))
+            .Where(v => v > 0)
+            .Distinct()
+            .OrderBy(v => v)
+            .ToList();
+
+        snapshotVersions.Count.Should().BeGreaterThanOrEqualTo(minimumSnapshots,
+            $"snapshots [{string.Join(", ", snapshotVersions)}]");
+        return snapshotVersions;
     }
 
     [Fact]
@@ -137,16 +188,23 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
     {
         // Arrange
         var (datasetReader, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
-        await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
 
-        datasetReader.GetLastUsedSnapshotVersion().Should().Be(11, "Since we add 6 deltas, snapshot 1, 6, 11 must be created");
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
+        var latestSnapshotVersion = snapshotVersions[^1];
+        var previousSnapshotVersion = snapshotVersions[^2];
+
+        datasetReader.GetLastUsedSnapshotVersion().Should().Be(latestSnapshotVersion, "Reader should use latest available snapshot");
 
         // Act
-        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
+        await _storage.DeleteFile(DatasetHelper.GetObjectName<object>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig()));
 
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
-        toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we removed the last snapshot version 11 data");
+        toTestReader.GetLastUsedSnapshotVersion().Should().Be(previousSnapshotVersion, "Because we removed the last snapshot data");
         toTestReader.GetLatestVersion().Should().Be(11, "We should read all the deltas after the earlier snapshot");
 
         var changes = await toTestReader.GetChangedNames(0);
@@ -158,17 +216,24 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
     {
         // Arrange
         var (_, datasetWriter) = await SetupStorageAsync(CancellationToken.None);
-        await SnapshotCreationPluginTests.CreateNumberDeltas(11, datasetWriter);
+
+        await CreateNumberDeltasWithOffset(datasetWriter, 0, 6);
+        await AssertSnapshotVersionsAtLeast(1);
+
+        await CreateNumberDeltasWithOffset(datasetWriter, 6, 5);
+        var snapshotVersions = await AssertSnapshotVersionsAtLeast(2);
+        var latestSnapshotVersion = snapshotVersions[^1];
+        var previousSnapshotVersion = snapshotVersions[^2];
 
         // Act
-        var snapshotObjectName = DatasetHelper.GetObjectName<object>(11, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
+        var snapshotObjectName = DatasetHelper.GetObjectName<object>(latestSnapshotVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Snapshot, new StorageConfig());
         var actualSnapshotLength = await _storage.GetObjectContentLength(snapshotObjectName);
         var wrongBytes = new byte[actualSnapshotLength - 1]; // This should fail since it short
         await _storage.UploadBytes(snapshotObjectName, wrongBytes);
 
         // Assert
         var (toTestReader, _) = await SetupStorageAsync(CancellationToken.None);
-        toTestReader.GetLastUsedSnapshotVersion().Should().Be(6, "Because we corrupted the last snapshot version 11");
+        toTestReader.GetLastUsedSnapshotVersion().Should().Be(previousSnapshotVersion, "Because we corrupted the last snapshot data");
     }
 
     private async Task<IStorageProvider<object>> SetupProviderAsync(UploadVerificationMode verificationMode,
@@ -332,4 +397,3 @@ public partial class UsingLowLevelInMemoryStorage : StorageTestSpecWithTwoStepIn
         lowLevelStorageProvider.Verify(m => m.GetObjectContentLength(deltaDataObjectName), Times.Never);
     }
 }
-

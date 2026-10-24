@@ -26,7 +26,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/abc" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -47,7 +47,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "product/12345" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -68,7 +68,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "tenant/100/store/200/product/abc" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -91,7 +91,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -120,7 +120,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -143,7 +143,7 @@ public class CreateAliasFactoryDelegateTests
         var relation = new Relation { Id = "t/100/s/200/relations/1" };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -177,7 +177,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -203,7 +203,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -236,7 +236,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -270,7 +270,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -292,7 +292,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -313,7 +313,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -339,7 +339,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "a/b/c/d/e/f" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -377,7 +377,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -411,7 +411,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -442,7 +442,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -477,7 +477,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -513,7 +513,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -552,7 +552,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -577,7 +577,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -596,7 +596,7 @@ public class CreateAliasFactoryDelegateTests
         var aliasPattern = "{.id}";
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -615,7 +615,7 @@ public class CreateAliasFactoryDelegateTests
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string>(),
             Relation.Parser);
 
@@ -635,7 +635,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -656,7 +656,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/tenant1/s/store1/relations/link1" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -677,7 +677,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "product/123" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -705,7 +705,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -726,7 +726,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "only-one-part" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -747,7 +747,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "a/b/c" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -769,7 +769,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -790,7 +790,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -811,7 +811,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -832,7 +832,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -853,7 +853,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -873,7 +873,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -894,7 +894,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -914,7 +914,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -940,7 +940,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -967,7 +967,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "a/b/c/d/e/f" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -989,7 +989,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -1017,7 +1017,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "t/100/s/200/relations/xyz" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -1044,7 +1044,7 @@ public class CreateAliasFactoryDelegateTests
 
         var relation = new Relation { Id = "a/b/c/d/e/f/g" };
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             aliasPatterns,
             Relation.Parser);
 
@@ -1081,7 +1081,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -1120,7 +1120,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -1156,7 +1156,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -1192,7 +1192,7 @@ public class CreateAliasFactoryDelegateTests
         };
 
         var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
-            idPattern,
+            new[] { idPattern },
             new List<string> { aliasPattern },
             Relation.Parser);
 
@@ -1203,5 +1203,114 @@ public class CreateAliasFactoryDelegateTests
         aliases.Should().HaveCount(2);
         aliases.Should().Contain("product/third");
         aliases.Should().Contain("product/fourth");
+    }
+
+    // ==================== MULTI-IDPATTERN ROUTING ====================
+
+    [Fact]
+    public void MultiPattern_Should_Route_Pattern1_Id_To_Pattern1_Variables()
+    {
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/fonts/{fontid}", "fonts/{fontid}" },
+            new List<string> { "by_tenant/{tenantid}/font/{fontid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "t/acme/fonts/arial" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().ContainSingle();
+        aliases[0].Should().Be("by_tenant/acme/font/arial");
+    }
+
+    [Fact]
+    public void MultiPattern_Should_Route_Pattern2_Id_To_Pattern2_Variables()
+    {
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/fonts/{fontid}", "fonts/{fontid}" },
+            new List<string> { "global_font/{fontid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "fonts/arial" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().ContainSingle();
+        aliases[0].Should().Be("global_font/arial");
+    }
+
+    [Fact]
+    public void MultiPattern_Should_Return_Empty_When_Id_Matches_No_Pattern()
+    {
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/fonts/{fontid}", "fonts/{fontid}" },
+            new List<string> { "by_tenant/{tenantid}/font/{fontid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "x/y/z/w/does/not/match" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MultiPattern_Variable_Scoping_Pattern1_Entity_Emits_StoreAlias()
+    {
+        // Pattern-1 includes {storeid}, alias references it → alias emitted
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/s/{storeid}/fonts/{fontid}", "t/{tenantid}/fonts/{fontid}" },
+            new List<string> { "by_store/{storeid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "t/acme/s/store1/fonts/arial" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().ContainSingle();
+        aliases[0].Should().Be("by_store/store1");
+    }
+
+    [Fact]
+    public void MultiPattern_Variable_Scoping_Pattern2_Entity_Suppresses_StoreAlias()
+    {
+        // Pattern-2 lacks {storeid}, alias references it → alias silently suppressed
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/s/{storeid}/fonts/{fontid}", "t/{tenantid}/fonts/{fontid}" },
+            new List<string> { "by_store/{storeid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "t/acme/fonts/arial" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MultiPattern_Variable_Scoping_Pattern2_Entity_Emits_Other_Aliases()
+    {
+        // Pattern-2 entity: alias referencing missing {storeid} suppressed, alias using {tenantid} still emitted
+        var factory = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { "t/{tenantid}/s/{storeid}/fonts/{fontid}", "t/{tenantid}/fonts/{fontid}" },
+            new List<string> { "by_store/{storeid}", "by_tenant/{tenantid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "t/acme/fonts/arial" };
+        var aliases = factory(RelationToBytes(relation)).ToList();
+
+        aliases.Should().ContainSingle();
+        aliases[0].Should().Be("by_tenant/acme");
+    }
+
+    [Fact]
+    public void MultiPattern_SingleElementArray_Behaves_Like_Old_Single_String()
+    {
+        var idPattern = "t/{tenantid}/fonts/{fontid}";
+        var expected = PatternsAndExpressions.CreateAliasFactoryDelegate(
+            new[] { idPattern },
+            new List<string> { "by_tenant/{tenantid}" },
+            Relation.Parser);
+
+        var relation = new Relation { Id = "t/acme/fonts/arial" };
+        var aliases = expected(RelationToBytes(relation)).ToList();
+
+        aliases.Should().ContainSingle();
+        aliases[0].Should().Be("by_tenant/acme");
     }
 }

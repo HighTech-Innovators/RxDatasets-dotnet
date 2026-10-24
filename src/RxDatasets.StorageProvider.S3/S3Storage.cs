@@ -13,6 +13,7 @@ namespace RxDatasets.StorageProvider.S3
         private const string DownloadFailedMessage = "Failed to download metadata from S3";
         private const string UnavailableMessage = $"S3 is unavailable.";
         private const string File404Message = $"File is not found.";
+        private const int MaxLoggedResponseBodyLength = 2000;
         private readonly AmazonS3Client _s3Client;
         private readonly TransferUtility _transferUtility;
         private readonly ILogger<S3Storage<T>> _logger;
@@ -46,6 +47,9 @@ namespace RxDatasets.StorageProvider.S3
                     RegionEndpoint = RegionEndpoint.GetBySystemName(s3Config.Value.Region)
                 };
             }
+
+            config.RequestChecksumCalculation = s3Config.Value.RequestChecksumCalculation;
+            config.ResponseChecksumValidation = s3Config.Value.ResponseChecksumValidation;
 
             _s3Client = new AmazonS3Client(s3Config.Value.AccessKey, s3Config.Value.SecretKey, config);
             _transferUtility = new TransferUtility(_s3Client); // Initialize once
@@ -138,9 +142,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError(s3e, "Failed to delete {Key} in S3, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to delete object; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "delete object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -186,9 +190,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete folder with prefix {Prefix} in S3, amazon error {ErrorCode}", prefix, ex.ErrorCode);
-                SetUnhealthy(ex);
-                throw new InvalidOperationException($"Failed to delete folder; Amazon error {ex.ErrorCode}", ex);
+                var exception = CreateS3Exception(ex, "delete folder", prefix);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -236,8 +240,7 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var invalidOperationException = CreateS3Exception(s3e, "read object", objectKey);
                 SetUnhealthy(invalidOperationException);
                 throw invalidOperationException;
             }
@@ -284,8 +287,7 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var invalidOperationException = CreateS3Exception(s3e, "read object", objectKey);
                 SetUnhealthy(invalidOperationException);
                 throw invalidOperationException;
             }
@@ -337,9 +339,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to read object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "read object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -370,9 +372,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to check bucket exists in S3, amazon error {ErrorCode}", s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to check bucket exists in S3; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "check bucket exists", _bucketName);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -393,9 +395,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to create bucket in S3, amazon error {ErrorCode}", s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to create bucket in S3; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "create bucket", _bucketName);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -424,9 +426,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                SetUnhealthy(s3e);
-                _logger.LogError("Failed to write object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                throw new InvalidOperationException($"Failed to write object; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "write object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -454,9 +456,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to write object {Key}, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to write object; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "write object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -503,9 +505,9 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to list objects {prefix}, amazon error {ErrorCode}", prefix, s3e.ErrorCode);
-                SetUnhealthy(s3e);
-                throw new InvalidOperationException($"Failed to list object; Amazon error {s3e.ErrorCode}");
+                var exception = CreateS3Exception(s3e, "list objects", prefix);
+                SetUnhealthy(exception);
+                throw exception;
             }
             catch (Exception ex)
             {
@@ -544,8 +546,7 @@ namespace RxDatasets.StorageProvider.S3
             }
             catch (AmazonS3Exception s3e)
             {
-                _logger.LogError("Failed to read object {Key} metadata, amazon error {ErrorCode}", objectKey, s3e.ErrorCode);
-                var invalidOperationException = new InvalidOperationException($"Failed to read object; Amazon error {s3e.ErrorCode}");
+                var invalidOperationException = CreateS3Exception(s3e, "read object metadata", objectKey);
                 SetUnhealthy(invalidOperationException);
                 throw invalidOperationException;
             }
@@ -558,6 +559,31 @@ namespace RxDatasets.StorageProvider.S3
             }
 
         }
+
+        /// <summary>
+        /// Logs the full details of an S3 error and wraps it (as inner exception) in an
+        /// <see cref="InvalidOperationException"/> whose message carries the same details.
+        /// </summary>
+        private InvalidOperationException CreateS3Exception(AmazonS3Exception s3e, string operation, string target)
+        {
+            var responseBody = Truncate(s3e.ResponseBody, MaxLoggedResponseBodyLength);
+
+            _logger.LogError(s3e,
+                "Failed to {Operation} {Target} in bucket {Bucket}; S3 error {ErrorCode} (HTTP {StatusCode}, {ErrorType}): " +
+                "{ErrorMessage}. RequestId: {RequestId}, HostId: {HostId}, ResponseBody: {ResponseBody}",
+                operation, target, _bucketName, s3e.ErrorCode, (int)s3e.StatusCode, s3e.ErrorType,
+                s3e.Message, s3e.RequestId, s3e.AmazonId2, responseBody);
+
+            var message = $"Failed to {operation} {target} in bucket {_bucketName}; Amazon error {s3e.ErrorCode} " +
+                          $"(HTTP {(int)s3e.StatusCode}): {s3e.Message}. RequestId: {s3e.RequestId}, HostId: {s3e.AmazonId2}";
+            if (!string.IsNullOrWhiteSpace(responseBody))
+                message += $", ResponseBody: {responseBody}";
+
+            return new InvalidOperationException(message, s3e);
+        }
+
+        private static string? Truncate(string? value, int maxLength) =>
+            value is not null && value.Length > maxLength ? value[..maxLength] + "..." : value;
 
         private void SetHealthy()
         {

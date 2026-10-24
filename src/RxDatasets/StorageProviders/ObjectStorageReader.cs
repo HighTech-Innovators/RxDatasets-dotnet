@@ -132,6 +132,11 @@ public class ObjectStorageReader<T>(
             }
 
 
+            if (!fallbackUsed)
+            {
+                deltaInfo = await ProbeForwardDeltas(deltaInfo);
+            }
+
             var versionSourceDescription = fallbackUsed ? "determined" : "loaded";
 
             logger.LogDebug($"{versionSourceDescription} DeltaInfo " +
@@ -143,9 +148,9 @@ public class ObjectStorageReader<T>(
         }
         catch (FileNotFoundException ex)
         {
-            logger.LogWarning(ex,
-                "Version metadata files missing for {DatasetName}; attempting fallbacks.",
-                typeof(T).Name);
+            logger.LogWarning(
+                "Version metadata files missing for {DatasetName}; attempting fallbacks. File: {FileName}",
+                typeof(T).Name, ex.FileName);
             var fallbackVersions = await TryGetVersionFromFallbacks();
             logger.LogDebug($"determined DeltaInfo (oldest v = {fallbackVersions.deltaInfo.EarliestDeltaVersion}, latest v = {fallbackVersions.deltaInfo.LatestDeltaVersion}) " +
                             $"and SnapshotInfo [{string.Join(", ", fallbackVersions.snapshotInfo.SnapshotVersions.Select(s => s.Version))}] " +
@@ -269,6 +274,30 @@ public class ObjectStorageReader<T>(
             ObjectNameTypeEnum.Delta, storageConfig.Value);
 
         return await ObjectExists(indexObjectName);
+    }
+
+    private async Task<DeltaInfo> ProbeForwardDeltas(DeltaInfo deltaInfo)
+    {
+        var reportedVersion = deltaInfo.LatestDeltaVersion;
+        var probeVersion = reportedVersion + 1;
+
+        while (await LatestDeltaIndexExists(probeVersion))
+        {
+            probeVersion++;
+        }
+
+        var actualLatest = probeVersion - 1;
+        if (actualLatest > reportedVersion)
+        {
+            logger.LogWarning(
+                "Forward probe discovered unreported deltas for {DatasetName}: " +
+                "DeltaInfo reported version {ReportedVersion} but found deltas up to {ActualVersion} " +
+                "(DeltaInfo file was likely stale due to delayed write queue flush)",
+                typeof(T).Name, reportedVersion, actualLatest);
+            deltaInfo.LatestDeltaVersion = actualLatest;
+        }
+
+        return deltaInfo;
     }
 
     private async Task<bool> ObjectExists(string objectName)

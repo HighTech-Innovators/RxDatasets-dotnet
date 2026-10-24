@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 
 namespace RxDatasets.StorageTests.Common;
 
@@ -12,17 +12,16 @@ public abstract class StorageTestSpecWithTwoStepInit : StorageTestSpec
         var datasetVersion = datasetReader.GetLatestVersion();
 
         var data = GenerateRandomData(UNIT_KB);
-        await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, cancallationSource.Token);
+        await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, null, null, ct: cancallationSource.Token);
         datasetVersion++;
 
         //Add new entries until the next snapshot creation
         while (datasetVersion < 25) // 1,11,16,21
         {
-            await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, cancallationSource.Token);
+            await datasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, null, null, ct: cancallationSource.Token);
             datasetVersion++;
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(0.1), cancallationSource.Token);
         await cancallationSource.CancelAsync();
         cancallationSource.TryReset();
         //Create a new Dataset instance, they should return identical results
@@ -62,12 +61,12 @@ public abstract class StorageTestSpecWithTwoStepInit : StorageTestSpec
         while (datasetVersion < 25)
         {
             datasetVersion++;
-            await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
+            await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, null, null);
         }
 
         //Now do 1 more, so we for sure have 1 put taking place after the snapshot
         datasetVersion++;
-        await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data);
+        await azBlobStorageDatasetWriter.Put($"Should_Initialize_Index_With_SnapShot_{datasetVersion}", data, null, null);
 
         //Create a new Dataset instance, they should return identical results
         var (newReader, newWriter) = await SetupStorageAsync(CancellationToken.None);

@@ -1,6 +1,8 @@
 using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 
 namespace RxDatasets.InMemoryDataset;
 
@@ -13,10 +15,10 @@ public static class DI
 
     private static void AddSingletonsForDataset<TEntity>(this IServiceCollection services) where TEntity : class, IMessage<TEntity>
     {
-        var inMemoryDataset = new InMemoryDataset<TEntity>();
-
         services
-            .AddSingleton<IDatasetReader<TEntity>>(inMemoryDataset)
-            .AddSingleton<IDatasetWriter<TEntity>>(inMemoryDataset);
+            .AddSingleton(sp =>
+                new InMemoryDataset<TEntity>(sp.GetService<IOptions<AliasOptions<TEntity>>>()?.Value.Definitions))
+            .AddSingleton<IDatasetReader<TEntity>>(sp => sp.GetRequiredService<InMemoryDataset<TEntity>>())
+            .AddSingleton<IDatasetWriter<TEntity>>(sp => sp.GetRequiredService<InMemoryDataset<TEntity>>());
     }
 }
