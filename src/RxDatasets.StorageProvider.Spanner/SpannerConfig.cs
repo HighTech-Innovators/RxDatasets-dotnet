@@ -22,8 +22,14 @@ public class SpannerConfig
 
     /// <summary>
     /// Lets the host create missing tables (needs <c>spanner.databases.updateDdl</c>). Without it a host whose tables
-    /// are missing fails to start, logging the DDL to run: tables {Prefix}_Versions, _Chunks, _ProcessedVersions and
-    /// _Leases, see <see cref="SpannerDatasetStore{T}"/>.
+    /// are missing never becomes ready, and logs the DDL to run on every retry (it fails to start instead when started
+    /// with <c>startIfInitFails: false</c>): tables {Prefix}_Versions, _Chunks, _ProcessedVersions and _Leases, see
+    /// <see cref="SpannerDatasetStore{T}"/>.
     /// </summary>
+    /// <remarks>
+    /// Ops: a snapshot is streamed through a temporary file (TEMP_FILE_DIRECTORY, else the system temp folder), and
+    /// the snapshot plugin writes the new snapshot to one as well, so the leader needs about twice the snapshot size
+    /// in free ephemeral storage.
+    /// </remarks>
     public bool CreateTables { get; set; }
 }

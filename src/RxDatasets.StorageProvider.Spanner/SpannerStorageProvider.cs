@@ -11,8 +11,8 @@ namespace RxDatasets.StorageProvider.Spanner;
 /// <summary>
 /// Read/write provider on <see cref="SpannerDatasetStore{T}"/>. Every instance can write: storing a delta succeeds only
 /// if it follows the latest version, so an instance that is behind fails its write instead of overwriting, and reloads.
-/// The background work (snapshots, cleaning, reporting) runs on one instance only, the holder of a lease row: its
-/// readiness notification says whether it leads. Like the read-only provider it polls the versions, every 5 s, so this
+/// The background work (snapshots, cleaning, reporting) runs on one instance only, the holder of a lease row, which it
+/// announces with a <see cref="LeadershipNotification"/>. Like the read-only provider it polls the versions, every 5 s, so this
 /// host's reader also sees the writes of other instances; each poll also renews the lease.
 /// </summary>
 public class SpannerStorageProvider<T>(
@@ -32,14 +32,16 @@ public class SpannerStorageProvider<T>(
     // Orders this host's own writes and the polls in DeltaInfo and Snapshots
     private readonly SemaphoreSlim _state = new(1);
     private DateTimeOffset _leaseValidUntil;
-    // The IsLeader of the last Ready sent; null before the first successful initialization, and once stopped
+    // The last LeadershipNotification sent; null before the first
     private bool? _announcedLeader;
+    // Ready sent: after the first successful listing, until stopped
+    private bool _ready;
     private bool _stopped;
 
     public new async Task StopAsync(CancellationToken cancellationToken)
     {
         _stopped = true;
-        _announcedLeader = null;
+        _ready = false;
         await base.StopAsync(cancellationToken);
         await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
         try
@@ -62,7 +64,7 @@ public class SpannerStorageProvider<T>(
             // The writer's index is behind another writer: catch up, then reload it the way a lock handover does
             await Initialize(CancellationToken.None);
             await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
-            await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, _announcedLeader ?? false));
+            await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
             throw new DBConcurrencyException($"Delta {deltaVersion} of {typeof(T).Name} was stored by another writer first");
         }
 
@@ -119,40 +121,81 @@ public class SpannerStorageProvider<T>(
 
     public Task<ulong> GetLowestProcessedVersion() => store.GetLowestProcessedVersion();
 
-    /// <summary>Lists the versions, renews the lease, and sends Ready once listed and whenever the leadership changes.</summary>
+    /// <summary>
+    /// Lists the versions and renews the lease. Sends Ready after the first successful listing, and a
+    /// <see cref="LeadershipNotification"/> (before that Ready) whenever the leadership changes.
+    /// </summary>
     protected override async Task Initialize(CancellationToken cancellationToken)
     {
         ulong latestDelta;
         ulong latestSnapshot;
-        using (await _state.LockAsync(cancellationToken))
+        try
         {
-            latestDelta = DeltaInfo.LatestDeltaVersion;
-            latestSnapshot = LatestSnapshot();
-            // Under the lock: a listing read before one of this host's writes must not set the version back
-            await base.Initialize(cancellationToken);
-            DeltaInfo.LatestDeltaVersion = Math.Max(DeltaInfo.LatestDeltaVersion, latestDelta);
+            // The whole listing under the lock, so one that read the database before this host stored a version can't
+            // set it back. The base class doesn't notify under it: it compares the versions before the asynchronous
+            // listing has updated them.
+            using (await _state.LockAsync(cancellationToken))
+            {
+                latestDelta = DeltaInfo.LatestDeltaVersion;
+                latestSnapshot = LatestSnapshot();
+                await base.Initialize(cancellationToken);
+                DeltaInfo.LatestDeltaVersion = Math.Max(DeltaInfo.LatestDeltaVersion, latestDelta);
+            }
+        }
+        catch
+        {
+            // Also when listing fails: a leader that can't renew must give up the background work in time
+            await RenewLease();
+            throw;
         }
 
-        // Versions other instances stored; not before Ready, when the subscribers aren't initialized
-        if (_announcedLeader is not null && DeltaInfo.LatestDeltaVersion > latestDelta)
+        await RenewLease();
+        if (!_ready)
+        {
+            if (!_stopped)
+            {
+                _ready = true;
+                await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
+            }
+
+            return;
+        }
+
+        // Versions other instances stored
+        if (DeltaInfo.LatestDeltaVersion > latestDelta)
         {
             await _hub.Notify(new DatasetUpdatedNotification(DeltaInfo.LatestDeltaVersion));
         }
 
-        if (_announcedLeader is not null && LatestSnapshot() > latestSnapshot)
+        if (LatestSnapshot() > latestSnapshot)
         {
             await _hub.Notify(new SnapshotCreatedNotification(LatestSnapshot()));
         }
-
-        await RenewLeaseAndAnnounce();
     }
 
-    private async Task RenewLeaseAndAnnounce()
+    private async Task RenewLease()
     {
+        if (_stopped)
+        {
+            return;
+        }
+
         var requestedAt = DateTimeOffset.UtcNow;
         try
         {
-            _leaseValidUntil = await store.TryLease(_owner, LeaseDuration) ? requestedAt + LeaseDuration - LeaseMargin : default;
+            var leased = await store.TryLease(_owner, LeaseDuration);
+            if (_stopped)
+            {
+                // StopAsync released the lease while this renewal was under way: hand it back again
+                if (leased)
+                {
+                    await store.ReleaseLease(_owner);
+                }
+
+                return;
+            }
+
+            _leaseValidUntil = leased ? requestedAt + LeaseDuration - LeaseMargin : default;
         }
         catch (Exception e)
         {
@@ -160,15 +203,15 @@ public class SpannerStorageProvider<T>(
         }
 
         var leader = DateTimeOffset.UtcNow < _leaseValidUntil;
-        if (_stopped || _announcedLeader == leader)
+        if (_announcedLeader == leader)
         {
             return;
         }
 
         _announcedLeader = leader;
-        logger.LogInformation("{Dataset} storage is ready; this host {Role} the background work", typeof(T).Name,
-            leader ? "runs" : "does not run");
-        await _hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, leader));
+        logger.LogInformation("This host {Role} the {Dataset} background work", leader ? "runs" : "does not run",
+            typeof(T).Name);
+        await _hub.Notify(new LeadershipNotification(leader));
     }
 
     private ulong LatestSnapshot()

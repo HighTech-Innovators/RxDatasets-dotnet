@@ -188,6 +188,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
             await deleteVersions.ExecuteNonQueryAsync();
             await DeleteChunks(connection, transaction, blobIds);
 
+            // ponytail: scans every chunk row of the dataset on each cleanup; give Chunks a CreatedAt index if that
+            // ever shows up in the cleaning time
             await using var deleteOrphans = connection.CreateDmlCommand(
                 $"DELETE FROM {_chunks} c WHERE c.Dataset = @dataset " +
                 "AND c.CreatedAt < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY) " +
@@ -402,11 +404,14 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     private async Task CopyPart(long kind, ulong version, long part, Stream target)
     {
         await using var connection = await Open();
-        var blobId = await BlobId(connection, kind, version) ?? throw NotFound(kind, version);
+        // One snapshot of the database: a version deleted between the two reads is missing, not an empty part
+        await using var transaction = await connection.BeginReadOnlyTransactionAsync();
+        var blobId = await BlobId(connection, kind, version, transaction) ?? throw NotFound(kind, version);
         // An empty part has no chunks
         await using var command = connection.CreateSelectCommand(
             $"SELECT Data FROM {_chunks} WHERE Dataset = @dataset AND BlobId = @blobId AND Part = @part ORDER BY ChunkNo",
             Parameters(("blobId", SpannerDbType.String, blobId), ("part", SpannerDbType.Int64, part)));
+        command.Transaction = transaction;
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
@@ -418,11 +423,13 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     /// The blob of a version. A separate lookup rather than a join, so the chunk reads are plain key range scans
     /// (the emulator, at least, otherwise reads every chunk of the blob into memory).
     /// </summary>
-    private async Task<string?> BlobId(SpannerConnection connection, long kind, ulong version)
+    private async Task<string?> BlobId(SpannerConnection connection, long kind, ulong version,
+        SpannerTransaction? transaction = null)
     {
         await using var command = connection.CreateSelectCommand(
             $"SELECT BlobId FROM {_versions} WHERE Dataset = @dataset AND Kind = @kind AND Version = @version",
             Parameters(("kind", SpannerDbType.Int64, kind), ("version", SpannerDbType.Int64, (long)version)));
+        command.Transaction = transaction;
         return await command.ExecuteScalarAsync() as string;
     }
 
@@ -430,6 +437,8 @@ public class SpannerDatasetStore<T> : IStorageReader<T>
     private async Task<byte[]?> ReadRange(long kind, ulong version, long start, int length)
     {
         await using var connection = await Open();
+        // No read-only transaction needed: a version deleted after this lookup has no chunks left, so it comes out short
+        // and counts as missing
         if (await BlobId(connection, kind, version) is not { } blobId)
         {
             return null;
