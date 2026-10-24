@@ -17,6 +17,7 @@ stages:
   - test
   - publish
   - push
+  - release
   # - sonarqube-check  # SonarQube no longer exists
   # - sonarqube-vulnerability-report
 
@@ -221,3 +222,47 @@ dotnet pack:
 #    expire_in: 1 day
 #    reports:
 #      sast: ./gl-sast-sonar-report.json 
+
+###########################################################################################################
+###########################################################################################################
+###                                                                                                    ####
+###                                               RELEASE                                              ####
+###                                                                                                    ####
+###########################################################################################################
+###########################################################################################################
+
+# Manual git-flow release of the tested develop commit; all logic is in release.sh so it also runs locally.
+# Needs CI/CD variable RELEASE_TOKEN: a project access token with write_repository (allowed to push master/develop).
+.release:
+  stage: release
+  image:
+    name: ${REGISTRY_PREFIX}alpine/git
+    entrypoint: [""]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"
+      when: manual
+      allow_failure: true
+  needs:
+    - dotnet test
+    - e2e test
+  script:
+    - test -n "$RELEASE_TOKEN" || ( echo "Error in gitlab-ci config - variable RELEASE_TOKEN is required but is blank" && exit 1 )
+    - git config user.name "$GITLAB_USER_NAME"
+    - git config user.email "$GITLAB_USER_EMAIL"
+    - git remote set-url origin "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - RELEASE_REF="$CI_COMMIT_SHA" sh ./release.sh "$BUMP"
+
+release patch:
+  extends: .release
+  variables:
+    BUMP: patch
+
+release minor:
+  extends: .release
+  variables:
+    BUMP: minor
+
+release major:
+  extends: .release
+  variables:
+    BUMP: major
