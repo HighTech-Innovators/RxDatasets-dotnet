@@ -926,7 +926,9 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
             try
             {
                 var staging = NewAliasStaging();
-                var (mergedChanges, perIntentResponses, errors) = MergeIntents(batch, _index!, staging);
+                // Null after a NotReady (lost lock, or a version conflict), until the writer is initialized again
+                var index = _index ?? throw new InvalidOperationException("Initialization is not yet completed");
+                var (mergedChanges, perIntentResponses, errors) = MergeIntents(batch, index, staging);
 
                 // An intent whose aliases conflict fails on its own; its changes are not in mergedChanges
                 for (int i = 0; i < batch.Count; i++)
