@@ -21,11 +21,13 @@ namespace RxDatasets.BackgroundServices
         private readonly List<DateTime> _listOfSnapshotsDatesScheduledForDeleting = [];
         private IDisposable? _disposableVersionProcessedNotificationSubscription;
         private IDisposable? _disposableReadinessNotificationSubscription;
-        private bool _isActive;
+        private IDisposable? _disposableLeadershipNotificationSubscription;
+        private bool _isReady;
+        private bool _isLeader = true;
 
         public async Task SearchForOutdatedData()
         {
-            if (!_isActive)
+            if (!_isReady || !_isLeader)
                 return;
 
             try
@@ -100,10 +102,18 @@ namespace RxDatasets.BackgroundServices
             if (!config.Value.IsEnabled)
                 return Task.CompletedTask;
 
+            // Leadership first: a provider that elects sends it before Ready, and a synchronous hub replays in this order
+            _disposableLeadershipNotificationSubscription = notificationsHub
+                .Subscribe<LeadershipNotification>(notification =>
+                {
+                    _isLeader = notification.IsLeader;
+                    return SearchForOutdatedData();
+                });
+
             _disposableReadinessNotificationSubscription = notificationsHub
                 .Subscribe<StorageProviderReadinessNotifcation>(notification =>
                 {
-                    _isActive = notification is { ServiceStatus: ServiceStatus.Ready, IsLeader: true };
+                    _isReady = notification.ServiceStatus == ServiceStatus.Ready;
                     return SearchForOutdatedData();
                 });
 
@@ -126,6 +136,7 @@ namespace RxDatasets.BackgroundServices
             _disposableSnapshotNotificationSubscription?.Dispose();
             _disposableVersionProcessedNotificationSubscription?.Dispose();
             _disposableReadinessNotificationSubscription?.Dispose();
+            _disposableLeadershipNotificationSubscription?.Dispose();
             return Task.CompletedTask;
         }
     }

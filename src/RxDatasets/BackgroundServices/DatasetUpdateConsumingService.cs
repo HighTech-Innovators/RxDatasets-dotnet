@@ -20,6 +20,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
     private readonly INotificationsHub<TDto> _notificationsHub;
     private readonly TConsumer _datasetUpdateConsumer;
     private bool _storageProviderIsReady;
+    private bool _isLeader = true;
     // Cancelled when the service stops; ends notifications still waiting for their run
     private readonly CancellationTokenSource _stopping = new();
     private IDisposable? _datasetUpdatedSubscription;
@@ -32,12 +33,23 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
         _logger = logger;
         _notificationsHub = notificationsHub;
         _datasetUpdateConsumer = datasetUpdateConsumer;
+        // Leadership first: a provider that elects sends it before Ready, and a synchronous hub replays in this order
+        _notificationsHub.Subscribe<LeadershipNotification>(notification =>
+        {
+            _isLeader = notification.IsLeader;
+            return Task.CompletedTask;
+        });
         _notificationsHub.Subscribe<StorageProviderReadinessNotifcation>(OnStorageProviderReadinessNotification);
     }
 
+    // ponytail: the async hub delivers each notification type on its own channel, so a Ready can be handled a moment
+    // before the LeadershipNotification(false) sent ahead of it; a run that starts in that moment is duplicate work at
+    // most. Put leadership in the readiness stream if that ever matters.
+    private bool IsActive => _storageProviderIsReady && _isLeader;
+
     private Task OnStorageProviderReadinessNotification(StorageProviderReadinessNotifcation notification)
     {
-        _storageProviderIsReady = notification is { ServiceStatus: ServiceStatus.Ready, IsLeader: true };
+        _storageProviderIsReady = notification.ServiceStatus == ServiceStatus.Ready;
         return Task.CompletedTask;
     }
 
@@ -87,7 +99,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (!_storageProviderIsReady)
+            if (!IsActive)
             {
                 await Task.Delay(10, stoppingToken);
                 continue;
@@ -123,7 +135,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
         _ = _thereIsANotificationToProcess.TrySetResult();
         // No run is coming on a host that isn't ready, or doesn't run the background work: don't hold up the writer.
         // Once it is, its first run handles every delta stored since.
-        if (!_storageProviderIsReady)
+        if (!IsActive)
             return;
 
         while (true)
