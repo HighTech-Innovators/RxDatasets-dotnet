@@ -351,7 +351,9 @@ namespace RxDatasets.StorageProvider.GoogleCloud
                 var result = new List<(string ObjectKey, DateTimeOffset DateTime)>();
                 await foreach (var obj in objects)
                 {
-                    result.Add((obj.Name, obj.UpdatedDateTimeOffset.GetValueOrDefault()));
+                    // Parsed leniently: the fake GCS server writes timestamps UpdatedDateTimeOffset rejects
+                    result.Add((obj.Name, DateTimeOffset.TryParse(obj.UpdatedRaw, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal, out DateTimeOffset updated) ? updated : default));
                 }
                 SetHealthy();
                 return result;
