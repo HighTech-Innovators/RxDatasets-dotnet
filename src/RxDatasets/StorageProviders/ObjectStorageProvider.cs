@@ -23,7 +23,7 @@ public class ObjectStorageProvider<T>(
     bool startIfInitFails = true,
     DistributedLockService<T>? lockService = null
     )
-    : ReadOnlyObjectStorageProvider<T>(logger, storageConfig, storage, storageReader, notificationsHub, startIfInitFails), IStorageProvider<T>, IHostedService
+    : ReadOnlyObjectStorageProvider<T>(logger, storageReader, notificationsHub, startIfInitFails), IStorageProvider<T>, IHostedService
 {
     private readonly SemaphoreSlim _deltaSemaphore = new(1);
     private readonly SemaphoreSlim _snapshotSemaphore = new(1);
