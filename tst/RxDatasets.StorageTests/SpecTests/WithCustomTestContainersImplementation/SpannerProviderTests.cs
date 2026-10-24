@@ -40,7 +40,8 @@ public class SpannerProviderTests(SpannerEmulatorFixture spanner) : IAsyncLifeti
     {
         // The database doesn't exist yet: the first listings fail
         var (provider, hub) = Provider(SpannerEmulatorFixture.ConnectionString("late"), "late", startIfInitFails: true);
-        var readiness = Record(hub);
+        var readiness = Record<StorageProviderReadinessNotifcation>(hub);
+        var leadership = Record<LeadershipNotification>(hub);
         var writer = new DatasetWriter<object>(hub, Mock.Of<ILogger<DatasetWriter<object>>>(), provider,
             Options.Create(new WriterConfig()));
         await provider.StartAsync(CancellationToken.None);
@@ -50,7 +51,8 @@ public class SpannerProviderTests(SpannerEmulatorFixture spanner) : IAsyncLifeti
 
         await SpannerEmulatorFixture.CreateDatabase("late");
         await WaitUntil(() => !readiness.IsEmpty, TimeSpan.FromSeconds(20));
-        readiness.Should().Equal(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, IsLeader: true));
+        readiness.Should().Equal(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
+        leadership.Last().Should().Be(new LeadershipNotification(true), "false while Spanner couldn't be reached");
         await WaitUntil(() => writer.InitializationTask is { IsCompletedSuccessfully: true }, TimeSpan.FromSeconds(10));
         (await writer.Put("entity", [1, 2, 3], null, null)).NewDatasetVersion.Should().Be(1);
     }
@@ -61,17 +63,20 @@ public class SpannerProviderTests(SpannerEmulatorFixture spanner) : IAsyncLifeti
         var connectionString = await spanner.ConnectionString();
         var (first, firstHub) = Provider(connectionString, "leadership");
         var (second, secondHub) = Provider(connectionString, "leadership");
-        var firstReadiness = Record(firstHub);
-        var secondReadiness = Record(secondHub);
+        var firstLeadership = Record<LeadershipNotification>(firstHub);
+        var secondLeadership = Record<LeadershipNotification>(secondHub);
+        var secondReadiness = Record<StorageProviderReadinessNotifcation>(secondHub);
         await first.StartAsync(CancellationToken.None);
         await second.StartAsync(CancellationToken.None);
 
-        firstReadiness.Should().Equal(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, IsLeader: true));
-        secondReadiness.Should().Equal(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, IsLeader: false));
+        firstLeadership.Should().Equal(new LeadershipNotification(true));
+        secondLeadership.Should().Equal(new LeadershipNotification(false));
 
         await first.StopAsync(CancellationToken.None);
-        await WaitUntil(() => secondReadiness.Count == 2, TimeSpan.FromSeconds(15));
-        secondReadiness.Last().Should().Be(new StorageProviderReadinessNotifcation(ServiceStatus.Ready, IsLeader: true));
+        await WaitUntil(() => secondLeadership.Count == 2, TimeSpan.FromSeconds(15));
+        secondLeadership.Last().Should().Be(new LeadershipNotification(true));
+        secondReadiness.Should().Equal([new StorageProviderReadinessNotifcation(ServiceStatus.Ready)],
+            "a leadership change doesn't make the writer and reader reload");
         await second.StopAsync(CancellationToken.None);
     }
 
@@ -197,10 +202,11 @@ public class SpannerProviderTests(SpannerEmulatorFixture spanner) : IAsyncLifeti
         return (provider, hub);
     }
 
-    private static ConcurrentQueue<StorageProviderReadinessNotifcation> Record(INotificationsHub<object> hub)
+    private static ConcurrentQueue<TNotification> Record<TNotification>(INotificationsHub<object> hub)
+        where TNotification : INotification
     {
-        var notifications = new ConcurrentQueue<StorageProviderReadinessNotifcation>();
-        hub.Subscribe<StorageProviderReadinessNotifcation>(n =>
+        var notifications = new ConcurrentQueue<TNotification>();
+        hub.Subscribe<TNotification>(n =>
         {
             notifications.Enqueue(n);
             return Task.CompletedTask;
