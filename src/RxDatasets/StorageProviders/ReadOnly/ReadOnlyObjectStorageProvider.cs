@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.Notifications;
 
@@ -15,6 +17,19 @@ public class ReadOnlyObjectStorageProvider<T>(
     : IReadOnlyStorageProvider<T>, IHostedService
 {
     private Task? _initTask;
+
+    /// <summary>The earlier constructor, which also took the blob storage; the reader does all the reading now.</summary>
+    [Obsolete("The storage config and blob storage are no longer used; leave them out")]
+    public ReadOnlyObjectStorageProvider(
+        ILogger<ReadOnlyObjectStorageProvider<T>> logger,
+        IOptions<StorageConfig> storageConfig,
+        IDiskStorage<T> storage,
+        IStorageReader<T> storageReader,
+        INotificationsHub<T>? notificationsHub,
+        bool startIfInitFails = true)
+        : this(logger, storageReader, notificationsHub, startIfInitFails)
+    {
+    }
 
     protected readonly DeltaInfo DeltaInfo = new();
     protected List<SnapshotType> Snapshots = [];
@@ -170,10 +185,14 @@ public class ReadOnlyObjectStorageProvider<T>(
         var previousDeltaInfo = DeltaInfo.Clone();
         var previousSnapshots = Snapshots;
 
-        _initTask = DoInitialize(cancellationToken);
+        var listing = DoInitialize(cancellationToken);
+        // Requests wait for (or fail on) the first listing only: a refresh that is running, or failed, keeps serving
+        // the versions of the last good one
+        if (_initTask is not { IsCompletedSuccessfully: true })
+            _initTask = listing;
 
         await SendDatasetUpdatedNotificationsIfNeeded(previousDeltaInfo, previousSnapshots);
-        await _initTask;
+        await listing;
     }
 
     private async Task DoInitialize(CancellationToken cancellationToken)
