@@ -37,7 +37,7 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
 
     private Task OnStorageProviderReadinessNotification(StorageProviderReadinessNotifcation notification)
     {
-        _storageProviderIsReady = notification.ServiceStatus == ServiceStatus.Ready;
+        _storageProviderIsReady = notification is { ServiceStatus: ServiceStatus.Ready, IsLeader: true };
         return Task.CompletedTask;
     }
 
@@ -121,6 +121,11 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
         // The delta was stored before it was notified, so the first run that starts after this read sees it
         var awaitedRun = Interlocked.Read(ref _startedRuns) + 1;
         _ = _thereIsANotificationToProcess.TrySetResult();
+        // No run is coming on a host that isn't ready, or doesn't run the background work: don't hold up the writer.
+        // Once it is, its first run handles every delta stored since.
+        if (!_storageProviderIsReady)
+            return;
+
         while (true)
         {
             // Take the signal before checking: the loop records the run before it completes the signal, so if the

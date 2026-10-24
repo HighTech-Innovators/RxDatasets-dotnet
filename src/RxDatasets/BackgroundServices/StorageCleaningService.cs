@@ -103,7 +103,7 @@ namespace RxDatasets.BackgroundServices
             _disposableReadinessNotificationSubscription = notificationsHub
                 .Subscribe<StorageProviderReadinessNotifcation>(notification =>
                 {
-                    _isActive = notification.ServiceStatus == ServiceStatus.Ready;
+                    _isActive = notification is { ServiceStatus: ServiceStatus.Ready, IsLeader: true };
                     return SearchForOutdatedData();
                 });
 
