@@ -9,7 +9,7 @@ using RxDatasets.Notifications;
 namespace RxDatasets.BackgroundServices
 {
     public class DistributedLockService<TEntity>(
-        IDiskStorage<TEntity> storage,
+        IDiskStorage<TEntity> diskStorage,
         IOptions<StorageConfig> storageConfig,
         ILogger<DistributedLockService<TEntity>> logger,
         INotificationsHub<TEntity> notificationsHub,
@@ -17,12 +17,19 @@ namespace RxDatasets.BackgroundServices
         IClock? clock = null)
         : IHostedService, IDisposable
     {
+        // ponytail: no fallback to plain read-then-write; without compare-and-swap two instances can both hold the lock.
+        // This only guards the lock file: writes by a holder whose lock expired unnoticed are not fenced (#79, item 4).
+        private readonly IConditionalDiskStorage<TEntity> storage = diskStorage as IConditionalDiskStorage<TEntity>
+            ?? throw new NotSupportedException($"{diskStorage.GetType().Name} does not implement "
+                + $"{nameof(IConditionalDiskStorage<TEntity>)}, which the distributed lock requires");
         private readonly TimeSpan _renewalInterval = lockOptions?.Value.RenewalInterval ?? TimeSpan.FromMinutes(5);
         private readonly TimeSpan _pollingInterval = lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5);
         private readonly TimeSpan _renewalThreshold = lockOptions?.Value.RenewalThreshold ?? TimeSpan.FromSeconds(30);
         private readonly TimeSpan _handoverTimeout = ValidateHandoverTimeout(lockOptions?.Value.HandoverTimeout ?? TimeSpan.FromSeconds(15), lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5));
         private readonly IClock _clock = clock ?? new SystemClock();
         private string? _lockToken;
+        private string? _lockVersion;
+        private DateTimeOffset _lockExpiry;
         private bool _isDisposed;
         private DateTimeOffset _lastRenewalTime;
         private readonly CancellationTokenSource _cts = new();
@@ -234,18 +241,26 @@ namespace RxDatasets.BackgroundServices
         /// <returns></returns>
         private async Task<string?> AcquireLockAsync()
         {
-            string lockKey = _lockName;
             string lockToken = Guid.NewGuid().ToString();
 
             try
             {
-                var existingLock = await TryReadLockFile(lockKey);
+                var existingLock = await TryReadLockFile();
 
                 if (existingLock == null || existingLock.Value.Expiry < _clock.UtcNow)
                 {
-                    // No existing lock or the lock has expired, acquire a new lock
+                    // No existing lock or the lock has expired: take it, unless another instance changed it since we read it
                     DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
-                    await WriteLockFile(lockKey, lockToken, expiryTime);
+                    string? version = await storage.TryUploadBytes(
+                        _lockName, LockBytes(lockToken, expiryTime), existingLock?.Version);
+                    if (version == null)
+                    {
+                        logger.LogInformation("Lock was taken by another instance while acquiring.");
+                        return null;
+                    }
+
+                    _lockVersion = version;
+                    _lockExpiry = expiryTime;
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
                     return lockToken;
                 }
@@ -268,17 +283,12 @@ namespace RxDatasets.BackgroundServices
                 return;
             }
 
-            string lockKey = _lockName;
-            (string Token, DateTimeOffset Expiry)? existingLock = null;
-
             try
             {
-                existingLock = await TryReadLockFile(lockKey);
-
-                if ((existingLock != null && existingLock.Value.Token == _lockToken) || existingLock?.Expiry < _clock.UtcNow)
+                DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
+                if (await TryWriteOwnLockAsync(expiryTime))
                 {
-                    DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
-                    await WriteLockFile(lockKey, _lockToken!, expiryTime);
+                    _lockExpiry = expiryTime;
                     logger.LogInformation("Lock renewed.");
                     _lastRenewalTime = _clock.UtcNow;
                 }
@@ -291,7 +301,7 @@ namespace RxDatasets.BackgroundServices
             }
             catch (Exception ex)
             {
-                if (existingLock != null && existingLock.Value.Token == _lockToken && existingLock.Value.Expiry < _clock.UtcNow.Add(_pollingInterval))
+                if (_lockExpiry < _clock.UtcNow.Add(_pollingInterval))
                 {
                     await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Lost));
                     logger.LogError(ex, "Error renewing lock, and lock has expired. Notifying lost.");
@@ -312,22 +322,18 @@ namespace RxDatasets.BackgroundServices
                 return;
             }
 
-            string lockKey = _lockName;
-
             try
             {
-                var existingLock = await TryReadLockFile(lockKey);
-
-                if (existingLock != null && existingLock.Value.Token == _lockToken)
+                // Release by expiring the lock instead of deleting it: not every provider supports a conditional delete
+                if (await TryWriteOwnLockAsync(DateTimeOffset.MinValue))
                 {
-                    await storage.DeleteFile(lockKey);
                     logger.LogInformation("Lock released.");
-                    _lockToken = null;
                 }
                 else
                 {
                     logger.LogWarning("Cannot release lock not owned by this instance.");
                 }
+                _lockToken = null;
             }
             catch (Exception ex)
             {
@@ -344,35 +350,57 @@ namespace RxDatasets.BackgroundServices
             }
         }
 
-        private async Task WriteLockFile(string lockKey, string lockToken, DateTimeOffset expiryTime)
+        /// <summary>
+        /// Writes our lock over the version we last wrote. Returns false if another instance owns the lock now.
+        /// </summary>
+        private async Task<bool> TryWriteOwnLockAsync(DateTimeOffset expiryTime)
         {
-            string lockContent = $"{lockToken}\n{expiryTime:o}";
-            byte[] lockBytes = System.Text.Encoding.UTF8.GetBytes(lockContent);
-            await storage.UploadBytes(lockKey, lockBytes);
+            byte[] lockBytes = LockBytes(_lockToken!, expiryTime);
+            string? version = await storage.TryUploadBytes(_lockName, lockBytes, _lockVersion);
+            if (version == null)
+            {
+                // An earlier write of ours may have landed without us seeing the response; only we write our token
+                var current = await TryReadLockFile();
+                if (current != null && current.Value.Token == _lockToken)
+                {
+                    version = await storage.TryUploadBytes(_lockName, lockBytes, current.Value.Version);
+                }
+            }
+
+            if (version == null)
+            {
+                return false;
+            }
+
+            _lockVersion = version;
+            return true;
         }
 
-        private async Task<(string Token, DateTimeOffset Expiry)?> TryReadLockFile(string lockKey)
+        private static byte[] LockBytes(string lockToken, DateTimeOffset expiryTime) =>
+            System.Text.Encoding.UTF8.GetBytes($"{lockToken}\n{expiryTime:o}");
+
+        /// <summary>
+        /// Returns null if there is no lock file; an unparsable lock file counts as expired. Other errors are thrown.
+        /// </summary>
+        private async Task<(string Token, DateTimeOffset Expiry, string Version)?> TryReadLockFile()
         {
             try
             {
-                var lockBytes = await storage.DownloadBytes(lockKey);
+                var (lockBytes, version) = await storage.DownloadBytesWithVersion(_lockName);
                 string lockContent = System.Text.Encoding.UTF8.GetString(lockBytes.Span);
                 var lines = lockContent.Split('\n');
                 if (lines.Length >= 2 && DateTimeOffset.TryParse(lines[1], out var expiryTime))
                 {
-                    return (lines[0], expiryTime);
+                    return (lines[0], expiryTime, version);
                 }
+
+                logger.LogWarning("Invalid lock file, treating it as expired.");
+                return (string.Empty, DateTimeOffset.MinValue, version);
             }
             catch (FileNotFoundException)
             {
                 return null; // Lock file does not exist
             }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error reading lock file.");
-            }
-
-            return null; // Invalid lock file
         }
 
         private async Task<bool> ShouldYieldAsync()
