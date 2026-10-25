@@ -268,6 +268,8 @@ message ProcessedVersionsInfo {
 
 This file can be used to determine which files have been processed by a service. This can be used to determine which files need to be processed by a service and which files can be skipped.
 
+The Bigtable provider keeps deltas and snapshots in table rows instead, without DeltaInfo or SnapshotInfo: see [docs/storage-providers/bigtable.md](../../docs/storage-providers/bigtable.md).
+
 
 # Reading the protobuf files using the index
 Assuming you want to get a list of all the entities that currently exist in the dataset, you can follow these steps:
