@@ -15,6 +15,7 @@ using RxDatasets.StorageTests.Common;
 
 namespace RxDatasets.StorageTests.SpecTests.WithCustomTestContainersImplementation;
 
+[Collection(FakeGcsCollection.Name)]
 public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixture<GoogleCloudContainerInstanceFixture>, IAsyncLifetime
 {
     private readonly GoogleCloudContainerInstanceFixture _googleCloudContainer;
