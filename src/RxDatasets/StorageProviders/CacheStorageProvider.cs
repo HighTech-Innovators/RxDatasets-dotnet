@@ -54,8 +54,8 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
 
         try
         {
-            SetCache(dataCacheKey, new ReadOnlyMemory<byte>(index));
-            SetCache(indexCacheKey, new ReadOnlyMemory<byte>(data));
+            SetCache(indexCacheKey, new ReadOnlyMemory<byte>(index));
+            SetCache(dataCacheKey, new ReadOnlyMemory<byte>(data));
 
             await _storageProvider.StoreDelta(deltaVersion, index, data);
         }
