@@ -1,10 +1,11 @@
 ﻿using System.IO;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 namespace RxDatasets.StorageProvider.LocalDisk
 {
-    public class LocalDiskStorage<T> : IDiskStorage<T>
+    public class LocalDiskStorage<T> : IConditionalDiskStorage<T>
     {
         private readonly string _rootFolder;
         private readonly ILogger<LocalDiskStorage<T>> _logger;
@@ -177,6 +178,45 @@ namespace RxDatasets.StorageProvider.LocalDisk
                 }
             }
         }
+
+        // The version is a hash of the content. Compare-and-swap holds an exclusive handle (FileShare.None, which .NET
+        // maps to flock on Unix) across read, compare and rewrite, so it is atomic between processes on this machine.
+        // ponytail: in-place rewrite, not crash-atomic; fine for small coordination files like the lock, not for data.
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string key)
+        {
+            byte[] bytes = (await DownloadBytes(key)).ToArray();
+            return (bytes, ContentVersion(bytes));
+        }
+
+        public async Task<string?> TryUploadBytes(string key, byte[] data, string? expectedVersion)
+        {
+            var filePath = GetFullPath(key);
+            try
+            {
+                var mode = expectedVersion == null ? FileMode.CreateNew : FileMode.Open;
+                await using var fileStream = new FileStream(filePath, mode, FileAccess.ReadWrite, FileShare.None);
+                if (expectedVersion != null)
+                {
+                    var current = new byte[fileStream.Length];
+                    await fileStream.ReadExactlyAsync(current);
+                    if (ContentVersion(current) != expectedVersion)
+                    {
+                        return null;
+                    }
+                    fileStream.SetLength(0);
+                }
+
+                await fileStream.WriteAsync(data);
+                return ContentVersion(data);
+            }
+            catch (IOException ex) when (ex is FileNotFoundException
+                                         || (expectedVersion == null && File.Exists(filePath)))
+            {
+                return null; // created by someone else, or deleted since it was read
+            }
+        }
+
+        private static string ContentVersion(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
         public async Task UploadFileStream(string key, Stream stream)
         {

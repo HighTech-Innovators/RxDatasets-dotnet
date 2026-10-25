@@ -115,6 +115,14 @@ public class GoogleCloudStorageDatasetTests : StorageTestSpecWithTwoStepInit, IC
     }
 
     [Fact]
+    public async Task Conditional_Operations_Follow_The_Contract()
+    {
+        _googleCloudConfig!.Value.BucketName = "conditional-ops";
+        await ConditionalStorageContract.VerifyAsync(
+            new GoogleCloudStorage<object>(Mock.Of<ILogger<GoogleCloudStorage<object>>>(), _googleCloudConfig, false));
+    }
+
+    [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_GoogleCloud_Storage_After_Initialization()
     {
         _googleCloudConfig!.Value.BucketName = new string(

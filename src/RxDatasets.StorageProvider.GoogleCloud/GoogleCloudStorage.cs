@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.IO.Pipelines;
 using System.Net.Http.Headers;
@@ -12,7 +13,7 @@ using RxDatasets.BackgroundServices;
 
 namespace RxDatasets.StorageProvider.GoogleCloud
 {
-    public class GoogleCloudStorage<T> : IDiskStorage<T>, IAsyncDisposable, IDisposable
+    public class GoogleCloudStorage<T> : IConditionalDiskStorage<T>, IAsyncDisposable, IDisposable
     {
         private readonly StorageClient _storageClient;
         private readonly ILogger<GoogleCloudStorage<T>> _logger;
@@ -409,6 +410,67 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             SetUnhealthy(finalEx);
             throw finalEx;
         }
+
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        {
+            await EnsureInitialized();
+            try
+            {
+                // Download exactly the generation we report; if it was replaced in between, this is a 404 (= absent to callers)
+                var obj = await _storageClient.GetObjectAsync(_bucketName, objectKey);
+                using var stream = new MemoryStream();
+                await _storageClient.DownloadObjectAsync(obj, stream, new DownloadObjectOptions { Generation = obj.Generation });
+                SetHealthy();
+                return (stream.ToArray(), GenerationToVersion(obj));
+            }
+            catch (Google.GoogleApiException e) when (e.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                SetHealthy();
+                throw new FileNotFoundException("File not found in Google Cloud Storage", objectKey, e);
+            }
+            catch (Exception ex)
+            {
+                SetUnhealthy(ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Conditional write on the object generation (0 = must not exist). Never goes through the write queue:
+        /// a queued write would report success before it is durable, and could not report a precondition failure.
+        /// </summary>
+        public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(typeof(GoogleCloudStorage<T>).FullName);
+
+            await EnsureInitialized();
+            try
+            {
+                using var stream = new MemoryStream(bytes);
+                var options = new UploadObjectOptions
+                {
+                    IfGenerationMatch = expectedVersion == null ? 0 : long.Parse(expectedVersion, CultureInfo.InvariantCulture)
+                };
+                var obj = await _storageClient.UploadObjectAsync(_bucketName, objectKey, null, stream, options);
+                SetHealthy();
+                return GenerationToVersion(obj);
+            }
+            catch (Google.GoogleApiException e) when (e.HttpStatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+            {
+                SetHealthy();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to conditionally upload {objectKey} to Google Cloud Storage", objectKey);
+                SetUnhealthy(ex);
+                throw new InvalidOperationException(ex.Message, ex);
+            }
+        }
+
+        private static string GenerationToVersion(Google.Apis.Storage.v1.Data.Object obj) =>
+            obj.Generation.GetValueOrDefault().ToString(CultureInfo.InvariantCulture);
 
         public async Task UploadFileStream(string objectKey, Stream stream)
         {

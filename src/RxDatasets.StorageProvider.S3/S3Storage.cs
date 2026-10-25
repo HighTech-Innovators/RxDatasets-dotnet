@@ -8,7 +8,7 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.S3
 {
-    public class S3Storage<T> : IDiskStorage<T>, IDisposable
+    public class S3Storage<T> : IConditionalDiskStorage<T>, IDisposable
     {
         private const string DownloadFailedMessage = "Failed to download metadata from S3";
         private const string UnavailableMessage = $"S3 is unavailable.";
@@ -435,6 +435,67 @@ namespace RxDatasets.StorageProvider.S3
                 SetUnhealthy(ex);
                 _logger.LogError(ex, "Failed to upload to S3");
                 throw new InvalidOperationException("S3 is unavailable", ex);
+            }
+        }
+
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        {
+            await EnsureInitialized();
+            try
+            {
+                var request = new GetObjectRequest { BucketName = _bucketName, Key = objectKey };
+                using var response = await _s3Client.GetObjectAsync(request);
+                using var memoryStream = new MemoryStream();
+                await response.ResponseStream.CopyToAsync(memoryStream);
+                SetHealthy();
+                return (memoryStream.ToArray(), response.ETag);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound || ex.ErrorCode == "NotFound")
+            {
+                SetHealthy();
+                throw new FileNotFoundException(File404Message, objectKey);
+            }
+            catch (AmazonS3Exception s3e)
+            {
+                var exception = CreateS3Exception(s3e, "read object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
+            }
+        }
+
+        public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+        {
+            await EnsureInitialized();
+            try
+            {
+                var request = new PutObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey,
+                    InputStream = new MemoryStream(bytes),
+                };
+                if (expectedVersion == null)
+                    request.IfNoneMatch = "*";
+                else
+                    request.IfMatch = expectedVersion;
+
+                var response = await _s3Client.PutObjectAsync(request);
+                SetHealthy();
+                return response.ETag;
+            }
+            // 412: precondition failed; 409: lost a race with a concurrent conditional write; 404: If-Match on a deleted object
+            catch (AmazonS3Exception ex) when (ex.StatusCode is System.Net.HttpStatusCode.PreconditionFailed
+                                                   or System.Net.HttpStatusCode.Conflict
+                                                   or System.Net.HttpStatusCode.NotFound)
+            {
+                SetHealthy();
+                return null;
+            }
+            catch (AmazonS3Exception s3e)
+            {
+                var exception = CreateS3Exception(s3e, "conditionally write object", objectKey);
+                SetUnhealthy(exception);
+                throw exception;
             }
         }
 

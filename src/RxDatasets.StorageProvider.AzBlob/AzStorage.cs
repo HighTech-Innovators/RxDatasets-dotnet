@@ -9,7 +9,7 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.AzBlob;
 
-public class AzStorage<T> : IDiskStorage<T>
+public class AzStorage<T> : IConditionalDiskStorage<T>
 {
     private const string UnavailableMessage = "Azure Blob Storage is unavailable";
     private const string DownloadFailedMessage = "Failed to download from Azure Blob Storage";
@@ -274,6 +274,55 @@ public class AzStorage<T> : IDiskStorage<T>
             var blobClient = _containerClient.GetBlobClient(objectKey);
             await blobClient.UploadAsync(new MemoryStream(bytes), true);
             SetHealthy();
+        }
+        catch (Exception ex)
+        {
+            SetUnhealthy(ex);
+            _logger.LogError(ex, "Failed to upload to Azure Blob Storage");
+            throw new InvalidOperationException(UnavailableMessage, ex);
+        }
+    }
+
+    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+    {
+        try
+        {
+            await EnsureInitialized();
+            var response = await _containerClient.GetBlobClient(objectKey).DownloadContentAsync();
+            SetHealthy();
+            return (response.Value.Content.ToMemory(), response.Value.Details.ETag.ToString());
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            SetHealthy();
+            throw new FileNotFoundException(File404Message, objectKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, DownloadFailedMessage);
+            SetUnhealthy(ex);
+            throw new InvalidOperationException(UnavailableMessage, ex);
+        }
+    }
+
+    public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+    {
+        try
+        {
+            await EnsureInitialized();
+            var conditions = expectedVersion == null
+                ? new BlobRequestConditions { IfNoneMatch = ETag.All }
+                : new BlobRequestConditions { IfMatch = new ETag(expectedVersion) };
+            var response = await _containerClient.GetBlobClient(objectKey)
+                .UploadAsync(new BinaryData(bytes), new BlobUploadOptions { Conditions = conditions });
+            SetHealthy();
+            return response.Value.ETag.ToString();
+        }
+        // 409 BlobAlreadyExists (If-None-Match: *), 412 ConditionNotMet (If-Match), 404 If-Match on a deleted blob
+        catch (RequestFailedException ex) when (ex.Status is 404 or 409 or 412)
+        {
+            SetHealthy();
+            return null;
         }
         catch (Exception ex)
         {

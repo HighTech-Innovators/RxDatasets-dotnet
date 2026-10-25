@@ -1,10 +1,11 @@
 ﻿using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.TestImplementations.InMemoryProvider
 {
-    public class LowLevelInMemoryStorage<T> : IDiskStorage<T>
+    public class LowLevelInMemoryStorage<T> : IConditionalDiskStorage<T>
     {
         private readonly ILogger<LowLevelInMemoryStorage<T>> _logger;
         private readonly ConcurrentDictionary<string, (byte[] Data, DateTimeOffset CreatedAt)> _storage;
@@ -75,6 +76,29 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
             _storage[objectKey] = (bytes, DateTimeOffset.UtcNow);
             await Task.CompletedTask;
         }
+
+        public Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        {
+            if (!_storage.TryGetValue(objectKey, out var entry))
+            {
+                throw new FileNotFoundException($"File not found in memory storage: {objectKey}");
+            }
+            return Task.FromResult((new ReadOnlyMemory<byte>(entry.Data), Version(entry.Data)));
+        }
+
+        public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+        {
+            var newEntry = (bytes, DateTimeOffset.UtcNow);
+            bool written = expectedVersion == null
+                ? _storage.TryAdd(objectKey, newEntry)
+                // TryUpdate compares the whole entry (array by reference), so this is a compare-and-swap on what we checked
+                : _storage.TryGetValue(objectKey, out var current)
+                  && Version(current.Data) == expectedVersion
+                  && _storage.TryUpdate(objectKey, newEntry, current);
+            return Task.FromResult(written ? Version(bytes) : null);
+        }
+
+        private static string Version(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
 
         public async Task UploadFileStream(string objectKey, Stream stream)
         {
