@@ -41,7 +41,7 @@ namespace RxDatasets.StorageTests
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
 
             var dataBytes = GenerateRandomData();
-            var indexBytes = GenerateRandomData();
+            var indexBytes = GenerateRandomData(seed: 1);
 
             ulong version = 1;
 
@@ -62,7 +62,7 @@ namespace RxDatasets.StorageTests
             var (cacheStorageProvider, storageProviderMock) = CreateCacheStorageProvider(10);
 
             var dataBytes = GenerateRandomData();
-            var indexBytes = GenerateRandomData();
+            var indexBytes = GenerateRandomData(seed: 1);
 
             ulong version = 1;
 
@@ -72,6 +72,7 @@ namespace RxDatasets.StorageTests
             var returnedDeltaIndex = await cacheStorageProvider.ReadDeltaIndex(version);
 
             //Assert
+            Assert.Equal(indexBytes, returnedDeltaIndex.ToArray());
             storageProviderMock.Verify(x => x.ReadDeltaIndex(It.IsAny<ulong>()), Times.Never);
             storageProviderMock.Verify(x => x.StoreDelta(version, It.IsAny<byte[]>(), It.IsAny<byte[]>()), Times.Once);
         }
