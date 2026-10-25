@@ -67,7 +67,7 @@ public class ObjectStorageProvider<T>(
         await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
     }
 
-    public async Task DeleteOlderThan(ulong version, bool keepAllDeltas)
+    public virtual async Task DeleteOlderThan(ulong version, bool keepAllDeltas)
     {
         ThrowIfNoLockIsAcquired();
 
@@ -104,7 +104,7 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
+    public virtual async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
         ThrowIfNoLockIsAcquired();
 
@@ -129,7 +129,7 @@ public class ObjectStorageProvider<T>(
         await PersistDeltaInfo(deltaVersion);
         await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
-    public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
+    public virtual async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
         ThrowIfNoLockIsAcquired();
 
@@ -200,13 +200,13 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    private void ThrowIfNoLockIsAcquired()
+    protected void ThrowIfNoLockIsAcquired()
     {
         if (lockService != null && !lockService.HasLock)
             throw new SynchronizationLockException("We can't write to storage as we have to get a lock first");
     }
 
-    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
+    public virtual async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
     {
         ThrowIfNoLockIsAcquired();
         using var slot = await SnapshotLockAsync();
@@ -251,7 +251,7 @@ public class ObjectStorageProvider<T>(
         }
     }
 
-    public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
+    public virtual async Task StoreSnapshot(ulong snapshotVersion, byte[] index, byte[] data)
     {
         ThrowIfNoLockIsAcquired();
 
@@ -468,14 +468,14 @@ public class ObjectStorageProvider<T>(
         await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
     }
 
-    private async Task<IDisposable> DeltaLockAsync(CancellationToken cancellationToken = default)
+    protected async Task<IDisposable> DeltaLockAsync(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
 
         return await _deltaSemaphore.LockAsync(cancellationToken);
     }
 
-    private async Task<IDisposable> SnapshotLockAsync(CancellationToken cancellationToken = default)
+    protected async Task<IDisposable> SnapshotLockAsync(CancellationToken cancellationToken = default)
     {
         await EnsureProviderIsInitialized();
 
