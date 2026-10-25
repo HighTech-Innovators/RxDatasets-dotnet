@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Cloud.Bigtable.V2" />
     <PackageReference Include="Google.Cloud.Storage.V1" />
   </ItemGroup>
 
