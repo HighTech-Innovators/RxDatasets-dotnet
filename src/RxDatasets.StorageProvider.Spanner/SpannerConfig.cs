@@ -27,9 +27,7 @@ public class SpannerConfig
     /// <see cref="SpannerDatasetStore{T}"/>.
     /// </summary>
     /// <remarks>
-    /// Ops: a snapshot is streamed through a temporary file (TEMP_FILE_DIRECTORY, else the system temp folder), and
-    /// the snapshot plugin writes the new snapshot to one as well, so the leader needs about twice the snapshot size
-    /// in free ephemeral storage.
+    /// Operations (DDL, IAM, the leader lease, temp disk of about twice the snapshot size): docs/storage-providers/spanner.md.
     /// </remarks>
     public bool CreateTables { get; set; }
 }
