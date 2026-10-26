@@ -461,6 +461,13 @@ namespace RxDatasets.StorageProvider.S3
                 SetUnhealthy(exception);
                 throw exception;
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download from S3");
+                var invalidOperationException = new InvalidOperationException(UnavailableMessage, ex);
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
+            }
         }
 
         public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion) =>
@@ -503,6 +510,13 @@ namespace RxDatasets.StorageProvider.S3
                 var exception = CreateS3Exception(s3e, "conditionally write object", objectKey);
                 SetUnhealthy(exception);
                 throw exception;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to conditionally upload to S3");
+                var invalidOperationException = new InvalidOperationException(UnavailableMessage, ex);
+                SetUnhealthy(invalidOperationException);
+                throw invalidOperationException;
             }
         }
 
