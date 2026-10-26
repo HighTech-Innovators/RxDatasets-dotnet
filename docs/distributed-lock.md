@@ -447,7 +447,6 @@ written by the old instance and some by the new one, and a server with many data
 and its renewals per dataset. `WithSharedDistributedLock()` puts all datasets of an instance under one lock instead:
 
 ```csharp
-// Before the services that start the datasets
 services.AddSharedDistributedLock<GoogleCloudStorage<SharedDistributedLock>>("MyServerLock");
 
 services.AddDtoServer<Link>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
@@ -459,16 +458,20 @@ services.AddDtoServer<Label>().WithGoogleCloudStorage().WithSharedDistributedLoc
   writes compiles in, and the lock never falls back to read-then-write. That storage is a singleton of the service
   collection the lock is registered in, which owns and disposes it; no dataset's storage is used. It reads the
   storage's section (`GoogleCloud` here) and the `Storage` section's `CustomRootFolder`, so it must reach the same
-  bucket and root as the datasets.
+  bucket and root as the datasets. No health check watches that storage by default: one that can't reach the bucket
+  only shows as every dataset waiting for the lock. It is also registered as `IDiskStorage<SharedDistributedLock>`,
+  so the provider's check can watch it:
+  `services.AddHealthChecks().AddCheck<GoogleCloudHealthCheck<SharedDistributedLock>>("storage.googlecloud.SharedLock")`.
 - Each dataset's `IDistributedLock<T>` is a `SharedDistributedLockMember<T>`: it has the lock when the instance has it,
   and passes every Acquired and Lost on to the dataset's notifications hub. A dataset that starts later gets the
   current state on joining.
 - Everything in the scenarios above holds for the instance as a whole: one `request-lock` asks for all datasets, one
   renewal keeps them, and a takeover moves them all.
-- The lock starts when the first dataset joins, and releases on stop; a dataset that joins after that gets no state.
-  Register it before the services that start the datasets: a host that stops its services one after the other (the
-  default, not `HostOptions.ServicesStopConcurrently`) then stops it after them. Each dataset flushes its own storage
-  when it stops.
+- The lock starts when the first dataset joins. On stop it waits until every dataset has stopped, which flushes the
+  dataset's storage and leaves, and only then releases the lock, so the next holder sees all their writes. That holds
+  in any registration order and with `HostOptions.ServicesStopConcurrently`. When the stop token fires first (the
+  host's shutdown timeout), it logs a warning and releases anyway. A dataset that joins once the lock is stopping gets
+  no state.
 - `lockFolder` names the server: instances that share it hand over to each other, so give every kind of server its own.
 
 A host that builds a service collection per dataset registers the lock, and with it the lock's storage, in its root,
@@ -476,8 +479,7 @@ and adds that instance to every dataset's collection. The root owns both: removi
 only that dataset's own storage, and the lock keeps running until the root stops it.
 
 ```csharp
-// Root: the storage settings the datasets get (sections, and a PostConfigure<StorageConfig> they have), then the lock,
-// before the service that starts and stops the datasets
+// Root: the storage settings the datasets get (sections, and a PostConfigure<StorageConfig> they have), then the lock
 root.AddValidatedConfigSection<GoogleCloudConfig>();
 root.AddSharedDistributedLock<GoogleCloudStorage<SharedDistributedLock>>("MyServerLock");
 
