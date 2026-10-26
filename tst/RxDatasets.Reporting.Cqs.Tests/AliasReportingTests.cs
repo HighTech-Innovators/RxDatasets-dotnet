@@ -32,7 +32,8 @@ public class AliasReportingTests
         await reporter.CommitDeltaTransaction(transaction);
 
         DtoChangeNotification[] sent = server.Service.Requests.Should().ContainSingle().Which.Notifications.ToArray();
-        sent.Select(n => (n.AliasName, n.DtoId)).Should().Equal(("", "things/A"), ("by_value", "values/x"), ("by_value", "values/y"));
+        sent.Select(n => (n.AliasName, n.DtoId)).Should()
+            .Equal(("", "things/A"), ("by_value", "values/x"), ("by_value", "values/y"));
         sent[1].DtoType.Should().Be(Timestamp.Descriptor.FullName);
         sent[1].UrnCase.Should().Be(DtoChangeNotification.UrnOneofCase.DtoId);
         sent[1].TrackingId.Should().Be("track-1");

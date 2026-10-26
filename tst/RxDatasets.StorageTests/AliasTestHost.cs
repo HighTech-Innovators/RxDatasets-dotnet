@@ -106,7 +106,8 @@ internal sealed class AliasTestHost : IAsyncDisposable
         (await Services.GetRequiredService<IStorageProvider<Demodto>>().ListVersions()).NewestDelta;
 
     public async Task<DeltaIndex> ReadDelta(ulong version) =>
-        DeltaIndex.Parser.ParseFrom((await Services.GetRequiredService<IStorageProvider<Demodto>>().ReadDeltaIndex(version)).Span);
+        DeltaIndex.Parser.ParseFrom(
+            (await Services.GetRequiredService<IStorageProvider<Demodto>>().ReadDeltaIndex(version)).Span);
 
     /// <summary>Waits for a snapshot at <paramref name="version"/>.</summary>
     public Task WaitForSnapshot(ulong version) =>
@@ -144,7 +145,8 @@ internal sealed class AliasTestHost : IAsyncDisposable
         new Demodto { Name = name, SomeString = value, SomeInt = someInt }.ToByteArray();
 
     /// <summary>Puts with <see cref="Entity"/> bytes: (name, some_string).</summary>
-    public static IAsyncEnumerable<(string, byte[], string?, DateTimeOffset?)> Puts(params (string Name, string Value)[] entities) =>
+    public static IAsyncEnumerable<(string, byte[], string?, DateTimeOffset?)> Puts(
+        params (string Name, string Value)[] entities) =>
         entities.Select(e => (e.Name, Entity(e.Name, e.Value), (string?)null, (DateTimeOffset?)null)).ToAsyncEnumerable();
 
     /// <summary>Puts with <see cref="Entity"/> bytes, and deletes for a null value.</summary>

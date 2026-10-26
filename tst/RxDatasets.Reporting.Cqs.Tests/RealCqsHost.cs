@@ -74,7 +74,8 @@ internal sealed class RealCqsHost : IAsyncDisposable
                     WorkingDirectory = _directory, UseShellExecute = false,
                     RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
                 };
-                foreach (string key in start.Environment.Keys.Where(key => key.StartsWith("CQS__", StringComparison.OrdinalIgnoreCase)).ToArray())
+                foreach (string key in start.Environment.Keys
+                             .Where(key => key.StartsWith("CQS__", StringComparison.OrdinalIgnoreCase)).ToArray())
                 {
                     start.Environment.Remove(key);
                 }

@@ -124,7 +124,7 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
         {
             // The entities come from the tree a writer stores and from the legacy flat lists of older deltas, with
             // their full names: in the tree an entity's own name is empty. The order is the standard plugin's.
-            foreach (var (name, entity) in index.EnumerateNewEntities())
+            foreach ((string name, DeltaEntity entity) in index.EnumerateNewEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await reportingImplementation.OnNewDto(name, await ReadData(version, entity),
@@ -133,7 +133,7 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
                     entity.SlaTimestamp, state);
             }
 
-            foreach (var (name, entity) in index.EnumerateChangedEntities())
+            foreach ((string name, DeltaEntity entity) in index.EnumerateChangedEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await reportingImplementation.OnChangedDto(name, await ReadData(version, entity),
@@ -148,7 +148,7 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
                 await reportingImplementation.OnDeletedDto(name, null, null, state);
             }
 
-            foreach (var (name, entity) in index.EnumerateDeletedEntities())
+            foreach ((string name, DeletedEntity entity) in index.EnumerateDeletedEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await reportingImplementation.OnDeletedDto(name, NullIfEmpty(entity.TrackingId),
@@ -175,9 +175,9 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
     private async Task ReportAliasChanges(string entityName, IEnumerable<AliasRef> added, IEnumerable<AliasRef> removed,
         string trackingId, Timestamp? slaTimestamp, object? state)
     {
-        var changes = removed.Select(alias => (alias, ChangeType.Deleted))
+        IEnumerable<(AliasRef Alias, ChangeType Change)> changes = removed.Select(alias => (alias, ChangeType.Deleted))
             .Concat(added.Select(alias => (alias, ChangeType.New)));
-        foreach (var (alias, change) in changes)
+        foreach ((AliasRef alias, ChangeType change) in changes)
         {
             await reportingImplementation.OnAliasChanged(alias.Name, alias.Value, entityName, change,
                 NullIfEmpty(trackingId), slaTimestamp?.ToDateTimeOffset(), state);

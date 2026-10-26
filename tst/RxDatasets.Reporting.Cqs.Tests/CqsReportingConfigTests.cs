@@ -88,7 +88,8 @@ public class CqsReportingConfigTests
             typeof(BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>));
         services.Should().Contain(descriptor => descriptor.ServiceType == typeof(IHostedService)
             && descriptor.ImplementationType ==
-            typeof(DatasetUpdateConsumingService<Timestamp, BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>>));
+            typeof(DatasetUpdateConsumingService<Timestamp,
+                BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>>));
         object transaction = (await reporter.OpenDeltaTransaction(1))!;
         await reporter.OnDeletedDto("factory-client", null, null, transaction);
         server.Service.Requests.Should().ContainSingle();

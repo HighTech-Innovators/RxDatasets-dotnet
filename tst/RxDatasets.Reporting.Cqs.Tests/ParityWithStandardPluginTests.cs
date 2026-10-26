@@ -94,7 +94,8 @@ public class ParityWithStandardPluginTests
         Func<IStorageProvider<Timestamp>, CallLogReporter, IDatasetUpdateConsumer<Timestamp>> createPlugin)
     {
         IStorageProvider<Timestamp> observed =
-            BatchingDatasetUpdateReportingPluginTests.StorageProbe.Create(storage, out var probe);
+            BatchingDatasetUpdateReportingPluginTests.StorageProbe.Create(
+                storage, out BatchingDatasetUpdateReportingPluginTests.StorageProbe probe);
         probe.FailRead = failRead;
         CallLogReporter reporter = new();
 
