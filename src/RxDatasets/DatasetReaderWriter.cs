@@ -38,9 +38,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
 
     protected override Task OnDeltaApplied(DeltaIndex deltaIndex)
     {
-        // Wake reactive waiters (WaitChangedNames, StreamHistory, TailHistory) here, after the index swap,
-        // not on DatasetUpdatedNotification: that one is sent from StoreDelta, before the swap, so a waiter
-        // woken by it would still see the old LatestVersion, re-arm, and sleep through this write.
+        // Wake reactive waiters (WaitChangedNames, StreamHistory, TailHistory) here, after the index swap.
+        // DatasetUpdatedNotification is also sent after the swap, but only after this, while the write lock is held.
         Interlocked.Exchange(ref _indexChangedTcs, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
             .TrySetResult();
         return Task.CompletedTask;

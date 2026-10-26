@@ -21,6 +21,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     private readonly ILogger<DatasetWriter<T>> _logger;
     private readonly DatasetHelper _datasetHelper;
     private readonly IStorageProvider<T> _storageProvider;
+    private readonly INotificationsHub<T> _notificationsHub;
     private readonly IOptions<WriterConfig> _writerConfig;
     private readonly IReadOnlyList<AliasDefinition> _aliasDefinitions;
     private readonly string _aliasDefinitionsHash;
@@ -39,6 +40,14 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
     /// data is missing.
     /// </summary>
     protected virtual Task OnDeltaApplied(DeltaIndex deltaIndex) => Task.CompletedTask;
+
+    // DatasetUpdatedNotification goes out here, not from StoreDelta: its consumers (reporters, the snapshot plugin,
+    // a separate DatasetReader) must only see a delta once it is readable from this index.
+    private async Task DeltaApplied(DeltaIndex deltaIndex)
+    {
+        await OnDeltaApplied(deltaIndex);
+        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaIndex.DeltaVersion));
+    }
     public Task? InitializationTask;
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly CompositeDisposable _subscriptions = new();
@@ -50,6 +59,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         IOptions<AliasOptions<T>>? aliasOptions = null)
     {
         _storageProvider = storageProvider;
+        _notificationsHub = notificationsHub;
         _writerConfig = writerConfig;
         _aliasDefinitions = aliasOptions?.Value.Definitions ?? [];
         _aliasDefinitionsHash = AliasOptions<T>.HashOf(_aliasDefinitions);
@@ -219,7 +229,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
         await _storageProvider.StoreDelta(delta.DeltaVersion, delta.ToByteArray(), Stream.Null);
         _index = index.ApplyDelta(delta);
-        await OnDeltaApplied(delta);
+        await DeltaApplied(delta);
         _logger.LogInformation("Recomputed the aliases of {Count} entities; {Changed} changed; version {Version}",
             entities.Count, delta.AliasChanges.Count, delta.DeltaVersion);
     }
@@ -558,7 +568,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         }
 
         _index = newIndex;
-        await OnDeltaApplied(deltaIndex);
+        await DeltaApplied(deltaIndex);
 
         _logger.LogInformation("Put entities: version {Version}; added {Added} changed {Changed} deleted {Deleted}",
             _index.LatestVersion, added, changed, deleted);
@@ -839,7 +849,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
         await _storageProvider.StoreDelta(deltaIndex.DeltaVersion, deltaIndex.ToByteArray(), concatenatedByteStream);
 
         _index = _index!.ApplyDelta(deltaIndex);
-        await OnDeltaApplied(deltaIndex);
+        await DeltaApplied(deltaIndex);
 
         return _index;
     }
