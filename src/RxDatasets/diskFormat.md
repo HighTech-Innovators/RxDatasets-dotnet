@@ -235,6 +235,14 @@ message DeltaInfo {
 ```
 
 This file can be used to determine which delta files are available. Using this file is highly recommended compared to listing all files since this can be a very time-consuming/expensive operation.
+
+`latest_delta_version` can lag behind: it is written after the delta, and a write of it can fail or still be queued.
+A delta exists once its `index.pb` exists, so check for `deltas/{latest_delta_version + 1}/index.pb` (and onwards) to
+find newer ones, as `ObjectStorageReader` does.
+
+On storage with compare-and-swap (every built-in provider), a writer creates a delta's `data.pbs` and then its
+`index.pb` only if they don't exist yet, and only once the previous version's delta or snapshot `index.pb` exists. The
+`index.pb` is the commit: a writer that is behind gets a version conflict instead of overwriting a stored delta.
 ## SnapshotInfo
 - `SnapshotInfo.pb`: Storing the metadata about the snapshot files that are available.
 

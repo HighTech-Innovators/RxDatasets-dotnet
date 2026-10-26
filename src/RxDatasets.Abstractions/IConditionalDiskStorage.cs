@@ -20,4 +20,10 @@ public interface IConditionalDiskStorage<T> : IDiskStorage<T>
     /// </summary>
     /// <returns>The new version, or null if the precondition did not hold (nothing was written)</returns>
     Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion);
+
+    /// <summary>
+    /// Write an object from a stream, read from its current position, only if it does not exist yet.
+    /// </summary>
+    /// <returns>False if the object already existed (nothing was written)</returns>
+    Task<bool> TryCreateFromStream(string objectKey, Stream stream);
 }

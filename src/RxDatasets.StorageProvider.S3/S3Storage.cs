@@ -463,7 +463,13 @@ namespace RxDatasets.StorageProvider.S3
             }
         }
 
-        public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+        public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion) =>
+            TryUpload(objectKey, new MemoryStream(bytes), expectedVersion);
+
+        public async Task<bool> TryCreateFromStream(string objectKey, Stream stream) =>
+            await TryUpload(objectKey, stream, null) != null;
+
+        private async Task<string?> TryUpload(string objectKey, Stream stream, string? expectedVersion)
         {
             await EnsureInitialized();
             try
@@ -472,7 +478,8 @@ namespace RxDatasets.StorageProvider.S3
                 {
                     BucketName = _bucketName,
                     Key = objectKey,
-                    InputStream = new MemoryStream(bytes),
+                    InputStream = stream,
+                    AutoCloseStream = false
                 };
                 if (expectedVersion == null)
                     request.IfNoneMatch = "*";

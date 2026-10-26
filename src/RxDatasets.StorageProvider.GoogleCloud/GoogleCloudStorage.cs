@@ -441,13 +441,21 @@ namespace RxDatasets.StorageProvider.GoogleCloud
         /// </summary>
         public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
         {
+            using var stream = new MemoryStream(bytes);
+            return await TryUpload(objectKey, stream, expectedVersion);
+        }
+
+        public async Task<bool> TryCreateFromStream(string objectKey, Stream stream) =>
+            await TryUpload(objectKey, stream, null) != null;
+
+        private async Task<string?> TryUpload(string objectKey, Stream stream, string? expectedVersion)
+        {
             if (_disposed)
                 throw new ObjectDisposedException(typeof(GoogleCloudStorage<T>).FullName);
 
             await EnsureInitialized();
             try
             {
-                using var stream = new MemoryStream(bytes);
                 var options = new UploadObjectOptions
                 {
                     IfGenerationMatch = expectedVersion == null ? 0 : long.Parse(expectedVersion, CultureInfo.InvariantCulture)

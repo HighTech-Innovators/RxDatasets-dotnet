@@ -98,6 +98,13 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
             return Task.FromResult(written ? Version(bytes) : null);
         }
 
+        public async Task<bool> TryCreateFromStream(string objectKey, Stream stream)
+        {
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            return await TryUploadBytes(objectKey, memoryStream.ToArray(), null) != null;
+        }
+
         private static string Version(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
 
         public async Task UploadFileStream(string objectKey, Stream stream)

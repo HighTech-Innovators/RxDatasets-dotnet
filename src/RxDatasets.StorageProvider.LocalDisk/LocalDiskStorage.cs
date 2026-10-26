@@ -190,29 +190,56 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
         public async Task<string?> TryUploadBytes(string key, byte[] data, string? expectedVersion)
         {
-            var filePath = GetFullPath(key);
+            if (expectedVersion == null)
+            {
+                return await TryCreate(key, file => file.WriteAsync(data).AsTask()) ? ContentVersion(data) : null;
+            }
+
             try
             {
-                var mode = expectedVersion == null ? FileMode.CreateNew : FileMode.Open;
-                await using var fileStream = new FileStream(filePath, mode, FileAccess.ReadWrite, FileShare.None);
-                if (expectedVersion != null)
+                await using var fileStream = new FileStream(GetFullPath(key), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                var current = new byte[fileStream.Length];
+                await fileStream.ReadExactlyAsync(current);
+                if (ContentVersion(current) != expectedVersion)
                 {
-                    var current = new byte[fileStream.Length];
-                    await fileStream.ReadExactlyAsync(current);
-                    if (ContentVersion(current) != expectedVersion)
-                    {
-                        return null;
-                    }
-                    fileStream.SetLength(0);
+                    return null;
                 }
 
+                fileStream.SetLength(0);
                 await fileStream.WriteAsync(data);
                 return ContentVersion(data);
             }
-            catch (IOException ex) when (ex is FileNotFoundException
-                                         || (expectedVersion == null && File.Exists(filePath)))
+            catch (FileNotFoundException)
             {
-                return null; // created by someone else, or deleted since it was read
+                return null; // deleted since it was read
+            }
+        }
+
+        public Task<bool> TryCreateFromStream(string key, Stream stream) => TryCreate(key, stream.CopyToAsync);
+
+        // Create-only writes a uniquely named temp file and moves it without overwriting, so a reader never sees a partly
+        // written object and of concurrent creators exactly one wins.
+        private async Task<bool> TryCreate(string key, Func<FileStream, Task> write)
+        {
+            var filePath = GetFullPath(key);
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath)!, $".tmp_{Guid.NewGuid():N}_{Path.GetFileName(filePath)}");
+            try
+            {
+                await using (var tempFileStream = new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    await write(tempFileStream);
+                }
+
+                File.Move(tempFilePath, filePath, overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(filePath))
+            {
+                return false;
+            }
+            finally
+            {
+                File.Delete(tempFilePath);
             }
         }
 

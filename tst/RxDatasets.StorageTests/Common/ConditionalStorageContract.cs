@@ -36,5 +36,13 @@ public static class ConditionalStorageContract
         var results = await Task.WhenAll(
             Enumerable.Range(0, 8).Select(i => Task.Run(() => storage.TryUploadBytes(raceKey, [(byte)i], null))));
         results.Count(r => r != null).Should().Be(1);
+
+        // Create-only from a stream, as delta data is written
+        var streamKey = $"cas/{Guid.NewGuid():N}";
+        using var stream = new MemoryStream([7, 8, 9]);
+        (await storage.TryCreateFromStream(streamKey, stream)).Should().BeTrue();
+        stream.Position = 0;
+        (await storage.TryCreateFromStream(streamKey, stream)).Should().BeFalse("create-only fails on an existing object");
+        (await storage.DownloadBytes(streamKey)).ToArray().Should().Equal(7, 8, 9);
     }
 }

@@ -305,7 +305,13 @@ public class AzStorage<T> : IConditionalDiskStorage<T>
         }
     }
 
-    public async Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)
+    public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion) =>
+        TryUpload(objectKey, new MemoryStream(bytes), expectedVersion);
+
+    public async Task<bool> TryCreateFromStream(string objectKey, Stream stream) =>
+        await TryUpload(objectKey, stream, null) != null;
+
+    private async Task<string?> TryUpload(string objectKey, Stream stream, string? expectedVersion)
     {
         try
         {
@@ -314,7 +320,7 @@ public class AzStorage<T> : IConditionalDiskStorage<T>
                 ? new BlobRequestConditions { IfNoneMatch = ETag.All }
                 : new BlobRequestConditions { IfMatch = new ETag(expectedVersion) };
             var response = await _containerClient.GetBlobClient(objectKey)
-                .UploadAsync(new BinaryData(bytes), new BlobUploadOptions { Conditions = conditions });
+                .UploadAsync(stream, new BlobUploadOptions { Conditions = conditions });
             SetHealthy();
             return response.Value.ETag.ToString();
         }
