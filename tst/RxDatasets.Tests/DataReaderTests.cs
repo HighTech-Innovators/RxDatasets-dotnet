@@ -28,7 +28,8 @@ public class DataReaderTests
         _dataset = new InMemoryDataset<Demodto>();
         var configuration = Substitute.For<IConfiguration>();
         var configurationSection = Substitute.For<IConfigurationSection>();
-        var cacheDuration = "1";
+        // Wide enough that a slow CI runner still reads the second page in time; the expiry test waits it out
+        var cacheDuration = "3";
         configurationSection.Value.Returns(cacheDuration);
         configuration.GetSection("PaginationCacheDuration").Returns(configurationSection);
         _sut = new GrpcReaderServiceImpl<Demodto>(Substitute.For<ILogger<GrpcReaderServiceImpl<Demodto>>>(),
@@ -215,7 +216,7 @@ public class DataReaderTests
         _ = await _dataset.Put(SomePackage.Name, SomePackage.ToByteArray(), null, null);
         var putResult = await _dataset.Put(OtherPackage.Name, OtherPackage.ToByteArray(), null, null);
         var firstPage = await _sut.ListChanges(new() { FromDatasetVersion = 0, PageSize = 1 }, default);
-        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        await Task.Delay(TimeSpan.FromSeconds(3.1));
 
         // When
         Func<Task> repeatedCall = () => _sut.ListChanges(new() { PageToken = firstPage.NextPageToken, PageSize = 1 }, default);

@@ -66,8 +66,6 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         }
 
         _deltas[deltaVersion] = (index, dataBytes);
-
-        await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
     }
 
     public Task<(ulong OldestDelta, ulong NewestDelta, List<SnapshotType> Snapshots)> ListVersions()
@@ -122,10 +120,10 @@ public class InMemoryStorageProvider<T> : IStorageProvider<T>
         await _notificationsHub.Notify(new SnapshotCreatedNotification(Version: snapshotVersion));
     }
 
-    public async Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
+    public Task StoreDelta(ulong deltaVersion, byte[] index, byte[] data)
     {
         _deltas[deltaVersion] = (index, data);
-        await _notificationsHub.Notify(new DatasetUpdatedNotification(Version: deltaVersion));
+        return Task.CompletedTask;
     }
 
     public async Task StoreSnapshot(ulong snapshotVersion, byte[] index, Stream data)
