@@ -147,6 +147,7 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
         byte[] data = dto.ToByteArray();
         DeltaIndex index = new() { DeltaVersion = version };
         index.NewEntities.Add(new DeltaEntity { Name = name, Position = 0, Length = data.Length });
+        index.ConvertToTree(); // the format a writer stores: the entity's name is its place in the tree
         await storage.StoreDelta(version, index.ToByteArray(), data);
     }
 

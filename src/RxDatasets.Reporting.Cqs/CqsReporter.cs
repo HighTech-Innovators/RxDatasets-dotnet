@@ -40,13 +40,25 @@ public class CqsReporter<T> : IBatchedDatasetUpdateReporting<T> where T : class,
     public Task OnDeletedDto(string name, string? trackingId, DateTimeOffset? slaTimestamp,
         object? optionalTransaction) => Append(name, trackingId, slaTimestamp, optionalTransaction);
 
-    private async Task Append(string name, string? trackingId, DateTimeOffset? slaTimestamp, object? state)
+    /// <summary>
+    /// An alias was gained or lost. It is reported under its alias name, with the alias value as the id: a queue
+    /// subscribed to <c>type:alias</c> is told which alias changed and reads it through the alias reader. Gaining and
+    /// losing are the same notification; the consumer finds out which by reading. The entity's own change is a
+    /// separate notification under the empty alias name.
+    /// </summary>
+    public Task OnAliasChanged(string aliasName, string alias, string entityName, ChangeType change, string? trackingId,
+        DateTimeOffset? slaTimestamp, object? optionalTransaction) =>
+        Append(alias, trackingId, slaTimestamp, optionalTransaction, aliasName);
+
+    private async Task Append(string name, string? trackingId, DateTimeOffset? slaTimestamp, object? state,
+        string aliasName = "")
     {
         Transaction transaction = GetActiveTransaction(state);
         transaction.Request.Notifications.Add(new DtoChangeNotification
         {
             DtoType = DtoType,
             DtoId = name,
+            AliasName = aliasName,
             TrackingId = trackingId ?? "",
             SlaTimestamp = slaTimestamp.HasValue ? Timestamp.FromDateTimeOffset(slaTimestamp.Value) : null
         });
