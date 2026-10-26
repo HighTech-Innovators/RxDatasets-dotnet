@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -217,8 +218,9 @@ namespace RxDatasets.StorageProvider.LocalDisk
 
         public Task<bool> TryCreateFromStream(string key, Stream stream) => TryCreate(key, stream.CopyToAsync);
 
-        // Create-only writes a uniquely named temp file and moves it without overwriting, so a reader never sees a partly
-        // written object and of concurrent creators exactly one wins.
+        // Create-only writes a uniquely named temp file and then puts it in place in one step that fails when the target
+        // exists, so a reader never sees a partly written object and of concurrent creators exactly one wins. That step
+        // is a move on Windows; on Unix a hard link, since .NET's File.Move checks and then renames, which overwrites.
         private async Task<bool> TryCreate(string key, Func<FileStream, Task> write)
         {
             var filePath = GetFullPath(key);
@@ -230,7 +232,18 @@ namespace RxDatasets.StorageProvider.LocalDisk
                     await write(tempFileStream);
                 }
 
-                File.Move(tempFilePath, filePath, overwrite: false);
+                if (OperatingSystem.IsWindows())
+                {
+                    File.Move(tempFilePath, filePath, overwrite: false);
+                }
+                else if (Libc.link(tempFilePath, filePath) != 0)
+                {
+                    int errno = Marshal.GetLastPInvokeError();
+                    if (errno == Libc.EEXIST)
+                        return false;
+                    throw new IOException($"Could not create {key} (errno {errno})");
+                }
+
                 return true;
             }
             catch (IOException) when (File.Exists(filePath))
@@ -396,5 +409,13 @@ namespace RxDatasets.StorageProvider.LocalDisk
     public class LocalDiskStorageConfig
     {
         public string RootFolder { get; set; } = "dataset-localstorage";
+    }
+
+    internal static class Libc
+    {
+        internal const int EEXIST = 17; // Linux and macOS
+
+        [DllImport("libc", SetLastError = true)]
+        internal static extern int link(string oldpath, string newpath);
     }
 }
