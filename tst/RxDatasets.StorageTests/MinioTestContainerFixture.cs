@@ -15,8 +15,7 @@ namespace RxDatasets.StorageTests
                 .WithName(Guid.NewGuid().ToString("D"))
                 .Build();
             Network.CreateAsync().Wait();
-            Container = new MinioBuilder()
-                .WithImage("pgsty/minio:latest")
+            Container = new MinioBuilder("pgsty/minio:latest")
                 .WithImagePullPolicy(PullPolicy.Always)
                 .WithNetwork(Network)
                 .WithNetworkAliases("minio")

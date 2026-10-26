@@ -31,8 +31,7 @@ public class AzuriteOAuthContainerInstanceFixture : IClassFixture<AzuriteContain
     {
         Certificate = LoadOrCreateCertificate();
 
-        Container = new AzuriteBuilder()
-            .WithImage("mcr.microsoft.com/azure-storage/azurite:latest")
+        Container = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:latest")
             .WithImagePullPolicy(PullPolicy.Always)
             .WithResourceMapping(Encoding.ASCII.GetBytes(Certificate.ExportCertificatePem()), "/certs/cert.pem")
             .WithResourceMapping(Encoding.ASCII.GetBytes(Certificate.GetRSAPrivateKey()!.ExportPkcs8PrivateKeyPem()), "/certs/key.pem")

@@ -16,13 +16,12 @@ public class GoogleCloudContainerInstanceFixture : IClassFixture<IContainer>
         string dockerHost = Environment.GetEnvironmentVariable("DOCKER_HOST") ?? "127.0.0.1";
         dockerHost = dockerHost.Replace("tcp://", "").Split(':')[0]; // Extract the host part if DOCKER_HOST is in tcp:// format
 
-        Container = new ContainerBuilder()
-            .WithImage("fsouza/fake-gcs-server:latest")
+        Container = new ContainerBuilder("fsouza/fake-gcs-server:latest")
             .WithImagePullPolicy(PullPolicy.Always)
             .WithHostname(dockerHost)
             .WithPortBinding(dynamicPort) // Use the dynamic port
             .WithCommand("-scheme", "http", "-port", dynamicPort.ToString(), "-external-url", $"http://{dockerHost}:{dynamicPort}") // Use Docker host
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(dynamicPort))
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(dynamicPort))
             .Build();
     }
 
