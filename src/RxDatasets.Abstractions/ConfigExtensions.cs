@@ -47,7 +47,9 @@ namespace RxDatasets.Abstractions
 
                     // Reset the color to the default
                     Console.ResetColor();
-                    Console.WriteLine($"{typeof(TConfig).Namespace}.{typeof(TConfig).Name} \n      Key: {key}__{child.Key}, Value: {child.Value}");
+                    // The key only, never the value: a section can hold a secret (a storage provider's
+                    // SecretKey or ConnectionString), and stdout is the container log (VLOW-37).
+                    Console.WriteLine($"{typeof(TConfig).Namespace}.{typeof(TConfig).Name} \n      Key: {key}__{child.Key}");
                 }
 
                 LoggedConfigKeys.Add(key);
