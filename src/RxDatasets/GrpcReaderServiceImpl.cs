@@ -227,8 +227,15 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
             }
             // For client-initiated cancellations, you don't necessarily need to throw an RpcException
-            // because the client already knows it cancelled the operation.
-            return new ListChangesResponse();
+            // because the client already knows it cancelled the operation. The lists are empty rather
+            // than null: a default record struct would leave them null, and callers map them.
+            return new ListChangesResponse
+            {
+                NewEntities = [],
+                ChangedEntities = [],
+                DeletedEntities = [],
+                NextPageToken = ""
+            };
         }
     }
 
