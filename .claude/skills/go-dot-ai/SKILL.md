@@ -1,0 +1,1 @@
+../../../.ai/skills/go-dot-ai/SKILL.md

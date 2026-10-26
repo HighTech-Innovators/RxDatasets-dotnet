@@ -1,0 +1,1 @@
+../../../.ai/skills/prototype/SKILL.md

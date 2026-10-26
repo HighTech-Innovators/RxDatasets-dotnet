@@ -488,4 +488,6 @@ $RECYCLE.BIN/
 # NCrunch
 .NCrunch*
 
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/settings.json

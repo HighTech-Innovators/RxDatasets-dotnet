@@ -1,0 +1,1 @@
+../../../.ai/skills/writing-for-agents/SKILL.md

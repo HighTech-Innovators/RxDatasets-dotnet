@@ -1,0 +1,1 @@
+../../../.ai/skills/domain-modeling/TERMINOLOGY-FORMAT.md

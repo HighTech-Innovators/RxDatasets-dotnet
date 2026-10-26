@@ -1,0 +1,1 @@
+../../../.ai/skills/wizard-of-ai/SKILL.md

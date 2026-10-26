@@ -1,0 +1,1 @@
+../../../.ai/skills/go-dot-ai/TITLE_BLOCKS.md

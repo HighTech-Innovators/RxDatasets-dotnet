@@ -1,0 +1,1 @@
+../../../.ai/skills/guided-brief/SKILL.md

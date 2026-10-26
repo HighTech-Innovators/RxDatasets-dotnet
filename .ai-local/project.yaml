@@ -1,0 +1,94 @@
+# Per-project manifest. Agents read this file first every session.
+# On install, copy to `.ai-local/project.yaml` and fill in project-specific
+# fields. Commit the copy; this `.example` stays as the scaffold
+# reference.
+#
+# SECURITY: Never store secrets, API keys, or sensitive local-only paths
+# in .ai-local/project.yaml. This file is intended to be committed.
+
+project:
+  name: "RxDatasets"
+  type: dotnet
+  stacks: [dotnet]
+  domain: reactive-data-storage
+
+rules:
+  # Core rules are loaded at the start of every session.
+  core:
+    - .ai/rules/global/00-intent-routing.md
+    - .ai/rules/global/01-principles.md
+    - .ai/rules/global/02-agent-conduct.md
+    - .ai/rules/global/11-validation-discipline.md
+    - .ai/rules/global/14-safety-enforcement.md
+    - .ai/rules/global/15-memory-management.md
+  # Contextual rules are loaded dynamically based on the active skill or persona.
+  contextual:
+    - .ai/rules/global/*
+    - .ai/rules/stacks/dotnet/*
+    - .ai-local/rules/*
+
+personas:
+  enabled: [architect, auditor, dependency-manager, designer, implementer, product-analyst, release-engineer, reviewer, security-reviewer, tester]
+  ownership:
+    architect:       [specs, decisions]
+    product-analyst: [briefs]
+    implementer:     [plans]
+    designer:        [design_system, design_system_global]
+
+terminology:
+  # Always loaded, in order. .ai-local/terminology/*.md wins on
+  # same-filename collision with .ai/terminology/*.md.
+  load:
+    - .ai/terminology/*.md
+    - .ai-local/terminology/*.md
+
+paths:
+  briefs: docs/briefs
+  specs: docs/specs
+  plans: docs/plans
+  decisions: docs/decisions
+  design_system: docs/design-system.md
+  design_system_global: .ai/docs/core/design-system.md
+  index: docs/README.md
+
+# Optional. Omit entirely, or set type: local, for "no remote
+# tracker" — every publish/sync/close call in
+# 17-tracker-integration.md becomes a documented no-op. Never put a
+# credential value here. auth: cli uses the CLI's own stored login
+# (glab/gh); auth: env reads the token from the environment variable
+# named in credential_env at call time. go-dot-ai detects and fills
+# this block.
+#
+# tracker:
+#   type: gitlab                  # gitlab | github | jira | local
+#   url: https://gitlab.example.com
+#   project: group/subgroup/project
+#   auth: cli                     # cli | env
+#   label_prefix: ai-plan         # optional, default "ai-plan"
+#
+# tracker:
+#   type: github
+#   url: https://api.github.com
+#   project: my-org/my-repo
+#   auth: env
+#   credential_env: GITHUB_TOKEN  # required when auth: env
+#   label_prefix: ai-plan
+#
+# tracker:
+#   type: jira                    # jira has no CLI: auth: env only
+#   url: https://my-org.atlassian.net
+#   project: PROJ
+#   auth: env
+#   credential_env: JIRA_TOKEN
+#   label_prefix: ai-plan
+#
+# tracker:
+#   type: local
+
+
+# Remote detected: gitlab @ gitlab.developer.htiprojects.nl,
+# project oss/rxdatasets/RxDatasets-dotnet. Set to local because no
+# glab CLI and no GITLAB_TOKEN/GLAB_TOKEN were available on 2026-10-22.
+# Re-run go-dot-ai once one of them works.
+tracker:
+  type: local

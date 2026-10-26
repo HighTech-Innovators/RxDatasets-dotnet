@@ -1,0 +1,1 @@
+../../../.ai/skills/manage-dependencies/SKILL.md
