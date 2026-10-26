@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.TestImplementations.InMemoryProvider;
 
 namespace RxDatasets.StorageTests;
@@ -29,6 +30,9 @@ public class SharedReaderWriterHostTests : IAsyncLifetime
         builder.Services.AddSingleton<IDiskStorage<Demodto>>(
             new LowLevelInMemoryStorage<Demodto>(Mock.Of<ILogger<LowLevelInMemoryStorage<Demodto>>>()));
         builder.Services.AddDtoServer<Demodto>().WithSharedReaderWriter().Build();
+        builder.Services.AddSingleton<ReadingReporter>();
+        builder.Services.AddSingleton<DatasetUpdateReportingPlugin<Demodto, ReadingReporter>>();
+        builder.Services.AddHostedService<DatasetUpdateConsumingService<Demodto, DatasetUpdateReportingPlugin<Demodto, ReadingReporter>>>();
         _host = builder.Build();
 
         // Resolve before starting: they pick up the storage readiness notification sent during StartAsync
@@ -107,7 +111,55 @@ public class SharedReaderWriterHostTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Reporter_ReadsEachWrite_WhenItIsReported()
+    {
+        // A reporter (e.g. a change queue) whose consumer reads the current state must not read the state before
+        // the write: for a delete it would re-create what was deleted, and no later report repairs that
+        var reporter = _host.Services.GetRequiredService<ReadingReporter>();
+        for (var i = 0; i < Iterations; i++)
+        {
+            var name = $"reported/child{i:D4}";
+            // Each write waits for its report, so a report never reads a later write
+            await _writer.Put(name, Entity(name, $"v{i}"));
+            await WaitForReports(reporter, 2 * i + 1);
+            await _writer.Delete(name);
+            await WaitForReports(reporter, 2 * i + 2);
+        }
+
+        reporter.Reports.Where(r => !r.Readable).Should().BeEmpty();
+    }
+
+    private static async Task WaitForReports(ReadingReporter reporter, int count)
+    {
+        for (var attempt = 0; attempt < 500 && reporter.Reports.Count < count; attempt++)
+            await Task.Delay(10);
+        reporter.Reports.Should().HaveCount(count);
+    }
+
     private static byte[] Entity(string name, string value) => new Demodto { Name = name, SomeString = value }.ToByteArray();
+
+    private sealed class ReadingReporter(IServiceProvider services) : IDatasetUpdateReporting<Demodto>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(string Name, bool Deleted, bool Readable)> Reports { get; } = new();
+        public string ReportingIdentifier => "reading-reporter";
+
+        public Task OnNewDto(string name, byte[] bytes, string? trackingId, DateTimeOffset? sla, object? transaction) =>
+            Record(name, deleted: false);
+
+        public Task OnChangedDto(string name, byte[] bytes, string? trackingId, DateTimeOffset? sla, object? transaction) =>
+            Record(name, deleted: false);
+
+        public Task OnDeletedDto(string name, string? trackingId, DateTimeOffset? sla, object? transaction) =>
+            Record(name, deleted: true);
+
+        private async Task Record(string name, bool deleted)
+        {
+            var read = await services.GetRequiredService<IDatasetReader<Demodto>>().Get(name);
+            // Puts and deletes of one name alternate, so a read showing the opposite state is the previous write
+            Reports.Enqueue((name, deleted, Readable: (read == null) == deleted));
+        }
+    }
 
     private async Task WaitUntilInitialized()
     {

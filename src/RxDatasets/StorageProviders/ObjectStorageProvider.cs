@@ -127,7 +127,6 @@ public class ObjectStorageProvider<T>(
             await _storage.UploadBytes(indexObjectName, index);
 
         await PersistDeltaInfo(deltaVersion);
-        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
     public async Task StoreDelta(ulong deltaVersion, byte[] index, Stream data)
     {
@@ -151,7 +150,6 @@ public class ObjectStorageProvider<T>(
             await _storage.UploadBytes(indexObjectName, index);
 
         await PersistDeltaInfo(deltaVersion);
-        await _notificationsHub.Notify(new DatasetUpdatedNotification(deltaVersion));
     }
 
     private async Task PersistDeltaInfo(ulong deltaVersion)
