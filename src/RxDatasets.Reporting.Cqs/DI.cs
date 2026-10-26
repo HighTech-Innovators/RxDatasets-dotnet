@@ -20,7 +20,8 @@ public static class DtoServerBuilderExtensions
         builder.Services.AddSingleton<CqsReporter<TEntity>>();
         builder.Services.AddSingleton<BatchingDatasetUpdateReportingPlugin<TEntity, CqsReporter<TEntity>>>();
         builder.Services
-            .AddHostedService<DatasetUpdateConsumingService<TEntity, BatchingDatasetUpdateReportingPlugin<TEntity, CqsReporter<TEntity>>>>();
+            .AddHostedService<
+                DatasetUpdateConsumingService<TEntity, BatchingDatasetUpdateReportingPlugin<TEntity, CqsReporter<TEntity>>>>();
 
         return builder;
     }

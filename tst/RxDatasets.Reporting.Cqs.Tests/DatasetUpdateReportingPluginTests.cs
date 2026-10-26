@@ -258,7 +258,8 @@ public class BatchingDatasetUpdateReportingPluginTests
             .Should().ThrowAsync<OperationCanceledException>();
 
         reporter.Names.Should().Equal("entity/1");
-        reporter.RolledBackStates.Should().ContainSingle().Which.Should().BeSameAs(reporter.States.Should().ContainSingle().Which);
+        reporter.RolledBackStates.Should().ContainSingle().Which
+            .Should().BeSameAs(reporter.States.Should().ContainSingle().Which);
         reporter.CommittedStates.Should().BeEmpty();
         (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(0ul);
         reporter.AfterRecord = null;
@@ -417,7 +418,10 @@ public class BatchingDatasetUpdateReportingPluginTests
                 // Two new entities in one delta, the second at a non-zero position in the data file.
                 index = new DeltaIndex { DeltaVersion = version };
                 index.NewEntities.Add(new DeltaEntity { Name = $"entity/{version}", Position = 0, Length = data.Length });
-                index.NewEntities.Add(new DeltaEntity { Name = $"entity/{version}b", Position = data.Length, Length = data.Length });
+                index.NewEntities.Add(new DeltaEntity
+                {
+                    Name = $"entity/{version}b", Position = data.Length, Length = data.Length
+                });
                 data = [.. data, .. data];
             }
 
@@ -438,7 +442,8 @@ public class BatchingDatasetUpdateReportingPluginTests
         request.FireAndForget.Should().BeFalse();
         request.Notifications.Select(notification => notification.DtoId)
             .Should().Equal(Enumerable.Range(first, count).Select(version => $"entity/{version}"));
-        request.Notifications.Should().AllSatisfy(notification => notification.DtoType.Should().Be(Timestamp.Descriptor.FullName));
+        request.Notifications.Should().AllSatisfy(
+            notification => notification.DtoType.Should().Be(Timestamp.Descriptor.FullName));
     }
 
     private sealed class RecordingReporter : IBatchedDatasetUpdateReporting<Timestamp>

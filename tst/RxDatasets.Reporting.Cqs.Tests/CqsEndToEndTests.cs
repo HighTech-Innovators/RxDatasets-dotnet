@@ -48,7 +48,8 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
             FailureLogger<BatchingDatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>> firstLog = new();
             FailureLogger<BatchingDatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>>> secondLog = new();
             BatchingDatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>> firstPlugin = new(first, firstLog, firstReporter);
-            BatchingDatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>> secondPlugin = new(second, secondLog, secondReporter);
+            BatchingDatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>> secondPlugin =
+                new(second, secondLog, secondReporter);
 
             await Store(first, 1, new Demodto { Name = "demo/before", SomeString = "first payload" });
             await Store(second, 1, new Demodto2 { Name = "demo2/before", SomeInt = 42 });
@@ -60,7 +61,8 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
             await server.Stop(timeout.Token);
             await Store(first, 2, new Demodto { Name = "demo/during", SomeString = "queued during outage" });
             await Store(second, 2, new Demodto2 { Name = "demo2/during", SomeInt = 84 });
-            Task processing = Task.WhenAll(firstPlugin.HandleNewDeltas(timeout.Token), secondPlugin.HandleNewDeltas(timeout.Token));
+            Task processing = Task.WhenAll(
+                firstPlugin.HandleNewDeltas(timeout.Token), secondPlugin.HandleNewDeltas(timeout.Token));
             try
             {
                 await Task.WhenAll(firstLog.Failed.Task, secondLog.Failed.Task).WaitAsync(timeout.Token);
@@ -128,7 +130,8 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
             QueueName = queue, MaxNotifications = 100, WaitTimeMilliseconds = 100
         }, deadline: DateTime.UtcNow.AddSeconds(5), cancellationToken: cancellation);
         empty.Notifications.Should().BeEmpty();
-        output.WriteLine($"Queue {queue}: {dtoType} => {string.Join(", ", received.Select(item => item.DtoId))}; acknowledged; empty.");
+        output.WriteLine($"Queue {queue}: {dtoType} => {string.Join(", ", received.Select(item => item.DtoId))}; " +
+            "acknowledged; empty.");
     }
 
     private static InMemoryStorageProvider<TDto> CreateStorage<TDto>() where TDto : class, IMessage<TDto>, new() =>

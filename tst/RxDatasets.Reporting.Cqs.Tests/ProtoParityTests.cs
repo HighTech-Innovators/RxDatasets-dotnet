@@ -14,7 +14,8 @@ public sealed class CqsSourceTheoryAttribute : TheoryAttribute
     {
         if (!Directory.Exists(CqsSource.Root))
         {
-            Skip = $"CQS source not found at {CqsSource.Root}. Check out the sibling ChangeQueueService-rust or set CQS_SOURCE_ROOT.";
+            Skip = $"CQS source not found at {CqsSource.Root}. " +
+                "Check out the sibling ChangeQueueService-rust or set CQS_SOURCE_ROOT.";
         }
     }
 }
@@ -45,7 +46,8 @@ public class ProtoParityTests
         string source = Path.Combine(CqsSource.Root, "protos", fileName);
         string copy = Path.Combine(AppContext.BaseDirectory, "Protos", fileName);
         File.Exists(source).Should().BeTrue($"CQS source proto not found: {source}.");
-        File.Exists(copy).Should().BeTrue($"Reporter proto copy not found: {copy}. Build the test project to copy its contracts.");
+        File.Exists(copy).Should().BeTrue(
+            $"Reporter proto copy not found: {copy}. Build the test project to copy its contracts.");
 
         // Line endings are whatever git checked out on that machine; the contract is the text.
         Normalized(source).Should().Be(Normalized(copy),
