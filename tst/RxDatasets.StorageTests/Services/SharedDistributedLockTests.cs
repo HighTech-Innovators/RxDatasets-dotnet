@@ -86,18 +86,45 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_Dataset_That_Joins_After_The_Lock_Stopped_Is_Not_Told_It_Holds_It()
+    public async Task A_Dataset_That_Joins_While_The_Lock_Stops_Never_Has_It()
     {
         var a = await StartInstance();
         WaitUntil(() => a.AllHold(DistirbutedLockStatus.Acquried));
-        await a.StopAsync();
+        var stopping = a.Lock.StopAsync(CancellationToken.None); // A's datasets still hold it
 
         var (late, lastStatus, _) = Member<int>(a.Lock);
         await late.StartAsync(CancellationToken.None);
         await Task.Delay(200); // the hub would replay at once
-
+        a.Lock.HasLock.Should().BeTrue();
         lastStatus().Should().BeNull();
         late.HasLock.Should().BeFalse();
+        late.State.Should().Be(LockServiceState.Idle);
+
+        foreach (var (member, _) in a.Datasets)
+            await member.StopAsync(CancellationToken.None);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10));
+        lastStatus().Should().BeNull();
+        late.HasLock.Should().BeFalse();
+        await late.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_Lock_That_Is_Stopping_Does_Not_Yield_To_A_New_Instance()
+    {
+        var a = await StartInstance();
+        WaitUntil(() => a.AllHold(DistirbutedLockStatus.Acquried));
+        var stopping = a.Lock.StopAsync(CancellationToken.None); // A's datasets still drain
+
+        var b = await StartInstance(); // asks A for the lock
+        await Task.Delay(500); // ten polls; a handover takes one or two
+        a.Lock.HasLock.Should().BeTrue("A's datasets haven't flushed yet");
+        a.AllHold(DistirbutedLockStatus.Acquried).Should().BeTrue();
+        b.Lock.HasLock.Should().BeFalse();
+
+        foreach (var (member, _) in a.Datasets)
+            await member.StopAsync(CancellationToken.None);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10));
+        WaitUntil(() => b.AllHold(DistirbutedLockStatus.Acquried));
     }
 
     [Fact]
@@ -144,7 +171,10 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
         await failing.StartAsync(CancellationToken.None);
 
         await failing.Invoking(m => m.StopAsync(CancellationToken.None)).Should().NotThrowAsync();
-        await a.StopAsync().WaitAsync(TimeSpan.FromSeconds(10)); // the lock no longer waits for it
+        foreach (var (member, _) in a.Datasets)
+            await member.StopAsync(CancellationToken.None);
+        // Without a stop timeout: it only completes if the failing dataset left
+        await a.Lock.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]

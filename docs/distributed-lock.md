@@ -469,14 +469,15 @@ services.AddDtoServer<Label>().WithGoogleCloudStorage().WithSharedDistributedLoc
 - Everything in the scenarios above holds for the instance as a whole: one `request-lock` asks for all datasets, one
   renewal keeps them, and a takeover moves them all.
 - The lock starts when the first dataset joins. On stop it waits until every dataset has stopped, which flushes the
-  dataset's storage and leaves, and only then releases the lock, so the next holder sees all their writes. A dataset
+  dataset's storage and leaves, and only then releases the lock, so the next holder sees all their writes. Meanwhile
+  it no longer yields to a `request-lock`: an instance that starts during the shutdown waits for the release. A dataset
   that has left no longer has the lock, so it refuses writes its flush would miss.
 - A host that stops its services one after the other (the default) stops them in reverse order of registration:
   register the lock before the services that start and stop the datasets. Registered after them, it is stopped first
   and waits for datasets the host stops only after it, so every shutdown hangs until the host's shutdown timeout and
   then releases before they flushed. With `HostOptions.ServicesStopConcurrently` the order doesn't matter.
 - When the stop token fires first (the host's shutdown timeout), it logs a warning and releases anyway. A dataset that
-  joins once the lock is stopping gets no state.
+  joins once the lock is stopping gets no state and never has the lock.
 - `lockFolder` names the server: instances that share it hand over to each other, so give every kind of server its own.
 
 A host that builds a service collection per dataset registers the lock, and with it the lock's storage, in its root,
@@ -504,8 +505,8 @@ sequenceDiagram
     participant B1 as B: Link
     participant B2 as B: Label
     Note over LA: holds MyServerLock/lock-file
-    LA-->>A1: Acquried
-    LA-->>A2: Acquried
+    LA-->>A1: Acquired
+    LA-->>A2: Acquired
     Note over LB: B starts, first dataset joins
     LB->>S: write MyServerLock/request-lock = B
     LA->>S: read request-lock (≤ 5 s)
@@ -514,6 +515,6 @@ sequenceDiagram
     LA-->>A1: Lost
     LA-->>A2: Lost
     LB->>S: acquire (CAS, ≤ 5 s)
-    LB-->>B1: Acquried
-    LB-->>B2: Acquried
+    LB-->>B1: Acquired
+    LB-->>B2: Acquired
 ```
