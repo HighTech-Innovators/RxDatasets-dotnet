@@ -47,8 +47,11 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
         var bothHeld = Task.Run(() =>
         {
             while (!sampler.IsCancellationRequested)
+            {
                 if (a.Lock.HasLock && b.Lock.HasLock)
                     return true;
+                Thread.Yield();
+            }
             return false;
         });
         WaitUntil(() => b.AllHold(DistirbutedLockStatus.Acquried));
@@ -110,6 +113,62 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Stopping_The_Lock_First_Releases_It_Only_After_The_Last_Dataset_Flushed_And_Left()
+    {
+        var a = await StartInstance();
+        WaitUntil(() => a.AllHold(DistirbutedLockStatus.Acquried));
+        var heldWhileFlushing = false;
+        var storage = new Mock<IDiskStorage<int>>(MockBehavior.Strict);
+        storage.Setup(s => s.FlushAsync()).Returns(() =>
+        {
+            heldWhileFlushing = a.Lock.HasLock;
+            return Task.CompletedTask;
+        });
+        var last = new SharedDistributedLockMember<int>(a.Lock, storage.Object, new NotificationsHub<int>(),
+            NullLogger<SharedDistributedLockMember<int>>.Instance);
+        await last.StartAsync(CancellationToken.None);
+
+        // As a host that stops its services concurrently, or registered the lock after the datasets
+        var stopping = a.Lock.StopAsync(CancellationToken.None);
+        foreach (var (member, _) in a.Datasets)
+            await member.StopAsync(CancellationToken.None);
+        await Task.Delay(200);
+        stopping.IsCompleted.Should().BeFalse("a dataset is still writing");
+        a.Lock.HasLock.Should().BeTrue();
+
+        await last.StopAsync(CancellationToken.None);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10));
+        heldWhileFlushing.Should().BeTrue("a dataset flushes before the lock is released");
+        a.Lock.HasLock.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_Dataset_Whose_Flush_Fails_Still_Leaves()
+    {
+        var a = await StartInstance();
+        var storage = new Mock<IDiskStorage<int>>(MockBehavior.Strict);
+        storage.Setup(s => s.FlushAsync()).ThrowsAsync(new InvalidOperationException("storage gone"));
+        var failing = new SharedDistributedLockMember<int>(a.Lock, storage.Object, new NotificationsHub<int>(),
+            NullLogger<SharedDistributedLockMember<int>>.Instance);
+        await failing.StartAsync(CancellationToken.None);
+
+        await failing.Invoking(m => m.StopAsync(CancellationToken.None)).Should().NotThrowAsync();
+        await a.StopAsync().WaitAsync(TimeSpan.FromSeconds(10)); // the lock no longer waits for it
+    }
+
+    [Fact]
+    public async Task Stopping_The_Lock_Releases_It_When_The_Stop_Times_Out()
+    {
+        var a = await StartInstance();
+        WaitUntil(() => a.AllHold(DistirbutedLockStatus.Acquried));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await a.Lock.StopAsync(timeout.Token).WaitAsync(TimeSpan.FromSeconds(10)); // its datasets never stop
+
+        a.Lock.HasLock.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_Dataset_Cannot_Have_Both_Its_Own_And_The_Shared_Lock()
     {
         var build = () => new ServiceCollection().AddDtoServer<StringValue>()
@@ -135,8 +194,10 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
         var sharedLock = provider.GetRequiredService<SharedDistributedLock>();
         var datasetLock = provider.GetRequiredService<IDistributedLock<StringValue>>();
         datasetLock.Should().BeOfType<SharedDistributedLockMember<StringValue>>();
-        hostedServices.Should().StartWith(sharedLock, "it stops last when it is registered first")
-            .And.Contain((IHostedService)datasetLock);
+        hostedServices.Should().Contain(sharedLock).And.Contain((IHostedService)datasetLock);
+        provider.GetRequiredService<IDiskStorage<SharedDistributedLock>>().Should()
+            .BeSameAs(provider.GetRequiredService<IConditionalDiskStorage<SharedDistributedLock>>(),
+                "a provider's health check watches the lock's storage through it");
 
         await sharedLock.StartAsync(CancellationToken.None);
         await ((IHostedService)datasetLock).StartAsync(CancellationToken.None);
@@ -177,7 +238,8 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
             last = n.LockStatus;
             return Task.CompletedTask;
         });
-        return (new SharedDistributedLockMember<T>(sharedLock, storage.Object, hub), () => last, storage);
+        return (new SharedDistributedLockMember<T>(sharedLock, storage.Object, hub,
+            NullLogger<SharedDistributedLockMember<T>>.Instance), () => last, storage);
     }
 
     private static void WaitUntil(Func<bool> condition) =>
@@ -188,7 +250,10 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
     public async Task DisposeAsync()
     {
         foreach (var instance in _instances)
+        {
             await instance.StopAsync();
+            instance.Lock.Dispose();
+        }
     }
 
     private sealed class CountingClock : IClock
@@ -229,7 +294,7 @@ public sealed class SharedDistributedLockTests : IAsyncLifetime
 
         public async Task StopAsync()
         {
-            // As a host does: the datasets first, then the shared lock, which releases it
+            // The datasets first, then the shared lock, which releases it (it would wait for them otherwise)
             foreach (var (member, _) in Datasets)
                 await member.StopAsync(CancellationToken.None);
             await Lock.StopAsync(CancellationToken.None);

@@ -17,7 +17,7 @@ namespace RxDatasets.BackgroundServices;
 /// a handover passes all of them at once. The lock is a <see cref="DistributedLockService{TEntity}"/> with its files in
 /// <c>{CustomRootFolder}{lockFolder}/</c> on a storage of its own, which must reach the store the datasets use. That
 /// storage is conditional (compare-and-swap) by type, and belongs to whoever registered it, not to a dataset. The lock
-/// starts when the first dataset joins and releases the lock when this service stops.
+/// starts when the first dataset joins, and releases the lock when this service has stopped and every dataset has left.
 /// </summary>
 public sealed class SharedDistributedLock : IDistributedLock, IHostedService, IDisposable
 {
@@ -25,6 +25,8 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     private readonly DistributedLockService<SharedDistributedLock> _lock;
     private readonly IDisposable _subscription;
     private readonly List<Func<DistributedLockNotification, Task>> _members = [];
+    private readonly TaskCompletionSource _allLeft = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ILogger _logger;
     private DistributedLockNotification? _last;
     private bool _started;
     private bool _stopped;
@@ -37,6 +39,7 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
         IOptions<DistributedLockOptions>? lockOptions = null,
         IClock? clock = null)
     {
+        _logger = loggerFactory.CreateLogger<SharedDistributedLock>();
         // Its only subscriber, there before any change: the lock's changes reach Forward once and in order
         var hub = new NotificationsHub<SharedDistributedLock>();
         _subscription = hub.Subscribe<DistributedLockNotification>(Forward);
@@ -51,14 +54,16 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     /// <summary>
     /// Joins a dataset: starts the lock if this is the first one, and passes every lock change to
     /// <paramref name="onChange"/>, starting with the current state if there has been a change already. Once this
-    /// service has stopped, a dataset that joins gets no changes.
+    /// service is stopping, a dataset that joins gets no changes.
     /// </summary>
     /// <returns>Disposing it stops passing changes on</returns>
     public IDisposable Join(Func<DistributedLockNotification, Task> onChange)
     {
         lock (_sync)
         {
-            if (!_started && !_stopped)
+            if (_stopped)
+                return Disposable.Empty;
+            if (!_started)
             {
                 _started = true;
                 _lock.StartAsync(CancellationToken.None).GetAwaiter().GetResult(); // only starts its loop
@@ -74,7 +79,11 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
         return Disposable.Create(() =>
         {
             lock (_sync)
+            {
                 _members.Remove(onChange);
+                if (_stopped && _members.Count == 0)
+                    _allLeft.TrySetResult();
+            }
         });
     }
 
@@ -83,9 +92,9 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
         Task[] sent;
         lock (_sync)
         {
-            if (_stopped)
-                return Task.CompletedTask;
-            _last = change;
+            // While it stops, the datasets that haven't left yet still write, so they still get a Lost
+            if (!_stopped)
+                _last = change;
             sent = _members.Select(onChange => onChange(change)).ToArray();
         }
 
@@ -94,17 +103,33 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits until every dataset has left (stopped and flushed), so it doesn't matter whether the host stops this
+    /// service before, after or together with the datasets, then releases the lock. When
+    /// <paramref name="cancellationToken"/> fires first, it releases the lock anyway.
+    /// </summary>
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         lock (_sync)
         {
             _stopped = true;
             _last = null; // it releases the lock below, so a dataset that joins later must not be told Acquried
             if (!_started)
-                return Task.CompletedTask;
+                return;
+            if (_members.Count == 0)
+                _allLeft.TrySetResult();
         }
 
-        return _lock.StopAsync(cancellationToken);
+        try
+        {
+            await _allLeft.Task.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Releasing the shared lock while datasets still hold it: the stop timed out");
+        }
+
+        await _lock.StopAsync(cancellationToken);
     }
 
     public void Dispose()
@@ -121,7 +146,8 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
 public sealed class SharedDistributedLockMember<TEntity>(
     SharedDistributedLock sharedLock,
     IDiskStorage<TEntity> storage,
-    INotificationsHub<TEntity> notificationsHub)
+    INotificationsHub<TEntity> notificationsHub,
+    ILogger<SharedDistributedLockMember<TEntity>> logger)
     : IDistributedLock<TEntity>, IHostedService, IDisposable
 {
     private IDisposable? _subscription;
@@ -137,9 +163,17 @@ public sealed class SharedDistributedLockMember<TEntity>(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        // The shared lock flushes only its own storage, and releases the lock once every dataset has left
+        try
+        {
+            await storage.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error flushing storage write queue before leaving the shared lock.");
+        }
+
         Dispose();
-        // The shared lock flushes only its own storage before it releases the lock
-        await storage.FlushAsync();
     }
 
     public void Dispose() => _subscription?.Dispose();
@@ -150,9 +184,10 @@ public static class SharedDistributedLockExtensions
     /// <summary>
     /// Registers the instance's <see cref="SharedDistributedLock"/> on a <typeparamref name="TStorage"/> of its own, with
     /// the root folder of the <c>Storage</c> section and the options of the <c>DistributedLock</c> section. The storage's
-    /// own section (e.g. <c>GoogleCloud</c>) must be registered too, as a dataset's <c>With…Storage()</c> does. Register
-    /// it before the services that start and stop the datasets: a host that stops its services one after the other (not
-    /// <c>HostOptions.ServicesStopConcurrently</c>) then stops it, and releases the lock, after them.
+    /// own section (e.g. <c>GoogleCloud</c>) must be registered too, as a dataset's <c>With…Storage()</c> does. The order
+    /// of registration doesn't matter: it releases the lock only once every dataset has stopped. The storage is also
+    /// registered as <c>IDiskStorage&lt;SharedDistributedLock&gt;</c>, so the provider's health check can watch it
+    /// (e.g. <c>AddCheck&lt;GoogleCloudHealthCheck&lt;SharedDistributedLock&gt;&gt;</c>); nothing else does.
     /// </summary>
     /// <typeparam name="TStorage">The datasets' kind of storage, e.g. <c>GoogleCloudStorage&lt;SharedDistributedLock&gt;</c>;
     /// only a conditional one will do.</typeparam>
@@ -165,6 +200,8 @@ public static class SharedDistributedLockExtensions
         services.AddValidatedConfigSection<StorageConfig>();
         services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
         services.TryAddSingleton<IConditionalDiskStorage<SharedDistributedLock>, TStorage>();
+        services.TryAddSingleton<IDiskStorage<SharedDistributedLock>>(sp =>
+            sp.GetRequiredService<IConditionalDiskStorage<SharedDistributedLock>>());
         services.AddSingleton(sp => ActivatorUtilities.CreateInstance<SharedDistributedLock>(sp, lockFolder));
         services.AddHostedService(sp => sp.GetRequiredService<SharedDistributedLock>());
         return services;
