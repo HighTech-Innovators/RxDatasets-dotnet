@@ -397,8 +397,14 @@ sequenceDiagram
 ```
 
 Data without an index that is younger than a minute is a conflict instead: it may belong to a writer that is about to
-write its index. After a crash the lock takes longer than a minute to pass on, so a new holder normally finds the data
-old enough.
+write its index. That conflict doesn't reload the dataset (the writer isn't behind), so reads go on. After a crash the
+lock takes longer than a minute to pass on, so a new holder normally finds the data old enough.
+
+The age compares this host's clock with the storage's timestamp of the file: a host whose clock runs ahead of the
+storage by more than a minute can take data that another writer just created for left over.
+
+The version listing (used when `DeltaInfo.pb` is missing or broken) also counts a delta only by its `index.pb`, so data
+left by a crash doesn't stop a host from starting.
 
 ## Fenced delta commit
 
@@ -410,9 +416,14 @@ On storage with compare-and-swap, `ObjectStorageProvider.StoreDelta` stores delt
    `DeltaInfo.pb`.
 3. Write `DeltaInfo.pb`. It is a hint; if this write fails, the delta is still stored and the write succeeds.
 
-Any failed precondition throws `System.Data.DBConcurrencyException`. The provider then reports NotReady and, unless
-the lock is lost, initializes again and reports Ready, so the writer and reader reload from storage. The write that
-failed is not stored; the caller should retry it.
+Any failed precondition throws `System.Data.DBConcurrencyException`. When the writer is behind (the index exists, or
+the previous version is gone) the provider then reports NotReady and, unless the lock is lost, initializes again and
+reports Ready, so the writer and reader reload from storage. The write that failed is not stored; the caller should
+retry it.
+
+A create whose response got lost (the SDK retries a request that had landed, and the retry finds the object) is not a
+conflict: an index that holds exactly our bytes is ours. The lock does the same for an acquire: a lock file holding the
+token it tried to write is its lock.
 
 ### What is and isn't guaranteed
 
@@ -421,5 +432,10 @@ failed is not stored; the caller should retry it.
 - The remaining gap: a writer that pauses for more than a minute between creating its data and its index, and then
   resumes exactly while the next writer replaces that data (scenario 13), can store its index over the other's data.
   Closing it needs a per-attempt data name referenced from the index, which is a change to the disk format.
+- Only deltas are fenced. A holder whose lock expired unnoticed can still write a snapshot, `SnapshotInfo.pb`,
+  `ProcessedVersions.pb` or clean, until it notices (scenario 7).
+- Minio: `minio-dotnet` uploads objects of 5 MiB or more in parts and drops the condition, so for delta data that size
+  the create is check-then-write. Two writers creating the same version's large data at the same moment can both
+  succeed; the index still decides, but may then point into the other's data.
 - Queued `DeltaInfo.pb` writes of an instance that yielded may land after the new holder's. Readers then see an older
   `latest_delta_version`, and find the newer deltas by their index.

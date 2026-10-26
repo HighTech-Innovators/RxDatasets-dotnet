@@ -54,10 +54,11 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
 
         try
         {
+            // Stored first: a rejected delta must never be served from the cache
+            await _storageProvider.StoreDelta(deltaVersion, index, data);
+
             SetCache(indexCacheKey, new ReadOnlyMemory<byte>(index));
             SetCache(dataCacheKey, new ReadOnlyMemory<byte>(data));
-
-            await _storageProvider.StoreDelta(deltaVersion, index, data);
         }
         catch (Exception ex)
         {
@@ -118,19 +119,19 @@ public class CacheStorageProvider<T, TStorageProvider> : ReadOnlyCacheStoragePro
         var dataCacheKey = GetCacheKey(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta);
         try
         {
-            SetCache(indexCacheKey, index);
+            // Stored first: a rejected delta must never be served from the cache
             if (data.Length <= _cacheConfig.Value.CacheSizeMB * MB_BYTES)
             {
                 var byteArray = new byte[data.Length];
                 _ = await data.ReadAsync(byteArray, 0, (int)data.Length);
-                var bytesAsSpan = new ReadOnlyMemory<byte>(byteArray);
-                SetCache(dataCacheKey, bytesAsSpan);
                 await _storageProvider.StoreDelta(deltaVersion, index, byteArray);
+                SetCache(dataCacheKey, new ReadOnlyMemory<byte>(byteArray));
             }
             else
             {
                 await _storageProvider.StoreDelta(deltaVersion, index, data);
             }
+            SetCache(indexCacheKey, index);
         }
         catch (Exception ex)
         {

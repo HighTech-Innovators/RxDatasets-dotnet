@@ -6,6 +6,7 @@ using RxDatasets.Abstractions;
 using RxDatasets.Configs;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProvider.LocalDisk;
+using RxDatasets.StorageTests.Common;
 using RxDatasets.StorageProviders;
 
 namespace RxDatasets.StorageTests.Services;
@@ -57,10 +58,11 @@ public sealed class FencedDeltaCommitTests : IDisposable
     [Fact]
     public async Task Data_Left_By_A_Crashed_Writer_Is_Replaced_Once_It_Is_Old()
     {
-        var writer = await StartWriter();
+        // Before the start, without DeltaInfo.pb: the version listing must not count data without an index as a delta
         await _storage.UploadBytes(Name(1, ObjectNameIndexOrDataEnum.Data), [9, 9, 9]);
         File.SetLastWriteTimeUtc(Path.Combine(_rootFolder, Name(1, ObjectNameIndexOrDataEnum.Data)),
             DateTime.UtcNow.AddMinutes(-5));
+        var writer = await StartWriter();
 
         var response = await writer.Put("a", [1], null, null);
 
@@ -78,6 +80,20 @@ public sealed class FencedDeltaCommitTests : IDisposable
 
         await write.Should().ThrowAsync<DBConcurrencyException>();
         (await Read(1, ObjectNameIndexOrDataEnum.Data)).Should().Equal([9, 9, 9]);
+        // Nothing to reload: the writer's view is current, so it stays ready
+        (await writer.Get("a")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_Stored_Index_Whose_Response_Was_Lost_Counts_As_Stored()
+    {
+        var storage = new LostResponseStorage<object>(_storage, key => key.EndsWith("/index.pb", StringComparison.Ordinal));
+        var writer = await StartWriter(storage);
+
+        var response = await writer.Put("a", [1], null, null);
+
+        response.NewDatasetVersion.Should().Be(1);
+        (await writer.Put("a", [2], null, null)).NewDatasetVersion.Should().Be(2);
     }
 
     [Fact]
@@ -102,12 +118,13 @@ public sealed class FencedDeltaCommitTests : IDisposable
             StorageConfig.Value) + '/')).Should().BeEmpty();
     }
 
-    private async Task<DatasetReaderWriter<object>> StartWriter()
+    private async Task<DatasetReaderWriter<object>> StartWriter(IConditionalDiskStorage<object>? storage = null)
     {
+        storage ??= _storage;
         INotificationsHub<object> hub = new NotificationsHubSync<object>();
-        var reader = new ObjectStorageReader<object>(NullLogger<ObjectStorageReader<object>>.Instance, StorageConfig, _storage);
+        var reader = new ObjectStorageReader<object>(NullLogger<ObjectStorageReader<object>>.Instance, StorageConfig, storage);
         var provider = new ObjectStorageProvider<object>(NullLogger<ObjectStorageProvider<object>>.Instance, StorageConfig,
-            _storage, hub, reader, false);
+            storage, hub, reader, false);
         var writer = new DatasetReaderWriter<object>(hub, NullLogger<DatasetWriter<object>>.Instance, provider,
             Options.Create(new WriterConfig()));
         await provider.StartAsync(CancellationToken.None);

@@ -44,5 +44,12 @@ public static class ConditionalStorageContract
         stream.Position = 0;
         (await storage.TryCreateFromStream(streamKey, stream)).Should().BeFalse("create-only fails on an existing object");
         (await storage.DownloadBytes(streamKey)).ToArray().Should().Equal(7, 8, 9);
+
+        // Large enough for a multipart upload (Minio from 5 MiB)
+        var largeKey = $"cas/{Guid.NewGuid():N}";
+        using var large = new MemoryStream(new byte[6 * 1024 * 1024]);
+        (await storage.TryCreateFromStream(largeKey, large)).Should().BeTrue();
+        large.Position = 0;
+        (await storage.TryCreateFromStream(largeKey, large)).Should().BeFalse("create-only also holds for large objects");
     }
 }

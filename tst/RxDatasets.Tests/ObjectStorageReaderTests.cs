@@ -44,7 +44,11 @@ public class ObjectStorageReaderTests
         var deltaListing = new List<(string ObjectKey, DateTimeOffset DateTime)>
         {
             ($"{prefix}{FolderNames.DeltasFolderName}/3/data.pbs", now.AddMinutes(-2)),
-            ($"{prefix}{FolderNames.DeltasFolderName}/4/data.pbs", now.AddMinutes(-1))
+            ($"{prefix}{FolderNames.DeltasFolderName}/3/index.pb", now.AddMinutes(-2)),
+            ($"{prefix}{FolderNames.DeltasFolderName}/4/data.pbs", now.AddMinutes(-1)),
+            ($"{prefix}{FolderNames.DeltasFolderName}/4/index.pb", now.AddMinutes(-1)),
+            // Data without an index (a writer that crashed before committing) is no delta
+            ($"{prefix}{FolderNames.DeltasFolderName}/5/data.pbs", now)
         };
         diskStorage.ListObjects(prefix + FolderNames.DeltasFolderNameWithSlash)
             .Returns(Task.FromResult(deltaListing));

@@ -18,7 +18,9 @@ namespace RxDatasets.BackgroundServices
         : IHostedService, IDisposable
     {
         // ponytail: no fallback to plain read-then-write; without compare-and-swap two instances can both hold the lock.
-        // This only guards the lock file: writes by a holder whose lock expired unnoticed are not fenced (#79, item 4).
+        // This only guards the lock file. A holder whose lock expired unnoticed is stopped from overwriting deltas by the
+        // fenced delta commit (ObjectStorageProvider), not from writing snapshots, SnapshotInfo.pb, ProcessedVersions.pb
+        // or cleaning.
         private readonly IConditionalDiskStorage<TEntity> storage = diskStorage as IConditionalDiskStorage<TEntity>
             ?? throw new NotSupportedException($"{diskStorage.GetType().Name} does not implement "
                 + $"{nameof(IConditionalDiskStorage<TEntity>)}, which the distributed lock requires");
@@ -28,6 +30,7 @@ namespace RxDatasets.BackgroundServices
         private readonly TimeSpan _handoverTimeout = ValidateHandoverTimeout(lockOptions?.Value.HandoverTimeout ?? TimeSpan.FromSeconds(15), lockOptions?.Value.PollingInterval ?? TimeSpan.FromSeconds(5));
         private readonly IClock _clock = clock ?? new SystemClock();
         private string? _lockToken;
+        private string? _attemptedToken;
         private string? _lockVersion;
         private DateTimeOffset _lockExpiry;
         private bool _isDisposed;
@@ -247,10 +250,21 @@ namespace RxDatasets.BackgroundServices
             {
                 var existingLock = await TryReadLockFile();
 
+                // An earlier attempt of ours landed without us seeing the response: that lock is ours
+                if (existingLock != null && existingLock.Value.Token == _attemptedToken
+                    && existingLock.Value.Expiry >= _clock.UtcNow)
+                {
+                    _lockVersion = existingLock.Value.Version;
+                    _lockExpiry = existingLock.Value.Expiry;
+                    await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
+                    return _attemptedToken;
+                }
+
                 if (existingLock == null || existingLock.Value.Expiry < _clock.UtcNow)
                 {
                     // No existing lock or the lock has expired: take it, unless another instance changed it since we read it
                     DateTimeOffset expiryTime = _clock.UtcNow.Add(_renewalInterval);
+                    _attemptedToken = lockToken;
                     string? version = await storage.TryUploadBytes(
                         _lockName, LockBytes(lockToken, expiryTime), existingLock?.Version);
                     if (version == null)

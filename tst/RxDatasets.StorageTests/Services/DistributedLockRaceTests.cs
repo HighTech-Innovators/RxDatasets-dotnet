@@ -73,7 +73,7 @@ public sealed class DistributedLockRaceTests : IAsyncLifetime
         }
 
         nodes.Count(n => n.Service.HasLock).Should().Be(1, "someone holds the lock once everybody runs again");
-        // Lost is only notified once a stalled holder resumes and finds its lock taken over
+        // Lost is notified when a stalled holder resumes and finds its lock taken over, and on the handovers at startup
         nodes.Sum(n => n.Acquired).Should().BeGreaterThanOrEqualTo(10, "the schedule must actually move the lock around");
         nodes.Sum(n => n.Lost).Should().BeGreaterThanOrEqualTo(5, "the schedule must actually take locks over");
     }
@@ -123,13 +123,29 @@ public sealed class DistributedLockRaceTests : IAsyncLifetime
         b.Service.HasLock.Should().BeTrue();
     }
 
-    private Node AddNode(string storageKind)
+    [Fact]
+    public async Task An_Acquire_Whose_Response_Was_Lost_Is_Taken_Up_On_The_Next_Poll()
     {
-        IDiskStorage<object> storage = storageKind == "in-memory"
+        var a = AddNode("in-memory",
+            new LostResponseStorage<object>(_inMemory, key => key.EndsWith("lock-file", StringComparison.Ordinal)));
+        await a.Service.StartAsync(CancellationToken.None);
+        WaitUntilParked([a]);
+        a.Service.HasLock.Should().BeFalse("the acquire looked like it failed");
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        WaitUntilParked([a]);
+
+        a.Service.HasLock.Should().BeTrue("the lock file holds the token it tried");
+        a.Acquired.Should().Be(1);
+    }
+
+    private Node AddNode(string storageKind, IDiskStorage<object>? storageOverride = null)
+    {
+        IDiskStorage<object> storage = storageOverride ?? (storageKind == "in-memory"
             ? _inMemory
             // A storage instance per node, as if each were its own process
             : new LocalDiskStorage<object>(NullLogger<LocalDiskStorage<object>>.Instance,
-                Options.Create(new LocalDiskStorageConfig { RootFolder = _rootFolder }));
+                Options.Create(new LocalDiskStorageConfig { RootFolder = _rootFolder })));
         var hub = new NotificationsHubSync<object>();
         var clock = new NodeClock(_clock);
         var service = new DistributedLockService<object>(storage, StorageConfig,

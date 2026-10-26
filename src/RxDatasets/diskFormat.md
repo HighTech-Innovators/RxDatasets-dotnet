@@ -242,7 +242,9 @@ find newer ones, as `ObjectStorageReader` does.
 
 On storage with compare-and-swap (every built-in provider), a writer creates a delta's `data.pbs` and then its
 `index.pb` only if they don't exist yet, and only once the previous version's delta or snapshot `index.pb` exists. The
-`index.pb` is the commit: a writer that is behind gets a version conflict instead of overwriting a stored delta.
+`index.pb` is the commit: a writer that is behind gets a version conflict instead of overwriting a stored delta. A
+`data.pbs` without an `index.pb` is not a delta; once it is over a minute old it is taken as left by a crash, and the
+next writer of that version replaces it. See [the distributed lock](../../docs/distributed-lock.md#fenced-delta-commit).
 ## SnapshotInfo
 - `SnapshotInfo.pb`: Storing the metadata about the snapshot files that are available.
 

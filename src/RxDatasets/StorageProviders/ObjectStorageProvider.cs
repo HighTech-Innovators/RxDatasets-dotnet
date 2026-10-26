@@ -39,6 +39,7 @@ public class ObjectStorageProvider<T>(
     private CancellationToken _stoppingToken;
 
     // How old the data of an uncommitted delta must be before a writer treats it as left by a crash and replaces it.
+    // Measured with this host's clock against the storage's timestamp, so it also needs clocks within this of each other.
     // ponytail: a writer paused between its data and index uploads for longer than this, that resumes just as the next
     // writer replaces its data, can still commit its index over the other's data. A per-attempt data name in the index
     // would close that; it is a format change.
@@ -192,8 +193,14 @@ public class ObjectStorageProvider<T>(
         {
             if (!await createData())
             {
-                if (!await IsOrphanedData(dataObjectName, indexObjectName))
+                if (await ObjectExists(indexObjectName))
                     throw Conflict(deltaVersion);
+                // Not committed yet: another writer is about to, so this writer isn't behind and needs no reload
+                if (!await IsOldData(dataObjectName))
+                {
+                    throw new DBConcurrencyException(
+                        $"Delta {deltaVersion} of {typeof(T).Name} is being stored by another writer");
+                }
 
                 logger.LogWarning("Replacing the data of delta {Version} of {Type}, which was never committed",
                     deltaVersion, typeof(T).Name);
@@ -214,8 +221,14 @@ public class ObjectStorageProvider<T>(
             throw Conflict(deltaVersion);
         }
 
-        if (await conditional.TryUploadBytes(indexObjectName, index, null) == null)
+        if (await conditional.TryUploadBytes(indexObjectName, index, null) == null
+            && !await StoredIndexIs(indexObjectName, index))
+        {
+            // Data we created is ours alone: a winner with data would have made our create fail
+            if (createData != null)
+                await _storage.DeleteFile(dataObjectName);
             throw Conflict(deltaVersion);
+        }
 
         DeltaInfo.LatestDeltaVersion = deltaVersion;
         if (DeltaInfo.EarliestDeltaVersion == 0)
@@ -243,13 +256,23 @@ public class ObjectStorageProvider<T>(
                    ObjectNameTypeEnum.Snapshot, _storageConfig.Value));
     }
 
-    private async Task<bool> IsOrphanedData(string dataObjectName, string indexObjectName)
+    private async Task<bool> IsOldData(string dataObjectName)
     {
-        if (await ObjectExists(indexObjectName))
-            return false;
-
         var data = (await _storage.ListObjects(dataObjectName)).Where(o => o.ObjectKey == dataObjectName).ToList();
         return data.Count == 1 && DateTimeOffset.UtcNow - data[0].DateTime > OrphanedDataAge;
+    }
+
+    // A create whose response was lost (the SDK retried a write that had landed) finds its own index
+    private async Task<bool> StoredIndexIs(string indexObjectName, byte[] index)
+    {
+        try
+        {
+            return (await _storage.DownloadBytes(indexObjectName)).Span.SequenceEqual(index);
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
     }
 
     private async Task<bool> ObjectExists(string objectName)
