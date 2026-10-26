@@ -16,22 +16,27 @@ public class ParityWithStandardPluginTests
 {
     private delegate Task<InMemoryStorageProvider<Timestamp>> StorageFactory();
 
-    [Fact]
-    public async Task AllDeltasPresentGiveTheSameCalls()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AllDeltasPresentGiveTheSameCalls(bool tree)
     {
-        (Outcome standard, Outcome batching) = await RunBoth(() => BatchingDatasetUpdateReportingPluginTests.CreateStorage(8));
+        (Outcome standard, Outcome batching) =
+            await RunBoth(() => BatchingDatasetUpdateReportingPluginTests.CreateStorage(8, tree: tree));
 
         batching.Should().BeEquivalentTo(standard);
         standard.Calls.Should().HaveCount(8 * 3).And.NotContain("rollback");
         standard.Cursor.Should().Be(8ul);
     }
 
-    [Fact]
-    public async Task AMissingDataFileRollsBackAndSkipsTheDeltaInBothPlugins()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AMissingDataFileRollsBackAndSkipsTheDeltaInBothPlugins(bool tree)
     {
         // Delta 2 has two entities; reading the second fails after the first was already reported.
         (Outcome standard, Outcome batching) = await RunBoth(
-            () => BatchingDatasetUpdateReportingPluginTests.CreateStorage(3, twoEntitiesVersion: 2),
+            () => BatchingDatasetUpdateReportingPluginTests.CreateStorage(3, twoEntitiesVersion: 2, tree: tree),
             failRead: (version, position) => version == 2 && position > 0);
 
         standard.Calls.Should().Equal(
@@ -40,6 +45,22 @@ public class ParityWithStandardPluginTests
             "open 3", "deleted entity/3", "commit");
         batching.Should().BeEquivalentTo(standard);
         standard.Cursor.Should().Be(3ul);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AliasChangesAreReportedInTheSameOrderByBothPlugins(bool tree)
+    {
+        (Outcome standard, Outcome batching) = await RunBoth(() => AliasReportingTests.AliasDeltas(tree));
+
+        standard.Calls.Should().Equal(
+            "open 1", "new entity/1", "alias by_value values/a entity/1 New", "commit",
+            "open 2", "changed entity/2", "alias by_value values/b entity/2 Deleted",
+            "alias by_value values/c entity/2 New", "commit",
+            "open 3", "deleted entity/3", "alias by_value values/d entity/3 Deleted", "commit",
+            "open 4", "alias by_value values/f entity/4 Deleted", "alias by_value values/e entity/4 New", "commit");
+        batching.Should().BeEquivalentTo(standard);
     }
 
     [Fact]
@@ -95,6 +116,10 @@ public class ParityWithStandardPluginTests
             Calls.Add($"open {deltaVersion}");
             return Task.FromResult<object?>(deltaVersion);
         }
+
+        public Task OnAliasChanged(string aliasName, string alias, string entityName, ChangeType change,
+            string? trackingId, DateTimeOffset? slaTimestamp, object? optionalTransaction) =>
+            Log($"alias {aliasName} {alias} {entityName} {change}");
 
         public Task CommitDeltaTransaction(object state) => Log("commit");
         public Task RollBackDeltaTransaction(object state) => Log("rollback");

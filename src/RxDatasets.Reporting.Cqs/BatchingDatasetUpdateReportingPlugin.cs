@@ -1,3 +1,4 @@
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using RxDatasets.Abstractions;
 
@@ -121,18 +122,24 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
         logger.LogDebug("Processing delta {Version}", version);
         try
         {
-            foreach (DeltaEntity entity in index.NewEntities)
+            // The entities come from the tree a writer stores and from the legacy flat lists of older deltas, with
+            // their full names: in the tree an entity's own name is empty. The order is the standard plugin's.
+            foreach (var (name, entity) in index.EnumerateNewEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await reportingImplementation.OnNewDto(entity.Name, await ReadData(version, entity),
+                await reportingImplementation.OnNewDto(name, await ReadData(version, entity),
                     NullIfEmpty(entity.TrackingId), entity.SlaTimestamp?.ToDateTimeOffset(), state);
+                await ReportAliasChanges(name, entity.AddedAliases, entity.RemovedAliases, entity.TrackingId,
+                    entity.SlaTimestamp, state);
             }
 
-            foreach (DeltaEntity entity in index.ChangedEntities)
+            foreach (var (name, entity) in index.EnumerateChangedEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await reportingImplementation.OnChangedDto(entity.Name, await ReadData(version, entity),
+                await reportingImplementation.OnChangedDto(name, await ReadData(version, entity),
                     NullIfEmpty(entity.TrackingId), entity.SlaTimestamp?.ToDateTimeOffset(), state);
+                await ReportAliasChanges(name, entity.AddedAliases, entity.RemovedAliases, entity.TrackingId,
+                    entity.SlaTimestamp, state);
             }
 
             foreach (string name in index.DeletedNames)
@@ -141,11 +148,19 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
                 await reportingImplementation.OnDeletedDto(name, null, null, state);
             }
 
-            foreach (DeletedEntity entity in index.DeletedEntities)
+            foreach (var (name, entity) in index.EnumerateDeletedEntities())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await reportingImplementation.OnDeletedDto(entity.Name, NullIfEmpty(entity.TrackingId),
+                await reportingImplementation.OnDeletedDto(name, NullIfEmpty(entity.TrackingId),
                     entity.SlaTimestamp?.ToDateTimeOffset(), state);
+                await ReportAliasChanges(name, [], entity.RemovedAliases, entity.TrackingId, entity.SlaTimestamp, state);
+            }
+
+            // Alias changes without a data change, written by a rebuild after the alias definitions changed.
+            foreach (AliasOnlyChange change in index.AliasChanges)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ReportAliasChanges(change.Name, change.AddedAliases, change.RemovedAliases, "", null, state);
             }
         }
         catch (FileNotFoundException)
@@ -153,6 +168,19 @@ public class BatchingDatasetUpdateReportingPlugin<TDto, TReporter>(
             logger.LogWarning(
                 "Data files for delta {Version} don't exist. Either data is corrupted or is deleted. Skipping.", version);
             throw new DeltaDataMissingException(version);
+        }
+    }
+
+    /// <summary>Lost aliases first, then gained ones, as the standard plugin reports them.</summary>
+    private async Task ReportAliasChanges(string entityName, IEnumerable<AliasRef> added, IEnumerable<AliasRef> removed,
+        string trackingId, Timestamp? slaTimestamp, object? state)
+    {
+        var changes = removed.Select(alias => (alias, ChangeType.Deleted))
+            .Concat(added.Select(alias => (alias, ChangeType.New)));
+        foreach (var (alias, change) in changes)
+        {
+            await reportingImplementation.OnAliasChanged(alias.Name, alias.Value, entityName, change,
+                NullIfEmpty(trackingId), slaTimestamp?.ToDateTimeOffset(), state);
         }
     }
 

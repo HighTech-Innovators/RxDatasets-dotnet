@@ -86,4 +86,8 @@ services.AddDtoServer<Demodto>()
 - CQS needs a queue that routes each type's full name, for example `hightechinnovators.dtos.demodto.v1.Demodto`.
   See `config/cqs-reporter.toml` for a CQS config with two queues, and the CQS repository's
   `docs/operations.md` for running the service. CQS has no authentication: use it on a trusted network.
-- Not yet reported: changes to alias values (every notification has an empty `alias_name`).
+- Alias changes are reported too: each alias an entity gains or loses (also when it is deleted, and after a
+  rebuild of the alias definitions) is a notification with that `alias_name` and the alias value as `dto_id`, so a CQS
+  queue subscribed to `type:alias` is told which alias changed and reads it through the alias reader. The entity's own
+  change is a separate notification with an empty `alias_name`. The reporter reads both the index tree a writer stores
+  today and the legacy flat lists of older deltas.

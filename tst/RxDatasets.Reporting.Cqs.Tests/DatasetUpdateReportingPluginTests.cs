@@ -333,6 +333,21 @@ public class BatchingDatasetUpdateReportingPluginTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task EveryDeltaFormatIsReportedWithTheEntitiesFullNames(bool tree)
+    {
+        // A tree delta leaves each entity's own name empty: the position in the tree is the name.
+        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(4, tree: tree);
+        RecordingReporter reporter = new() { MaxDeltasPerTransaction = 10 };
+
+        await CreatePlugin(storage, reporter).HandleNewDeltas(CancellationToken.None);
+
+        reporter.Names.Should().Equal("entity/1", "entity/2", "entity/3", "entity/4");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(4ul);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task EmptyOrAlreadyProcessedStorageDoesNotOpenATransaction(bool alreadyProcessed)
     {
         InMemoryStorageProvider<Timestamp> storage = await CreateStorage(alreadyProcessed ? 2 : 0);
@@ -367,7 +382,7 @@ public class BatchingDatasetUpdateReportingPluginTests
 
     /// <summary>Uses the production in-memory provider for real index/data reads and persisted reporting cursors.</summary>
     internal static async Task<InMemoryStorageProvider<Timestamp>> CreateStorage(int count, ulong? missingVersion = null,
-        ulong? twoEntitiesVersion = null)
+        ulong? twoEntitiesVersion = null, bool tree = false)
     {
         InMemoryStorageProvider<Timestamp> storage = new(
             NullLogger<InMemoryStorageProvider<Timestamp>>.Instance, new NotificationsHub<Timestamp>());
@@ -404,6 +419,12 @@ public class BatchingDatasetUpdateReportingPluginTests
                 index.NewEntities.Add(new DeltaEntity { Name = $"entity/{version}", Position = 0, Length = data.Length });
                 index.NewEntities.Add(new DeltaEntity { Name = $"entity/{version}b", Position = data.Length, Length = data.Length });
                 data = [.. data, .. data];
+            }
+
+            if (tree)
+            {
+                // What a writer stores: the entities in the index tree, with their names emptied.
+                index.ConvertToTree();
             }
 
             await storage.StoreDelta(version, index.ToByteArray(), data);
