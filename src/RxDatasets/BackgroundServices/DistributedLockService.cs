@@ -222,6 +222,8 @@ namespace RxDatasets.BackgroundServices
             {
                 ChangeState(LockServiceState.Active, "Lock acquired");
                 _lastRenewalTime = _clock.UtcNow;
+                // Only now: a provider that initializes on this checks HasLock before its first write
+                await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
 
                 try
                 {
@@ -256,7 +258,6 @@ namespace RxDatasets.BackgroundServices
                 {
                     _lockVersion = existingLock.Value.Version;
                     _lockExpiry = existingLock.Value.Expiry;
-                    await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
                     return _attemptedToken;
                 }
 
@@ -275,7 +276,6 @@ namespace RxDatasets.BackgroundServices
 
                     _lockVersion = version;
                     _lockExpiry = expiryTime;
-                    await notificationsHub.Notify<DistributedLockNotification>(new(DistirbutedLockStatus.Acquried));
                     return lockToken;
                 }
 
