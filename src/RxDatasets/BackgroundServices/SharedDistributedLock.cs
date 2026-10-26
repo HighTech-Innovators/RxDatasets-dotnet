@@ -54,7 +54,9 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     /// <summary>
     /// Joins a dataset: starts the lock if this is the first one, and passes every lock change to
     /// <paramref name="onChange"/>, starting with the current state if there has been a change already. Once this
-    /// service is stopping, a dataset that joins gets no changes.
+    /// service is stopping, a dataset that joins gets no changes. <paramref name="onChange"/> runs under this lock's own
+    /// lock to keep the changes in order, so it must only queue the change and not block, as
+    /// <see cref="NotificationsHub{T}.Notify{TNotification}"/> does.
     /// </summary>
     /// <returns>Disposing it stops passing changes on</returns>
     public IDisposable Join(Func<DistributedLockNotification, Task> onChange)
@@ -104,9 +106,10 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
-    /// Waits until every dataset has left (stopped and flushed), so it doesn't matter whether the host stops this
-    /// service before, after or together with the datasets, then releases the lock. When
-    /// <paramref name="cancellationToken"/> fires first, it releases the lock anyway.
+    /// Waits until every dataset has left (stopped and flushed), then releases the lock. When
+    /// <paramref name="cancellationToken"/> fires first, it releases the lock anyway. A host that stops its services
+    /// concurrently may stop this one before or with the datasets; a host that stops them one after the other must stop
+    /// it after them (register it before them), or this waits for datasets that it doesn't stop until this returns.
     /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -151,9 +154,12 @@ public sealed class SharedDistributedLockMember<TEntity>(
     : IDistributedLock<TEntity>, IHostedService, IDisposable
 {
     private IDisposable? _subscription;
+    private volatile bool _left;
 
-    public bool HasLock => sharedLock.HasLock;
-    public LockServiceState State => sharedLock.State;
+    // Once it stops it no longer has the lock, though the instance may still hold it for other datasets: a write that
+    // comes after its flush would not be flushed before the lock is released
+    public bool HasLock => !_left && sharedLock.HasLock;
+    public LockServiceState State => _left ? LockServiceState.Idle : sharedLock.State;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -163,6 +169,7 @@ public sealed class SharedDistributedLockMember<TEntity>(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _left = true;
         // The shared lock flushes only its own storage, and releases the lock once every dataset has left
         try
         {
@@ -176,7 +183,11 @@ public sealed class SharedDistributedLockMember<TEntity>(
         Dispose();
     }
 
-    public void Dispose() => _subscription?.Dispose();
+    public void Dispose()
+    {
+        _left = true;
+        _subscription?.Dispose();
+    }
 }
 
 public static class SharedDistributedLockExtensions
@@ -184,8 +195,10 @@ public static class SharedDistributedLockExtensions
     /// <summary>
     /// Registers the instance's <see cref="SharedDistributedLock"/> on a <typeparamref name="TStorage"/> of its own, with
     /// the root folder of the <c>Storage</c> section and the options of the <c>DistributedLock</c> section. The storage's
-    /// own section (e.g. <c>GoogleCloud</c>) must be registered too, as a dataset's <c>With…Storage()</c> does. The order
-    /// of registration doesn't matter: it releases the lock only once every dataset has stopped. The storage is also
+    /// own section (e.g. <c>GoogleCloud</c>) must be registered too, as a dataset's <c>With…Storage()</c> does. It
+    /// releases the lock only once every dataset has stopped, so register it before the services that start and stop the
+    /// datasets: a host that stops its services one after the other then stops it after them. Only with
+    /// <c>HostOptions.ServicesStopConcurrently</c> does the order not matter. The storage is also
     /// registered as <c>IDiskStorage&lt;SharedDistributedLock&gt;</c>, so the provider's health check can watch it
     /// (e.g. <c>AddCheck&lt;GoogleCloudHealthCheck&lt;SharedDistributedLock&gt;&gt;</c>); nothing else does.
     /// </summary>
