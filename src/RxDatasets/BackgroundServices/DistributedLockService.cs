@@ -15,7 +15,7 @@ namespace RxDatasets.BackgroundServices
         INotificationsHub<TEntity> notificationsHub,
         IOptions<DistributedLockOptions>? lockOptions = null,
         IClock? clock = null)
-        : IHostedService, IDisposable
+        : IDistributedLock<TEntity>, IHostedService, IDisposable
     {
         // ponytail: no fallback to plain read-then-write; without compare-and-swap two instances can both hold the lock.
         // This only guards the lock file. A holder whose lock expired unnoticed is stopped from overwriting deltas by the

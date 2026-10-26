@@ -22,7 +22,7 @@ public class ObjectStorageProvider<T>(
     INotificationsHub<T> notificationsHub,
     IStorageReader<T> storageReader,
     bool startIfInitFails = true,
-    DistributedLockService<T>? lockService = null
+    IDistributedLock<T>? lockService = null
     )
     : ReadOnlyObjectStorageProvider<T>(logger, storageConfig, storage, storageReader, notificationsHub, startIfInitFails), IStorageProvider<T>, IHostedService
 {

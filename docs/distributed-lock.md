@@ -439,3 +439,53 @@ token it tried to write is its lock.
   succeed; the index still decides, but may then point into the other's data.
 - Queued `DeltaInfo.pb` writes of an instance that yielded may land after the new holder's. Readers then see an older
   `latest_delta_version`, and find the newer deltas by their index.
+
+## One lock for all datasets of an instance
+
+With a lock per dataset, every dataset of a server is passed on separately: during a deployment some datasets are
+written by the old instance and some by the new one, and a server with many datasets runs a lock loop, a `lock-file`
+and its renewals per dataset. `WithSharedDistributedLock()` puts all datasets of an instance under one lock instead:
+
+```csharp
+services.AddSharedDistributedLock("MyServerLock"); // before the services that start the datasets
+
+services.AddDtoServer<Link>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+services.AddDtoServer<Label>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+```
+
+- `SharedDistributedLock` is a `DistributedLockService` with its files in `{CustomRootFolder}{lockFolder}/`, on the
+  storage of the first dataset that joins. All datasets that use it must share that storage and root folder.
+- Each dataset's `IDistributedLock<T>` is a `SharedDistributedLockMember<T>`: it has the lock when the instance has it,
+  and passes every Acquired and Lost on to the dataset's notifications hub. A dataset that starts later gets the
+  current state on joining.
+- Everything in the scenarios above holds for the instance as a whole: one `request-lock` asks for all datasets, one
+  renewal keeps them, and a takeover moves them all.
+- The lock starts when the first dataset joins, and releases on stop. Register it before the services that start the
+  datasets, so it stops after them; each dataset flushes its own storage when it stops.
+- `lockFolder` names the server: instances that share it hand over to each other, so give every kind of server its own.
+- A host that builds a service collection per dataset registers one `SharedDistributedLock` in its root and adds that
+  instance to every dataset's collection before `WithSharedDistributedLock()`.
+
+```mermaid
+sequenceDiagram
+    participant A1 as A: Link
+    participant A2 as A: Label
+    participant LA as A: shared lock
+    participant S as Storage
+    participant LB as B: shared lock
+    participant B1 as B: Link
+    participant B2 as B: Label
+    Note over LA: holds MyServerLock/lock-file
+    LA-->>A1: Acquried
+    LA-->>A2: Acquried
+    Note over LB: B starts, first dataset joins
+    LB->>S: write MyServerLock/request-lock = B
+    LA->>S: read request-lock (≤ 5 s)
+    S-->>LA: B
+    LA->>S: release (expired lock, CAS)
+    LA-->>A1: Lost
+    LA-->>A2: Lost
+    LB->>S: acquire (CAS, ≤ 5 s)
+    LB-->>B1: Acquried
+    LB-->>B2: Acquried
+```
