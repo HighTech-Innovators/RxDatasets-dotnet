@@ -58,13 +58,13 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     /// lock to keep the changes in order, so it must only queue the change and not block, as
     /// <see cref="NotificationsHub{T}.Notify{TNotification}"/> does.
     /// </summary>
-    /// <returns>Disposing it stops passing changes on</returns>
-    public IDisposable Join(Func<DistributedLockNotification, Task> onChange)
+    /// <returns>Disposing it stops passing changes on; null when this lock is stopping, so the dataset never has it</returns>
+    public IDisposable? Join(Func<DistributedLockNotification, Task> onChange)
     {
         lock (_sync)
         {
             if (_stopped)
-                return Disposable.Empty;
+                return null;
             if (!_started)
             {
                 _started = true;
@@ -106,8 +106,9 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
-    /// Waits until every dataset has left (stopped and flushed), then releases the lock. When
-    /// <paramref name="cancellationToken"/> fires first, it releases the lock anyway. A host that stops its services
+    /// Waits until every dataset has left (stopped and flushed), then releases the lock; meanwhile it no longer yields
+    /// it to an instance that asks for it. When <paramref name="cancellationToken"/> fires first, it releases the lock
+    /// anyway. A host that stops its services
     /// concurrently may stop this one before or with the datasets; a host that stops them one after the other must stop
     /// it after them (register it before them), or this waits for datasets that it doesn't stop until this returns.
     /// </summary>
@@ -119,6 +120,8 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
             _last = null; // it releases the lock below, so a dataset that joins later must not be told Acquried
             if (!_started)
                 return;
+            // A requester waits for the release below instead of taking the lock from datasets that are still draining
+            _lock.KeepUntilStop();
             if (_members.Count == 0)
                 _allLeft.TrySetResult();
         }
@@ -132,7 +135,7 @@ public sealed class SharedDistributedLock : IDistributedLock, IHostedService, ID
             _logger.LogWarning("Releasing the shared lock while datasets still hold it: the stop timed out");
         }
 
-        await _lock.StopAsync(cancellationToken);
+        await _lock.StopAsync(CancellationToken.None); // the release must not be skipped, also after a timeout
     }
 
     public void Dispose()
@@ -164,6 +167,7 @@ public sealed class SharedDistributedLockMember<TEntity>(
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _subscription = sharedLock.Join(notificationsHub.Notify);
+        _left = _subscription == null; // the lock is stopping: this dataset doesn't get it
         return Task.CompletedTask;
     }
 

@@ -42,9 +42,16 @@ namespace RxDatasets.BackgroundServices
         private readonly string _instanceId = Guid.NewGuid().ToString();
         private LockServiceState _state = LockServiceState.Idle;
         private DateTimeOffset _lastYieldTime;
+        private volatile bool _keepUntilStop;
 
         public bool HasLock => !string.IsNullOrEmpty(_lockToken);
         public LockServiceState State => _state;
+
+        /// <summary>
+        /// Stops yielding the lock to a request from another instance: it is released on stop. Only the shared lock
+        /// uses it, while its datasets drain; a per-dataset lock always yields.
+        /// </summary>
+        internal void KeepUntilStop() => _keepUntilStop = true;
 
         private static TimeSpan ValidateHandoverTimeout(TimeSpan handover, TimeSpan polling)
         {
@@ -97,7 +104,7 @@ namespace RxDatasets.BackgroundServices
                     }
                     else
                     {
-                        if (await ShouldYieldAsync())
+                        if (!_keepUntilStop && await ShouldYieldAsync())
                         {
                             await ReleaseLockAsync();
                             if (!HasLock)
