@@ -326,10 +326,9 @@ grpcurl -plaintext -d '{"id":"t/acme/s/site01/orders/o-1"}' localhost:10080 acme
 `IDatasetReader<T>` and `IDatasetWriter<T>` are singletons, but not hosted services. They are created on first use,
 subscribe to storage readiness in their constructor, and only then load the dataset. Until they have loaded, every
 call throws `InvalidOperationException("Initialization is not yet completed")`. Without the two lines before
-`app.Run()`, the first request starts the loading and fails, and readiness stays red until some request arrives.
-
-With `WithSharedReaderWriter()`, one object serves both interfaces. It must exist **before** storage starts
-(`app.Run()` starts the hosted services), or it misses the "storage ready" notification.
+`app.Run()`, loading starts only when the first readiness probe or request resolves them, so it starts later than it
+could, and the first requests fail. Resolving them up front starts the load as soon as storage is ready. (A reader or
+writer created later still learns that storage is ready: the notifications hub replays the last notification.)
 
 ### What the builder does
 
@@ -358,21 +357,23 @@ With `WithSharedReaderWriter()`, one object serves both interfaces. It must exis
 | Check | Tagged | Healthy when |
 |---|---|---|
 | `DatasetReadinessCheck-{type}` | yes | The reader and writer are initialized and storage answers |
-| `DatasetHealthCheck-{type}` | no | The same, but "not started yet" counts as healthy |
+| `DatasetHealthCheck-{type}` | no | The same, but "not started yet" counts as healthy. **Unhealthy while loading.** |
 | `DistributedLockHealthCheck-{type}` | yes | This instance holds the lock (only with a lock) |
-| `storage.googlecloud.{type}`, `storage.s3.{type}`, `storage.azblob.{type}`, `storage.minio.{type}` | provider tags | The provider's last call worked, or a probe does. Local disk has none. |
+| `storage.googlecloud.{type}`, `storage.s3.{type}`, `storage.azblob.{type}`, `storage.minio.{type}` | `googlecloud` or `s3` and the type; Azure and MinIO none | The provider's last call worked, or a probe does. Local disk has none. |
 
-Map the tagged checks to readiness and the others to liveness. A dataset that is loading a large snapshot, or a
-standby waiting for the lock, is alive but not ready. If liveness included readiness, the platform would kill an
-instance that is only waiting. With gRPC health probes:
+Map the tagged checks to readiness. A dataset that is loading a large snapshot, or a standby waiting for the lock,
+is alive but not ready, and the platform must not kill it. The untagged `DatasetHealthCheck` is no good for that: it
+is unhealthy while a dataset loads, so a standby that takes over the lock and needs a while to load would be killed.
+Let liveness and startup check that the process answers, and keep the dataset checks for readiness and diagnostics.
+With gRPC health probes:
 
 ```csharp
 services.AddGrpcHealthChecks(o =>
 {
-    o.Services.Map("", _ => true);
-    o.Services.Map("Startup", r => !r.Tags.Contains("readiness"));
+    o.Services.Map("", _ => true);                                // everything, for diagnostics
+    o.Services.Map("Startup", _ => false);                        // the process answers
     o.Services.Map("Readiness", r => r.Tags.Contains("readiness"));
-    o.Services.Map("Liveness", r => !r.Tags.Contains("readiness"));
+    o.Services.Map("Liveness", _ => false);                       // the process answers
 });
 app.MapGrpcHealthChecksService();
 ```

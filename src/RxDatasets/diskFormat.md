@@ -19,7 +19,7 @@ All of these live in one folder per dataset: `StorageConfig.DtoName` when set, o
 `Acme.Dtos.OrderV1.Order` → `Order/`). Before this, every version used the bare type name, so all versions of a DTO
 shared one folder.
 
-The full .proto file containing the object definitions can be found [here](src/RxDatasets/Models/DatasetEntities.proto)
+The full .proto file containing the object definitions can be found [here](Models/DatasetEntities.proto)
 
 ## Delta's
 After each update made to the dataset, a Delta is created and stored in the `/deltas/{delta_version}/` folder in the S3 bucket. A delta consists of two files:
@@ -107,7 +107,7 @@ message SnapshotEntity {
 
 ## Hierarchical index (tree format)
 The `index.pb` of a snapshot or delta stores its entities in a tree, in the `root` field, instead of in the flat
-`entities` map or `*_entities` lists shown above. Entity names repeat their leading path (`t/{tenant}/s/{store}/...`) and
+`entities` map or `*_entities` lists shown above. Entity names repeat their leading path (`t/{tenant}/s/{site}/...`) and
 their fixed literals (`items`, `values`) for every entity; the tree stores each of those once.
 
 ### How a name maps onto the tree

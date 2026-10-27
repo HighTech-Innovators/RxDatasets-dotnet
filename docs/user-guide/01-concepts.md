@@ -167,8 +167,9 @@ message Currency {
 - Patterns are tried in order, and the first match decides the record's scope.
 - No id may match two patterns. A global pattern never starts with `t/`, so `currencies/{code}` and
   `t/{tenantid}/currencies/{code}` can't overlap. Check this in CI.
-- Security follows the matched pattern: a tenant id can be written by that tenant, a global id only by the operator
-  (root) tenant, and every authenticated caller can read a global id.
+- Security follows the matched pattern: a tenant id can be written by that tenant, and every authenticated caller can
+  read a global id. Only the operator (root) tenant should write global ids (the DataVlow server doesn't enforce that
+  yet; see [Security](02-contracts.md#security-and-tenant-isolation)).
 - There is still one owner for every record of the type, whichever pattern it matches.
 - The server never falls back from a missing tenant record to the global one. A consumer that wants "the override,
   or else the default" reads both. Fallback is product policy, not data plumbing.

@@ -75,7 +75,7 @@ services.AddDtoServer<Order>().WithS3Storage().WithCache().Build();
 | Key | Meaning |
 |---|---|
 | `BucketName` | Required. |
-| `AccessKey`, `SecretKey` | Static credentials. |
+| `AccessKey`, `SecretKey` | Required. Static credentials; instance roles and other credential chains aren't supported. |
 | `Region` | For AWS. Set this or `ServiceUrl`, not both. |
 | `ServiceUrl` | For an S3-compatible store: `minio:9000`, `http://localstack:4566`. Without a scheme, `http://` is assumed. Path-style addressing is used. |
 | `RequestChecksumCalculation`, `ResponseChecksumValidation` | Default `WHEN_REQUIRED`, which S3-compatible stores need. `WHEN_SUPPORTED` turns on the AWS SDK's newer checksums. |
@@ -212,7 +212,7 @@ Throw `InvalidOperationException` when the storage is unavailable; the gRPC laye
 condition that fails is not an error: return null or false. When the outcome of a call is unknown (a timeout after
 sending), don't guess: read the object back, or throw. The engine recovers a write whose response was lost.
 
-**Run the contract tests.** `tst/RxDatasets.StorageTests/ConditionalStorageContract.cs` is a shared contract test
+**Run the contract tests.** `tst/RxDatasets.StorageTests/Common/ConditionalStorageContract.cs` is a shared contract test
 for the compare-and-swap interface: create-only, replace with the right and the wrong version, races, and large
 objects. Run it against your provider before you use it with a lock. A storage that only implements `IDiskStorage<T>`
 still works without a lock, but its deltas aren't fenced, and `WithDistributedLock()` fails at startup.

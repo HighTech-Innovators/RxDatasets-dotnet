@@ -4,13 +4,13 @@ The things that bite, in one list. Each links to where it is explained.
 
 ## Startup and readiness
 
-- **The dataset only loads when the reader or writer is first resolved.** Resolve both after `Build()`, before
-  `app.Run()`. With `WithSharedReaderWriter()` this is required: the object must exist before storage starts.
+- **The dataset only loads when the reader or writer is first resolved** (by a request or a readiness probe).
+  Resolve both after `Build()`, before `app.Run()`, so loading starts at once.
   ([Building a server](04-building-a-server.md#why-the-reader-and-writer-are-resolved-by-hand))
 - **Until it has loaded, every call throws `InvalidOperationException`.** Map it to `UNAVAILABLE`, and make clients
   retry. The same happens on a standby, during a handover and while stopping.
-- **Readiness in liveness kills instances that are only waiting.** Keep the `readiness`-tagged checks out of the
-  liveness probe. ([Health checks](04-building-a-server.md#health-checks))
+- **Dataset checks in liveness kill instances that are only loading or waiting.** The untagged
+  `DatasetHealthCheck` is unhealthy while a dataset loads. Let liveness check only that the process answers. ([Health checks](04-building-a-server.md#health-checks))
 - **Don't start a dataset with a timeout token.** RxDatasets keeps the start token for later work.
 - **Building datasets in parallel isn't safe.** Configuration validation uses a shared set that isn't thread-safe.
   Build service collections one at a time.
@@ -84,7 +84,8 @@ The things that bite, in one list. Each links to where it is explained.
 These are known and harmless, but confusing when you read the code:
 
 - Some public names are misspelled: `DistirbutedLockStatus.Acquried`, `StorageProviderReadinessNotifcation`.
-- Health check names differ: dataset checks use `Order-v2` style names, storage checks the bare type name.
+- Health check names differ: dataset checks use `Order-V2` style names (from the namespace, `V1` included), storage
+  checks the bare type name.
 - `WithGoogleCloudStorage()` and `WithS3Storage()` don't replace an `IDiskStorage<T>` you registered before them
   (`TryAdd`); the other providers do (`Add`).
 - `RxDatasets.DatasetWatcher.DI.AddDatasetWatcher<T>(services)` and

@@ -38,7 +38,7 @@ in-memory blob store with compare-and-swap. Register it as the storage, and the 
 storage provider, deltas, snapshots, cleaning and the lock.
 
 ```csharp
-var storage = new LowLevelInMemoryStorage<Order>();
+var storage = new LowLevelInMemoryStorage<Order>(NullLogger<LowLevelInMemoryStorage<Order>>.Instance);
 services.AddSingleton<IDiskStorage<Order>>(storage);
 services.AddDtoServer<Order>().WithDistributedLock().WithSnapshot().Build("readiness");
 ```
@@ -95,7 +95,7 @@ and start two hosts on one bucket. The lock and time-based services take an `ICl
 tests can also drive time by hand (`RxSchedulerClock` with a test scheduler); `NotificationsHubSync<T>` makes
 notifications synchronous.
 
-`ConditionalStorageContract.cs` is the contract test of the compare-and-swap interface. Run it against any storage
+`Common/ConditionalStorageContract.cs` is the contract test of the compare-and-swap interface. Run it against any storage
 provider you write.
 
 ## End-to-end tests

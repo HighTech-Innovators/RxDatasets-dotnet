@@ -134,8 +134,9 @@ services.AddDtoServer<Order>()
 During a deployment the new instance asks for a handover and stays not-ready until it holds the lock and has loaded
 the dataset. Traffic stays on the old instance until then. Configure:
 
-- a **readiness** probe on the tagged checks (`Readiness`), and a **liveness** probe that excludes them;
-- a **startup** probe long enough for the largest dataset to load from its latest snapshot;
+- a **readiness** probe on the tagged checks (`Readiness`), and **startup** and **liveness** probes that only check
+  that the process answers (see [Health checks](04-building-a-server.md#health-checks)): a standby that takes over the
+  lock must be allowed to take as long as it needs to load;
 - a termination grace period longer than the time the dataset needs to flush and the reporters to catch up;
 - `HostOptions.ServicesStopConcurrently = true` with many datasets;
 - one instance (no autoscaling of the writer), and a request timeout long enough for long-lived streams

@@ -89,7 +89,8 @@ public interface IDatasetUpdateReporting<T>
 ### How it is called
 
 - Deltas are reported **one at a time, in version order**: first the new records, then the changed ones, then the
-  deleted ones, then alias changes. When `OpenDeltaTransaction` returns a state, `CommitDeltaTransaction` follows
+  deleted ones. Each record's alias changes follow that record; alias changes from a rebuild of the definitions come
+  last. When `OpenDeltaTransaction` returns a state, `CommitDeltaTransaction` follows
   after the delta, or `RollBackDeltaTransaction` after a failure.
 - After each delta, the reporter's progress is stored in `ProcessedVersions.pb` under its `ReportingIdentifier`. A
   reporter that restarts, or one on a new lock holder, continues after the last stored version.
@@ -97,7 +98,7 @@ public interface IDatasetUpdateReporting<T>
   **at least once**: a delta can be reported again after a crash or a failure halfway through. Make the receiving side
   idempotent (a change queue merges duplicates, a bus consumer re-reads the record).
 - A delta that keeps failing blocks the reporter forever, and everything after it. Log well, and alert on a reporter
-  that falls behind.
+  that falls behind. (A delta whose files are missing is skipped with a warning, not retried.)
 - Reporting runs only on the lock holder.
 - Changing `ReportingIdentifier` starts that reporter again from version 1, and leaves the old entry behind (see
   [Cleaning](#cleaning)).

@@ -42,7 +42,8 @@ is the parent itself. An empty parent means the whole dataset.
   seconds (default 60). An expired token, or one sent to another instance, fails with `FAILED_PRECONDITION`. Start
   the listing again when that happens.
 - Don't depend on the exact limits. The DataVlow server's defaults: page size 500 (at most 1000), at most 1000 ids or
-  parents per batch call, at most 500 records or 5000 ids per page, and a page budget of about 3 MiB.
+  parents per `BatchLookup`, `BatchListChildren` and `BatchCountChildren` call, and for `BatchListChildren` at most
+  500 records or 5000 ids per page and a page budget of about 3 MiB.
 
 ### BatchLookup: existence and alias resolution
 
@@ -81,7 +82,7 @@ and [Tracking ids](#tracking-ids). For a streaming call they are given per item.
 | `PutAll(stream record)` | Replace the **whole dataset**: every record not in the stream is deleted. Only for reloading global reference data. |
 
 Every successful call is one atomic change: all of it is stored as one new dataset version, or none of it is. The
-response is `WriteResponse { new_version, num_created, num_updated, num_deleted }`. When nothing changed,
+response is `WriteResponse { new_version, num_created_dtos, num_updated_dtos, num_deleted_dtos }`. When nothing changed,
 `new_version` is the current version and the counts are zero.
 
 Within one streaming call, the last operation per id wins, and when an id appears more than once the earliest SLA is
@@ -92,9 +93,14 @@ Errors a writer can get:
 | Status | Cause | What to do |
 |---|---|---|
 | `UNAVAILABLE` | The dataset is still loading, is reloading, the server is stopping, or this instance doesn't hold the lock | Retry with backoff |
-| `INVALID_ARGUMENT` | The id doesn't match the type's id pattern, an alias can't be computed, or an alias doesn't match its pattern | Fix the data |
+| `INVALID_ARGUMENT` | The id doesn't match the type's id pattern, or an alias doesn't match its pattern | Fix the data |
 | `ALREADY_EXISTS` | An alias is already taken by another record | Fix the data |
-| `PERMISSION_DENIED` | The token's tenant doesn't own the id, or the caller may not write this type | Fix the caller |
+| `UNAUTHENTICATED` | No token, or no tenant claim in it | Fix the caller |
+| `PERMISSION_DENIED` | The token's tenant doesn't own the id | Fix the caller |
+
+RxDatasets reports a bad `DeleteChildren` ancestor, a name that fails `Writer:AllowedNamesPattern`, and a record
+whose aliases can't be computed as `ArgumentException`. A server should map that to `INVALID_ARGUMENT`; the DataVlow
+server doesn't yet, so these come back as `UNKNOWN`.
 
 A server that runs several writers on one dataset also sees RxDatasets' `DBConcurrencyException` when another writer
 committed first (see [Locking](07-locking-and-deployment.md)). The writer reloads by itself; map it to `ABORTED` or
@@ -119,7 +125,7 @@ This is what makes the whole system idempotent, and it is the server's job, not 
 | `GetHistory(id, limit, min_version?, alias_name?)` | The changes of one record, newest first. |
 | `StreamHistory(parent, min_version, max_version?, alias_name?, wait_if_none)` | The changes of every record under a parent, **newest first**, from `max_version` (or the latest) down to just above `min_version`. `wait_if_none` first waits until the dataset is past `min_version`. |
 | `TailHistory(parent, since_version, alias_name?, follow)` | The changes under a parent **oldest first**, starting after `since_version`. With `follow = true` the stream stays open and delivers new changes as they are written. |
-| `ReadHistoric(id, version or timestamp)` | The record as it was written at a version. |
+| `ReadHistoric(id, version)` | The record as it was written at a version where it changed (take the version from a history entry). Any other version gives `INVALID_ARGUMENT`. The request's `timestamp` field isn't supported. |
 
 ```proto
 message HistoryEntry {
@@ -128,11 +134,14 @@ message HistoryEntry {
   google.protobuf.Timestamp timestamp = 3;
   uint64 previous_version = 4;             // the version that changed this record before, 0 if none
   string id = 5;
-  string tracking_id = 6;
-  google.protobuf.Timestamp sla_timestamp = 7;
-  string dto_type = 8;                     // e.g. "order.v2", so mixed results describe themselves
+  string tracking_id = 6;                  // reserved: empty today
+  google.protobuf.Timestamp sla_timestamp = 7;   // reserved: empty today
+  string dto_type = 8;                     // reserved: empty today
 }
 ```
+
+RxDatasets stores the tracking id and SLA with each change, but its history API doesn't return them yet; they reach
+reporters and change notifications only.
 
 History comes from the stored deltas, so it reaches back as far as deltas are kept. With the default
 `Cleanup:KeepAllDeltas = true`, that is all the way. If deltas were cleaned, `StreamHistory` stops at the first
@@ -191,10 +200,10 @@ first:
 Set it to the deadline that really applies. A user waiting on a screen gets now plus a few seconds. A nightly reload
 gets now plus hours. When every write says "now", the queue can't tell urgent work from background work.
 
-- **No SLA on a write.** A missing protobuf `Timestamp` looks like the epoch, which would put it at the head of every
-  queue as decades overdue. The server therefore replaces a missing, zero or invalid SLA with **now plus a default
-  offset** (`ChangeQueueService:DefaultSlaOffset` in the DataVlow server, two hours by default). An SLA in the recent
-  past that a caller really set stays as it is: urgent.
+- **No SLA on a write.** The write is stored without one. In change notifications, the DataVlow server's queue
+  replaces a missing SLA with **now plus a default offset** (`ChangeQueueService:DefaultSlaOffset`, two hours by
+  default), so it doesn't sort as overdue. An SLA in the past that a caller really set stays as it is: urgent. Don't
+  send an explicit zero timestamp: it is taken as the epoch, the most urgent value there is.
 - **Manual and operator writes** should use a far-future SLA (now plus 24 hours, for example), so they queue behind
   real work, and a recognisable tracking id such as `ops-manual-<name>`.
 - RxDatasets stores the SLA with the change and passes it to every reporter, so any queue or bus can use it.
@@ -210,7 +219,7 @@ asynchronous chain.
   `tracking_id` onto every write it makes, and logs it.
 - At most 128 characters, and no `/` (so a history query can tell a tracking id from a record id).
 - It is diagnostic data, **not a credential**. Never authorize on it.
-- RxDatasets stores it with each change. It shows up in history entries, in reporters and in change notifications.
+- RxDatasets stores it with each change, and passes it to reporters, so it shows up in change notifications.
 
 ### Across synchronous calls
 
@@ -250,16 +259,21 @@ the same key wherever the same operation starts, and never reuse a retired key.
 
 ## Security and tenant isolation
 
-These are the rules the DataVlow server applies when JWT authentication is on (see
-[Configuration](10-datavlow-server.md#configuration)). A server you write yourself should apply the same ones.
+The rules a DataVlow server should apply:
 
 - **The tenant comes from the caller's token** (a claim), never from the URL or the body. Services build ids from it.
 - **The server checks every id again:** the tenant segment of each id that is read or written must be the token's
   tenant. Isolation is by id prefix, so the storage needs no tenant column.
-- A **root (super) tenant** may read every tenant and is the only one that may write global records.
+- A **root (super) tenant** may read every tenant. Only it should write global records.
 - Writes are rejected when the id doesn't match the type's id pattern, or when its tenant isn't the token's tenant.
-- Restrict bulk deletes: `PutAll` on a tenant-scoped type can delete other tenants' data, so refuse it there.
+- Restrict bulk deletes: `PutAll` on a tenant-scoped type deletes other tenants' data, so refuse it there.
+- History is data too: check the id or parent of every history call like a read.
 - Change queues carry ids only. Isolation is enforced when the record is read from the server.
+
+**What the DataVlow server enforces today** (with JWT on, see [Configuration](10-datavlow-server.md#configuration)):
+the token's tenant on every id of the reader and writer, and the id patterns. It does **not** yet check history calls
+(any tenant can read any tenant's history), it lets every authenticated caller write global ids, and it serves
+`PutAll` to every caller. Don't expose it to untrusted tenants until those gaps are closed.
 
 ### Which token to send
 

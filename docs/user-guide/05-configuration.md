@@ -107,12 +107,13 @@ Each provider has its own section; [Storage providers](06-storage-providers.md) 
 |---|---|
 | `LocalDiskStorage` | `RootFolder` (default `dataset-localstorage`, relative to the working directory) |
 | `GoogleCloud` | `BucketName` (required), `ProjectId`, `JsonCredentials`, `EmulatorHost`, `EnableWriteQueue` (default `true`) |
-| `S3` | `BucketName` (required), `AccessKey`, `SecretKey`, `ServiceUrl` or `Region` (one of them), `RequestChecksumCalculation`, `ResponseChecksumValidation` (both default `WHEN_REQUIRED`) |
+| `S3` | `BucketName`, `AccessKey`, `SecretKey` (all required), `ServiceUrl` or `Region` (one of them), `RequestChecksumCalculation`, `ResponseChecksumValidation` (both default `WHEN_REQUIRED`) |
 | `AzStorage` | `ContainerName` (required), `ConnectionString` or `AccountUrl` (one of them), `ManagedIdentityClientId` |
-| `MinioS3` | `BucketName` (required), `AccessKey`, `SecretKey`, `ServiceURL` or `AwsRegion` (one of them) |
+| `MinioS3` | `BucketName`, `AccessKey`, `SecretKey` (all required), `ServiceURL` or `AwsRegion` (one of them) |
 
 Keep access keys and connection strings out of shared configuration files. Inject them as environment variables from
-a secret store, or use identity-based access (Google application default credentials, Azure managed identity).
+a secret store, or use identity-based access where the provider has it (Google application default credentials,
+Azure managed identity; S3 and MinIO need static keys).
 
 ## Optional packages
 

@@ -112,7 +112,7 @@ Ports: **10080** for gRPC over cleartext HTTP/2, **18080** for HTTP/1.
 | `{package}.{type}.v{N}.WriterService` | `Put`, `PutMany`, `PutAll`, `PutAllChildren`, `PutOrDeleteMany`, `Delete`, `DeleteMany`, `DeleteChildren`, each with `sla_timestamp` and `tracking_id` |
 | `{package}.{type}.v{N}.HistoryService` | `ReadHistoric`, `GetHistory`, `StreamHistory`, `TailHistory` |
 | `{package}.testserver.DtoStatusService` | `ListDtos`: every proto file, whether it is served, its minor version, and its last rejected change |
-| `{package}.DtoChangeQueueService` | With the change queue plugin on: `CreateOrConfigureQueue`, `Dequeue`, `BatchDequeue`, `Acknowledge`, `BatchAcknowledge`, `ReEnqueue`, `SelfEnqueue` |
+| `{package}.DtoChangeQueueService` | With the change queue plugin on: `CreateOrConfigureQueue`, `BatchDequeue`, `BatchAcknowledge`, `ReEnqueue`, `SelfEnqueue` (the deprecated single `Dequeue` and `Acknowledge` answer `UNIMPLEMENTED`) |
 | gRPC reflection, gRPC health | Health services `""`, `Startup`, `Readiness`, `Liveness` |
 | `GET /` and `GET /migrate/{name}` | The second runs an RxDatasets [migration](08-dataset-lifecycle.md#data-migrations) on every dataset (authenticated) |
 
@@ -148,7 +148,9 @@ The shipped `appsettings.json` has JWT on, so it doesn't start without JWT setti
 turns JWT off and the change queue on.
 
 **Tenancy:** a caller needs a tenant claim. The super tenant passes everything. Ids whose pattern has no `{tenantid}`
-are global. Every other id must start with `t/{tenant}/` for the caller's own tenant. Health and reflection are open.
+are global, and every caller may read and write them. Every other id must start with `t/{tenant}/` for the caller's
+own tenant. Health and reflection are open. **Known gaps:** history calls aren't tenant-checked, and `PutAll` isn't
+refused on tenant-scoped types; see [Security](02-contracts.md#security-and-tenant-isolation).
 
 **Contract names:** the service and package names come from the `Contract:*` settings, so the server can match the
 names an existing deployment's clients were generated with. Record protos are never rewritten.

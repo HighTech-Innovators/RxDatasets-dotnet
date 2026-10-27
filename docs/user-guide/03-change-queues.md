@@ -28,13 +28,14 @@ The contract is `change_queue_service.proto`, gRPC service `DtoChangeQueueServic
   service share it, and each notification goes to one instance.
 - The service **creates its own queue at startup** with `CreateOrConfigureQueue`. The call is idempotent, and its
   subscription list **replaces** the previous one, so configuring on every start never leaves old subscriptions
-  behind.
+  behind. The `depth` can't change afterwards: sending another depth for an existing queue fails with
+  `INVALID_ARGUMENT`.
 
 ```proto
 message CreateOrConfigureQueueRequest {
   string queue_name = 1;
   repeated DtoTypeSubscription subscriptions = 2;  // replaces the existing subscriptions
-  int32 depth = 3;                                 // default prefix depth for batching
+  int32 depth = 3;                                 // default prefix depth for batching; set on create only
 }
 message DtoTypeSubscription {
   string dto_type   = 1;   // e.g. "order.v2"
@@ -244,7 +245,7 @@ message SplitItem {
   oneof urn { string dto_id = 2; string parent_id = 3; }
   string alias_name = 4;
 }
-message ReEnqueueResponse { bool acknowledged = 1; int32 items_enqueued = 2; }
+message ReEnqueueResponse { int32 items_enqueued = 1; }
 ```
 
 - **Atomic in the safe direction.** The original is acknowledged only after the footer arrives and every item is
@@ -264,11 +265,12 @@ message ReEnqueueResponse { bool acknowledged = 1; int32 items_enqueued = 2; }
 
 | Condition | Status |
 |---|---|
-| queue name empty or unknown | `NOT_FOUND` |
+| queue name empty | `INVALID_ARGUMENT` |
+| queue unknown | `NOT_FOUND` |
 | ack token unknown, already acknowledged or expired | `FAILED_PRECONDITION` |
-| first message isn't a header, or a second header | `INVALID_ARGUMENT` |
+| first message isn't a header, a second header, or the stream ends without a footer | `INVALID_ARGUMENT` |
 | item without a type, or without `dto_id` and `parent_id` | `INVALID_ARGUMENT` |
-| disconnect before the footer | `CANCELLED` (items stay, original not acknowledged) |
+| the client disconnects before the footer | `CANCELLED` (items stay, original not acknowledged) |
 
 ### SelfEnqueue: work an operator starts
 
@@ -285,7 +287,8 @@ message SelfEnqueueRequest {
 }
 ```
 
-- A missing SLA means **now**, because an operator who triggers work wants it done now.
+- A missing SLA means **now**, because an operator who triggers work wants it done now. (The in-memory queue
+  always uses now, even when an SLA is given.)
 - Retrying is safe: items merge with the ones already queued. Retry on `UNAVAILABLE` and `DEADLINE_EXCEEDED`.
 - An unknown queue gives `NOT_FOUND`.
 

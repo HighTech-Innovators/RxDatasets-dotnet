@@ -110,7 +110,8 @@ What it shows:
   logs a warning when it is off.
 - **REST next to gRPC**, with JSON transcoding and a Swagger page, for tools and browsers.
 - **Health probes per purpose:** gRPC health services `Startup`, `Readiness` and `Liveness`, keyed by the
-  `readiness` tag.
+  `readiness` tag. (It maps liveness to the untagged checks, which fail while a dataset loads; see
+  [Health checks](04-building-a-server.md#health-checks) for the safer mapping.)
 
 It runs as one serverless container with one instance, a long request timeout for streams, and
 `DOTNET_GCHeapHardLimitPercent=75` against a small memory limit. On local disk without a lock it is a test server:
