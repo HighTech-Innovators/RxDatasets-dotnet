@@ -13,7 +13,22 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
     where TEntity : class, IMessage<TEntity>
 {
     public record struct ListChangesRequest(ulong FromDatasetVersion, int PageSize, string PageToken, bool WaitForChanges);
-    public record struct ListChangesResponse(ulong ToDatasetVersion, IEnumerable<string> NewEntities, IEnumerable<string> ChangedEntities, IEnumerable<string> DeletedEntities, string NextPageToken);
+    public record struct ListChangesResponse(ulong ToDatasetVersion, IEnumerable<string> NewEntities, IEnumerable<string> ChangedEntities, IEnumerable<string> DeletedEntities, string NextPageToken)
+    {
+        private readonly IReadOnlyDictionary<string, ChangeOrigin>? _origins;
+
+        /// <summary>
+        /// The origin of the latest change of each name on this page whose write passed a tracking id or an SLA
+        /// timestamp; names whose write passed neither are absent.
+        /// </summary>
+        public IReadOnlyDictionary<string, ChangeOrigin> Origins
+        {
+            get => _origins ?? NoOrigins;
+            init => _origins = value;
+        }
+
+        private static readonly IReadOnlyDictionary<string, ChangeOrigin> NoOrigins = new Dictionary<string, ChangeOrigin>();
+    }
     public async Task<ICollection<TEntity>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
         CancellationToken cancellationToken) => await BatchGet(listOfNames, requestParent, "", cancellationToken);
 
@@ -187,14 +202,14 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         try
         {
             var isPaging = request.PageToken?.Length > 0;
-            List<(string name, ChangeType changeType)>? allChanges;
+            List<(string name, ChangeType changeType, ChangeOrigin? origin)>? allChanges;
             var alreadySkipped = 0;
             ulong toDatasetVersion;
 
             if (isPaging)
             {
                 (allChanges, alreadySkipped, toDatasetVersion) =
-                    PullRemainder<(string name, ChangeType changeType)>(request.PageToken!, ListingScope.WholeDataset);
+                    PullRemainder<(string name, ChangeType changeType, ChangeOrigin? origin)>(request.PageToken!, ListingScope.WholeDataset);
             }
             else
             {
@@ -212,7 +227,8 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 NewEntities = changes.Where(ch => ch.changeType == ChangeType.New).Select(ch => ch.name),
                 ChangedEntities = changes.Where(ch => ch.changeType == ChangeType.Changed).Select(ch => ch.name),
                 DeletedEntities = changes.Where(ch => ch.changeType == ChangeType.Deleted).Select(ch => ch.name),
-                NextPageToken = nextPageToken
+                NextPageToken = nextPageToken,
+                Origins = changes.Where(ch => ch.origin != null).ToDictionary(ch => ch.name, ch => ch.origin!)
             };
         }
         catch (ArgumentOutOfRangeException)
@@ -268,19 +284,23 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return aliasedDataset;
     }
 
-    private async Task<(List<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> GetChanges(ulong requestFromDatasetVersion,
+    private async Task<(List<(string name, ChangeType changeType, ChangeOrigin? origin)> allChanges, ulong toDatasetVersion)> GetChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
         var changes = await dataset.GetChangedNames(requestFromDatasetVersion);
-        return (changes.Changes, changes.ToVersion);
+        return (WithOrigins(changes), changes.ToVersion);
     }
 
-    private async Task<(List<(string name, ChangeType changeType)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
+    private async Task<(List<(string name, ChangeType changeType, ChangeOrigin? origin)> allChanges, ulong toDatasetVersion)> WaitChanges(ulong requestFromDatasetVersion,
         CancellationToken ctsToken)
     {
         var changes = await dataset.WaitChangedNames(requestFromDatasetVersion, ctsToken);
-        return (changes.Changes, changes.ToVersion);
+        return (WithOrigins(changes), changes.ToVersion);
     }
+
+    /// <summary>The changes with their origins beside them, so that later pages, served from the cache, keep theirs.</summary>
+    private static List<(string name, ChangeType changeType, ChangeOrigin? origin)> WithOrigins(ChangeSet changes) =>
+        [.. changes.Changes.Select(c => (c.Name, c.ChangeType, changes.Origins.GetValueOrDefault(c.Name)))];
 
     /// <summary>
     /// What a listing was asked for, beyond its paging. A page token continues only the listing it was issued for:

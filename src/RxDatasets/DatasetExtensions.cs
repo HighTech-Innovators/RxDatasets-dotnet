@@ -107,7 +107,8 @@ public static class DatasetExtensions
                     newEntity.Crc32)
                 {
                     Aliases = OwnedAliases(variable, existingEntity.Aliases, newEntity.AddedAliases,
-                        newEntity.RemovedAliases)
+                        newEntity.RemovedAliases),
+                    Origin = ImmutableSnapshotEntity.OriginOf(newEntity.TrackingId, newEntity.SlaTimestamp)
                 });
             }
 
@@ -124,11 +125,12 @@ public static class DatasetExtensions
                     changedEntity.Crc32)
                 {
                     Aliases = OwnedAliases(variable, existingEntity.Aliases, changedEntity.AddedAliases,
-                        changedEntity.RemovedAliases)
+                        changedEntity.RemovedAliases),
+                    Origin = ImmutableSnapshotEntity.OriginOf(changedEntity.TrackingId, changedEntity.SlaTimestamp)
                 });
             }
 
-            foreach (var variable in group.DeletedEntities.Keys)
+            foreach (var (variable, deletedEntity) in group.DeletedEntities)
             {
                 var key = variable.AsMemory();
                 var existingEntity = node.GetLeaf(template, key) ?? throw NotFound(template, variable, "delete");
@@ -144,7 +146,8 @@ public static class DatasetExtensions
                     Aliases = existingEntity.Aliases.IsEmpty
                         ? []
                         : ApplyAliasChanges(NameOf(template, variable), existingEntity.Aliases, [], existingEntity.Aliases,
-                            aliases)
+                            aliases),
+                    Origin = ImmutableSnapshotEntity.OriginOf(deletedEntity.TrackingId, deletedEntity.SlaTimestamp)
                 });
             }
 
@@ -264,31 +267,76 @@ public static class DatasetExtensions
     /// </summary>
     public static (ChangeType Change, ulong PreviousVersion, DeltaEntity? Entity) FindChange(this DeltaIndex delta, string name)
     {
+        var (change, entity, deleted) = Locate(delta, name);
+        return (change, entity?.PreviousVersion ?? deleted?.PreviousVersion ?? 0, entity);
+    }
+
+    /// <summary>
+    /// The history entry for <paramref name="name"/> in this delta, with the tracking id and SLA timestamp its write
+    /// passed; <c>null</c> when the delta does not change it.
+    /// </summary>
+    public static HistoryEntry? FindHistoryEntry(this DeltaIndex delta, ulong version, string name)
+    {
+        var (change, entity, deleted) = Locate(delta, name);
+        if (change == ChangeType.None)
+            return null;
+
+        var timestamp = delta.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+        return entity != null
+            ? ToHistoryEntry(version, change, timestamp, name, entity)
+            : deleted != null
+                ? ToHistoryEntry(version, timestamp, name, deleted)
+                : new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = name };
+    }
+
+    /// <summary>
+    /// How <paramref name="name"/> changed in this delta, in either format, with the entry that records it. Both
+    /// entries are <c>null</c> for a legacy deleted name.
+    /// </summary>
+    private static (ChangeType Change, DeltaEntity? Entity, DeletedEntity? Deleted) Locate(DeltaIndex delta, string name)
+    {
         var group = FindLeafGroup(delta.Root, name, out var variable);
         if (group != null)
         {
             if (group.NewEntities.TryGetValue(variable, out var newEntity))
-                return (ChangeType.New, newEntity.PreviousVersion, newEntity);
+                return (ChangeType.New, newEntity, null);
             if (group.ChangedEntities.TryGetValue(variable, out var changedEntity))
-                return (ChangeType.Changed, changedEntity.PreviousVersion, changedEntity);
+                return (ChangeType.Changed, changedEntity, null);
             if (group.DeletedEntities.TryGetValue(variable, out var deletedEntity))
-                return (ChangeType.Deleted, deletedEntity.PreviousVersion, null);
+                return (ChangeType.Deleted, null, deletedEntity);
         }
 
         var legacyNew = delta.NewEntities.FirstOrDefault(e => e.Name == name);
         if (legacyNew != null)
-            return (ChangeType.New, legacyNew.PreviousVersion, legacyNew);
+            return (ChangeType.New, legacyNew, null);
         var legacyChanged = delta.ChangedEntities.FirstOrDefault(e => e.Name == name);
         if (legacyChanged != null)
-            return (ChangeType.Changed, legacyChanged.PreviousVersion, legacyChanged);
+            return (ChangeType.Changed, legacyChanged, null);
         var legacyDeleted = delta.DeletedEntities.FirstOrDefault(e => e.Name == name);
         if (legacyDeleted != null)
-            return (ChangeType.Deleted, legacyDeleted.PreviousVersion, null);
+            return (ChangeType.Deleted, null, legacyDeleted);
         if (delta.DeletedNames.Contains(name))
-            return (ChangeType.Deleted, 0, null);
+            return (ChangeType.Deleted, null, null);
 
-        return (ChangeType.None, 0, null);
+        return (ChangeType.None, null, null);
     }
+
+    private static HistoryEntry ToHistoryEntry(ulong version, ChangeType change, DateTimeOffset timestamp, string name,
+        DeltaEntity entity) =>
+        new(version, change, timestamp, entity.PreviousVersion)
+        {
+            Id = name,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp?.ToDateTimeOffset()
+        };
+
+    private static HistoryEntry ToHistoryEntry(ulong version, DateTimeOffset timestamp, string name, DeletedEntity entity) =>
+        new(version, ChangeType.Deleted, timestamp, entity.PreviousVersion)
+        {
+            Id = name,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp?.ToDateTimeOffset()
+        };
 
     /// <summary>The new entities of a delta with their full names, from the tree and the legacy flat list.</summary>
     public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateNewEntities(this DeltaIndex delta) =>
@@ -347,17 +395,17 @@ public static class DatasetExtensions
         bool InParent(string name) => string.IsNullOrEmpty(parent) || name.StartsWith(parent, StringComparison.Ordinal);
 
         foreach (var (name, entity) in delta.EnumerateNewEntities().Where(e => InParent(e.Name)))
-            yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = name };
+            yield return ToHistoryEntry(version, ChangeType.New, timestamp, name, entity);
 
         foreach (var (name, entity) in delta.EnumerateChangedEntities().Where(e => InParent(e.Name)))
-            yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = name };
+            yield return ToHistoryEntry(version, ChangeType.Changed, timestamp, name, entity);
 
         var deletedEntityNames = new HashSet<string>();
         foreach (var (name, entity) in delta.EnumerateDeletedEntities())
         {
             deletedEntityNames.Add(name);
             if (InParent(name))
-                yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, entity.PreviousVersion) { Id = name };
+                yield return ToHistoryEntry(version, timestamp, name, entity);
         }
 
         foreach (var name in delta.DeletedNames.Where(n => !deletedEntityNames.Contains(n) && InParent(n)))

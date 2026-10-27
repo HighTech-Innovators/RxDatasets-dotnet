@@ -155,8 +155,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
             return Task.FromResult(new ChangeSet(toVersion, []));
         }
 
-        var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return Task.FromResult(new ChangeSet(toVersion, changedNames));
+        var (changedNames, origins) = GenerateChangedNames(fromVersion, toVersion, indexRef);
+        return Task.FromResult(new ChangeSet(toVersion, changedNames) { Origins = origins });
     }
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
@@ -207,13 +207,12 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
                 break;
             }
 
-            var (changeType, previousVersion, _) = deltaIndex.FindChange(name);
+            var entry = deltaIndex.FindHistoryEntry(currentVersion, name);
 
-            if (changeType != ChangeType.None)
+            if (entry != null)
             {
-                var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-                history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
-                currentVersion = previousVersion;
+                history.Add(entry);
+                currentVersion = entry.PreviousVersion;
             }
             else
             {
@@ -364,9 +363,12 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         return indexRef.SnapshotVersion;
     }
 
-    private static List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
+    /// <summary>The names changed since <paramref name="fromVersion"/>, with the origin of each one's latest change.</summary>
+    private static (List<(string key, ChangeType change)> Changes, Dictionary<string, ChangeOrigin> Origins) GenerateChangedNames(
+        ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
     {
         List<(string key, ChangeType change)> changedNames = [];
+        Dictionary<string, ChangeOrigin> origins = [];
 
         indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
             .ToList()
@@ -392,8 +394,10 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
                 if (relativeChangeType != ChangeType.None)
                 {
                     changedNames.Add((x.Key, relativeChangeType));
+                    if (x.Value.Origin is { } origin)
+                        origins[x.Key] = origin;
                 }
             });
-        return changedNames;
+        return (changedNames, origins);
     }
 }

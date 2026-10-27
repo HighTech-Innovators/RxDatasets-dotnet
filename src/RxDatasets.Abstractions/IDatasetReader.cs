@@ -1,6 +1,13 @@
 ﻿namespace RxDatasets.Abstractions;
 
-public record ChangeSet(ulong ToVersion, List<(string Name, ChangeType ChangeType)> Changes);
+public record ChangeSet(ulong ToVersion, List<(string Name, ChangeType ChangeType)> Changes)
+{
+    /// <summary>
+    /// The origin of the latest change of each changed name whose write passed a tracking id or an SLA timestamp;
+    /// names whose write passed neither are absent.
+    /// </summary>
+    public IReadOnlyDictionary<string, ChangeOrigin> Origins { get; init; } = new Dictionary<string, ChangeOrigin>();
+}
 public interface IDatasetReader<T>
 {
     Task<ChangeSet> GetChangedNames(ulong fromVersion);
