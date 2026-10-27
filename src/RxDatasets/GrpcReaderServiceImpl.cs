@@ -105,16 +105,17 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             var alreadySkipped = 0;
             ulong toDatasetVersion;
 
+            var scope = new ListingScope(parent, aliasName);
             if (isPaging)
             {
-                (names, alreadySkipped, toDatasetVersion) = PullRemainder<string>(pageToken!);
+                (names, alreadySkipped, toDatasetVersion) = PullRemainder<string>(pageToken!, scope);
             }
             else
             {
                 (names, toDatasetVersion) = await datasetReader.List(parent, cts.Token);
             }
 
-            var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion);
+            var (paginatedNames, nextPageToken, _) = Paginate(names, pageSize, alreadySkipped, toDatasetVersion, scope);
 
             return (paginatedNames, nextPageToken);
         }
@@ -193,7 +194,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
             if (isPaging)
             {
                 (allChanges, alreadySkipped, toDatasetVersion) =
-                    PullRemainder<(string name, ChangeType changeType)>(request.PageToken!);
+                    PullRemainder<(string name, ChangeType changeType)>(request.PageToken!, ListingScope.WholeDataset);
             }
             else
             {
@@ -203,7 +204,8 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 toDatasetVersion = allChangesCollection.toDatasetVersion;
             }
 
-            var (changes, nextPageToken, responseToDatasetVersion) = Paginate(allChanges, request.PageSize, alreadySkipped, toDatasetVersion);
+            var (changes, nextPageToken, responseToDatasetVersion) =
+                Paginate(allChanges, request.PageSize, alreadySkipped, toDatasetVersion, ListingScope.WholeDataset);
             return new ListChangesResponse
             {
                 ToDatasetVersion = responseToDatasetVersion,
@@ -225,8 +227,15 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
             }
             // For client-initiated cancellations, you don't necessarily need to throw an RpcException
-            // because the client already knows it cancelled the operation.
-            return new ListChangesResponse();
+            // because the client already knows it cancelled the operation. The lists are empty rather
+            // than null: a default record struct would leave them null, and callers map them.
+            return new ListChangesResponse
+            {
+                NewEntities = [],
+                ChangedEntities = [],
+                DeletedEntities = [],
+                NextPageToken = ""
+            };
         }
     }
 
@@ -273,19 +282,42 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
         return (changes.Changes, changes.ToVersion);
     }
 
-    private (List<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(List<T> allChanges, int requestPageSize, int skipSize, ulong toDatasetVersion)
-        => PaginationHelper.Paginate(allChanges, requestPageSize, skipSize, toDatasetVersion, _defaultPageSize, _maxPageSize, StoreRemainder);
-
-    private void StoreRemainder<T>(string key, List<T> collection, int alreadyReadSize, ulong toDatasetVersion) => _memoryCache.Set(key, (collection, alreadyReadSize, toDatasetVersion), TimeSpan.FromSeconds(_paginationTimeOut));
-
-    private (List<T> Remainder, int AlreadySkipped, ulong ToDatasetVersion) PullRemainder<T>(string key)
+    /// <summary>
+    /// What a listing was asked for, beyond its paging. A page token continues only the listing it was issued for:
+    /// the remainder is served from the cache and not read again, so a follow-up call with another parent or alias
+    /// would otherwise get the rest of a listing it never asked for — past any check made on what it did send.
+    /// </summary>
+    /// <remarks>
+    /// <c>ListChanges</c> always covers the whole dataset, and its <c>FromDatasetVersion</c> is ignored on later
+    /// pages by design, so it has nothing to bind.
+    /// </remarks>
+    private readonly record struct ListingScope(string Parent, string AliasName)
     {
-        var cacheValueFound = _memoryCache.TryGetValue(key, out (List<T> collection, int alreadySkipped, ulong ToDatasetVersion) cacheValue);
+        public static readonly ListingScope WholeDataset = new("", "");
+    }
+
+    private (List<T> Changes, string NextPageToken, ulong ResponseToDatasetVersion) Paginate<T>(List<T> allChanges, int requestPageSize, int skipSize,
+        ulong toDatasetVersion, ListingScope scope)
+        => PaginationHelper.Paginate(allChanges, requestPageSize, skipSize, toDatasetVersion, _defaultPageSize, _maxPageSize,
+            (key, collection, alreadyReadSize, version) => StoreRemainder(key, collection, alreadyReadSize, version, scope));
+
+    private void StoreRemainder<T>(string key, List<T> collection, int alreadyReadSize, ulong toDatasetVersion, ListingScope scope)
+        => _memoryCache.Set(key, (collection, alreadyReadSize, toDatasetVersion, scope), TimeSpan.FromSeconds(_paginationTimeOut));
+
+    private (List<T> Remainder, int AlreadySkipped, ulong ToDatasetVersion) PullRemainder<T>(string key, ListingScope scope)
+    {
+        var cacheValueFound = _memoryCache.TryGetValue(key,
+            out (List<T> collection, int alreadySkipped, ulong ToDatasetVersion, ListingScope Scope) cacheValue);
         _memoryCache.Remove(key);
         if (!cacheValueFound || cacheValue.collection is not List<T>)
         {
             logger.LogWarning("Requested nextPageToken is no longer valid or does not exist. PageToken={PageToken}, EntityType={EntityType}", key, typeof(TEntity).Name);
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not exist or is no longer valid"));
+        }
+        if (cacheValue.Scope != scope)
+        {
+            logger.LogWarning("Requested nextPageToken belongs to another listing. PageToken={PageToken}, EntityType={EntityType}", key, typeof(TEntity).Name);
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, "Requested nextPageToken does not belong to this request"));
         }
         logger.LogDebug($"Cache hit for {key} in dataset reader");
         return (cacheValue.collection, cacheValue.alreadySkipped, cacheValue.ToDatasetVersion);

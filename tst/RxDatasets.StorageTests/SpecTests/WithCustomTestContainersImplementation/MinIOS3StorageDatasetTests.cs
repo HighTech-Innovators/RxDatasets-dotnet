@@ -78,6 +78,14 @@ public class MinIOS3StorageDatasetTests : StorageTestSpecWithTwoStepInit, IClass
 
 
     [Fact]
+    public async Task Conditional_Operations_Follow_The_Contract()
+    {
+        _s3Config!.Value.BucketName = "conditional-ops";
+        await ConditionalStorageContract.VerifyAsync(
+            new MinioS3Storage<object>(Mock.Of<ILogger<MinioS3Storage<object>>>(), _s3Config, false));
+    }
+
+    [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_minioS3_After_Initialization()
     {
         _s3Config!.Value.BucketName = new string(
