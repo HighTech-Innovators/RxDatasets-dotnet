@@ -72,6 +72,14 @@ public class S3StorageDatasetTests(LocalStackS3TestContainerFixture localstack)
 
 
     [Fact]
+    public async Task Conditional_Operations_Follow_The_Contract()
+    {
+        _s3Config!.Value.BucketName = "conditional-ops";
+        await ConditionalStorageContract.VerifyAsync(
+            new S3Storage<object>(Mock.Of<ILogger<S3Storage<object>>>(), _s3Config, false));
+    }
+
+    [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_S3_After_Initialization()
     {
         _s3Config!.Value.BucketName = new string(

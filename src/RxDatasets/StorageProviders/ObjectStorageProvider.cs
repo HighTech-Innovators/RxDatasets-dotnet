@@ -1,3 +1,4 @@
+using System.Data;
 using System.Runtime.InteropServices;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -35,9 +36,18 @@ public class ObjectStorageProvider<T>(
     private readonly IDiskStorage<T> _storage = storage;
     private readonly INotificationsHub<T> _notificationsHub = notificationsHub;
     private readonly bool _startIfInitFails = startIfInitFails;
+    private CancellationToken _stoppingToken;
+
+    // How old the data of an uncommitted delta must be before a writer treats it as left by a crash and replaces it.
+    // Measured with this host's clock against the storage's timestamp, so it also needs clocks within this of each other.
+    // ponytail: a writer paused between its data and index uploads for longer than this, that resumes just as the next
+    // writer replaces its data, can still commit its index over the other's data. A per-attempt data name in the index
+    // would close that; it is a format change.
+    private static readonly TimeSpan OrphanedDataAge = TimeSpan.FromMinutes(1);
 
     public new async Task StartAsync(CancellationToken cancellationToken)
     {
+        _stoppingToken = cancellationToken;
         if (lockService is null)
         {
             _initTask = _startIfInitFails ? InitLoop(cancellationToken) : Initialize(cancellationToken);
@@ -114,6 +124,14 @@ public class ObjectStorageProvider<T>(
         var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
             _storageConfig.Value);
 
+        if (_storage is IConditionalDiskStorage<T> conditional)
+        {
+            await CommitDelta(conditional, deltaVersion, indexObjectName, index, dataObjectName,
+                data.Length == 0 ? null : async () => await conditional.TryUploadBytes(dataObjectName, data, null) != null,
+                () => VerifyArrayUploadIfConfigured(dataObjectName, data.Length));
+            return;
+        }
+
         //Only upload the data file in case it is not empty (which can be the case in case the delta only contains deletes)
         if (data.Length > 0)
         {
@@ -138,6 +156,18 @@ public class ObjectStorageProvider<T>(
         var dataObjectName = DatasetHelper.GetObjectName<T>(deltaVersion, ObjectNameIndexOrDataEnum.Data, ObjectNameTypeEnum.Delta,
             _storageConfig.Value);
 
+        if (_storage is IConditionalDiskStorage<T> conditional)
+        {
+            await CommitDelta(conditional, deltaVersion, indexObjectName, index, dataObjectName,
+                data.Length == 0 ? null : () =>
+                {
+                    data.Position = 0;
+                    return conditional.TryCreateFromStream(dataObjectName, data);
+                },
+                () => VerifyStreamUploadIfConfigured(dataObjectName, data.Length));
+            return;
+        }
+
         if (data.Length > 0)
         {
             await Task.WhenAll(
@@ -150,6 +180,138 @@ public class ObjectStorageProvider<T>(
             await _storage.UploadBytes(indexObjectName, index);
 
         await PersistDeltaInfo(deltaVersion);
+    }
+
+    // The index is the commit: readers find a delta by its index (ObjectStorageReader probes past DeltaInfo.pb, which is
+    // only a hint), so the data goes first and both are created only if absent. A writer that is behind, such as one
+    // that lost the lock without noticing yet, then fails instead of overwriting a stored delta (#79, item 4).
+    private async Task CommitDelta(IConditionalDiskStorage<T> conditional, ulong deltaVersion, string indexObjectName,
+        byte[] index, string dataObjectName, Func<Task<bool>>? createData, Func<Task> verifyData)
+    {
+        var previousIsStored = PreviousVersionIsStored(deltaVersion);
+        if (createData != null)
+        {
+            if (!await createData())
+            {
+                if (await ObjectExists(indexObjectName))
+                    throw Conflict(deltaVersion);
+                // Not committed yet: another writer is about to, so this writer isn't behind and needs no reload
+                if (!await IsOldData(dataObjectName))
+                {
+                    throw new DBConcurrencyException(
+                        $"Delta {deltaVersion} of {typeof(T).Name} is being stored by another writer");
+                }
+
+                logger.LogWarning("Replacing the data of delta {Version} of {Type}, which was never committed",
+                    deltaVersion, typeof(T).Name);
+                await _storage.DeleteFile(dataObjectName);
+                if (!await createData())
+                    throw Conflict(deltaVersion);
+            }
+
+            await verifyData();
+        }
+
+        // A writer far enough behind that cleaning removed its previous version would otherwise re-create a delta
+        // below the oldest one, which nobody reads
+        if (!await previousIsStored)
+        {
+            if (createData != null)
+                await _storage.DeleteFile(dataObjectName);
+            throw Conflict(deltaVersion);
+        }
+
+        if (await conditional.TryUploadBytes(indexObjectName, index, null) == null
+            && !await StoredIndexIs(indexObjectName, index))
+        {
+            // Data we created is ours alone: a winner with data would have made our create fail
+            if (createData != null)
+                await _storage.DeleteFile(dataObjectName);
+            throw Conflict(deltaVersion);
+        }
+
+        DeltaInfo.LatestDeltaVersion = deltaVersion;
+        if (DeltaInfo.EarliestDeltaVersion == 0)
+            DeltaInfo.EarliestDeltaVersion = deltaVersion;
+        try
+        {
+            await SaveDeltaInfo();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Delta {Version} of {Type} is stored, but DeltaInfo.pb was not updated", deltaVersion,
+                typeof(T).Name);
+        }
+    }
+
+    private async Task<bool> PreviousVersionIsStored(ulong deltaVersion)
+    {
+        if (deltaVersion <= 1)
+            return true;
+
+        // After cleaning without KeepAllDeltas, the snapshot of the previous version stands in for its delta
+        return await ObjectExists(DatasetHelper.GetObjectName<T>(deltaVersion - 1, ObjectNameIndexOrDataEnum.Index,
+                   ObjectNameTypeEnum.Delta, _storageConfig.Value))
+               || await ObjectExists(DatasetHelper.GetObjectName<T>(deltaVersion - 1, ObjectNameIndexOrDataEnum.Index,
+                   ObjectNameTypeEnum.Snapshot, _storageConfig.Value));
+    }
+
+    private async Task<bool> IsOldData(string dataObjectName)
+    {
+        var data = (await _storage.ListObjects(dataObjectName)).Where(o => o.ObjectKey == dataObjectName).ToList();
+        return data.Count == 1 && DateTimeOffset.UtcNow - data[0].DateTime > OrphanedDataAge;
+    }
+
+    // A create whose response was lost (the SDK retried a write that had landed) finds its own index
+    private async Task<bool> StoredIndexIs(string indexObjectName, byte[] index)
+    {
+        try
+        {
+            return (await _storage.DownloadBytes(indexObjectName)).Span.SequenceEqual(index);
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> ObjectExists(string objectName)
+    {
+        try
+        {
+            await _storage.GetObjectContentLength(objectName);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    // Throws to the caller, whose write is not stored; meanwhile the writer and reader reload, so they pick up the
+    // versions the other writer stored
+    private DBConcurrencyException Conflict(ulong deltaVersion)
+    {
+        _ = Task.Run(ReloadAfterConflict);
+        return new DBConcurrencyException(
+            $"Delta {deltaVersion} of {typeof(T).Name} was stored by another writer first; the dataset is being reloaded");
+    }
+
+    private async Task ReloadAfterConflict()
+    {
+        try
+        {
+            await _notificationsHub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.NotReady));
+            if (lockService is { HasLock: false })
+                return; // reloads when the lock is acquired again
+
+            _initTask = InitLoop(_stoppingToken);
+            await _initTask;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to reload {Type} after a version conflict", typeof(T).Name);
+        }
     }
 
     private async Task PersistDeltaInfo(ulong deltaVersion)

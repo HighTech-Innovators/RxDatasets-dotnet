@@ -1,10 +1,12 @@
 ﻿using System.IO;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
 namespace RxDatasets.StorageProvider.LocalDisk
 {
-    public class LocalDiskStorage<T> : IDiskStorage<T>
+    public class LocalDiskStorage<T> : IConditionalDiskStorage<T>
     {
         private readonly string _rootFolder;
         private readonly ILogger<LocalDiskStorage<T>> _logger;
@@ -178,6 +180,84 @@ namespace RxDatasets.StorageProvider.LocalDisk
             }
         }
 
+        // The version is a hash of the content. Compare-and-swap holds an exclusive handle (FileShare.None, which .NET
+        // maps to flock on Unix) across read, compare and rewrite, so it is atomic between processes on this machine.
+        // ponytail: in-place rewrite, not crash-atomic; fine for small coordination files like the lock, not for data.
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string key)
+        {
+            byte[] bytes = (await DownloadBytes(key)).ToArray();
+            return (bytes, ContentVersion(bytes));
+        }
+
+        public async Task<string?> TryUploadBytes(string key, byte[] data, string? expectedVersion)
+        {
+            if (expectedVersion == null)
+            {
+                return await TryCreate(key, file => file.WriteAsync(data).AsTask()) ? ContentVersion(data) : null;
+            }
+
+            try
+            {
+                await using var fileStream = new FileStream(GetFullPath(key), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                var current = new byte[fileStream.Length];
+                await fileStream.ReadExactlyAsync(current);
+                if (ContentVersion(current) != expectedVersion)
+                {
+                    return null;
+                }
+
+                fileStream.SetLength(0);
+                await fileStream.WriteAsync(data);
+                return ContentVersion(data);
+            }
+            catch (FileNotFoundException)
+            {
+                return null; // deleted since it was read
+            }
+        }
+
+        public Task<bool> TryCreateFromStream(string key, Stream stream) => TryCreate(key, stream.CopyToAsync);
+
+        // Create-only writes a uniquely named temp file and then puts it in place in one step that fails when the target
+        // exists, so a reader never sees a partly written object and of concurrent creators exactly one wins. That step
+        // is a move on Windows; on Unix a hard link, since .NET's File.Move checks and then renames, which overwrites.
+        private async Task<bool> TryCreate(string key, Func<FileStream, Task> write)
+        {
+            var filePath = GetFullPath(key);
+            var tempFilePath = Path.Combine(Path.GetDirectoryName(filePath)!, $".tmp_{Guid.NewGuid():N}_{Path.GetFileName(filePath)}");
+            try
+            {
+                await using (var tempFileStream = new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    await write(tempFileStream);
+                }
+
+                if (OperatingSystem.IsWindows())
+                {
+                    File.Move(tempFilePath, filePath, overwrite: false);
+                }
+                else if (Libc.link(tempFilePath, filePath) != 0)
+                {
+                    int errno = Marshal.GetLastPInvokeError();
+                    if (errno == Libc.EEXIST)
+                        return false;
+                    throw new IOException($"Could not create {key} (errno {errno})");
+                }
+
+                return true;
+            }
+            catch (IOException) when (File.Exists(filePath))
+            {
+                return false;
+            }
+            finally
+            {
+                File.Delete(tempFilePath);
+            }
+        }
+
+        private static string ContentVersion(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+
         public async Task UploadFileStream(string key, Stream stream)
         {
             var filePath = GetFullPath(key);
@@ -329,5 +409,13 @@ namespace RxDatasets.StorageProvider.LocalDisk
     public class LocalDiskStorageConfig
     {
         public string RootFolder { get; set; } = "dataset-localstorage";
+    }
+
+    internal static class Libc
+    {
+        internal const int EEXIST = 17; // Linux and macOS
+
+        [DllImport("libc", SetLastError = true)]
+        internal static extern int link(string oldpath, string newpath);
     }
 }

@@ -317,7 +317,9 @@ public class ObjectStorageReader<T>(
     {
         var objectNamePrefix = DatasetHelper.GetObjectNamePrefix<T>(storageConfig.Value) + FolderNames.DeltasFolderNameWithSlash;
         var listObjects = await diskStorage.ListObjects(objectNamePrefix);
-        var deltas = listObjects.Select(d => SharedMethods.ExtractNumber(d.ObjectKey))
+        // A delta exists once its index does: data.pbs alone is left by a writer that didn't commit
+        var deltas = listObjects.Where(d => d.ObjectKey.EndsWith("/index.pb", StringComparison.Ordinal))
+            .Select(d => SharedMethods.ExtractNumber(d.ObjectKey))
             .Order()
             .GroupBy(v => v)
             .Select(g => g.First())
