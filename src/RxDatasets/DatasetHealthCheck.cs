@@ -88,7 +88,7 @@ public class ReadOnlyDatasetReadinessCheck<T>(IServiceProvider serviceProvider) 
         return HealthCheckResult.Healthy();
     }
 }
-public class DistributedLockHealthCheck<T>(DistributedLockService<T> lockService) : IHealthCheck
+public class DistributedLockHealthCheck<T>(IDistributedLock<T> lockService) : IHealthCheck
 {
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {

@@ -439,3 +439,82 @@ token it tried to write is its lock.
   succeed; the index still decides, but may then point into the other's data.
 - Queued `DeltaInfo.pb` writes of an instance that yielded may land after the new holder's. Readers then see an older
   `latest_delta_version`, and find the newer deltas by their index.
+
+## One lock for all datasets of an instance
+
+With a lock per dataset, every dataset of a server is passed on separately: during a deployment some datasets are
+written by the old instance and some by the new one, and a server with many datasets runs a lock loop, a `lock-file`
+and its renewals per dataset. `WithSharedDistributedLock()` puts all datasets of an instance under one lock instead:
+
+```csharp
+// Before the datasets, so a host that stops its services one after the other stops it after them
+services.AddSharedDistributedLock<GoogleCloudStorage<SharedDistributedLock>>("MyServerLock");
+
+services.AddDtoServer<Link>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+services.AddDtoServer<Label>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+```
+
+- `SharedDistributedLock` is a `DistributedLockService` with its files in `{CustomRootFolder}{lockFolder}/`, on a
+  storage of its own: an `IConditionalDiskStorage<SharedDistributedLock>`, so only a storage with compare-and-swap
+  writes compiles in, and the lock never falls back to read-then-write. That storage is a singleton of the service
+  collection the lock is registered in, which owns and disposes it; no dataset's storage is used. It reads the
+  storage's section (`GoogleCloud` here) and the `Storage` section's `CustomRootFolder`, so it must reach the same
+  bucket and root as the datasets. No health check watches that storage by default: one that can't reach the bucket
+  only shows as every dataset waiting for the lock. It is also registered as `IDiskStorage<SharedDistributedLock>`,
+  so the provider's check can watch it:
+  `services.AddHealthChecks().AddCheck<GoogleCloudHealthCheck<SharedDistributedLock>>("storage.googlecloud.SharedLock")`.
+- Each dataset's `IDistributedLock<T>` is a `SharedDistributedLockMember<T>`: it has the lock when the instance has it,
+  and passes every Acquired and Lost on to the dataset's notifications hub. A dataset that starts later gets the
+  current state on joining.
+- Everything in the scenarios above holds for the instance as a whole: one `request-lock` asks for all datasets, one
+  renewal keeps them, and a takeover moves them all.
+- The lock starts when the first dataset joins. On stop it waits until every dataset has stopped, which flushes the
+  dataset's storage and leaves, and only then releases the lock, so the next holder sees all their writes. Meanwhile
+  it no longer yields to a `request-lock`: an instance that starts during the shutdown waits for the release. A dataset
+  that has left no longer has the lock, so it refuses writes its flush would miss.
+- A host that stops its services one after the other (the default) stops them in reverse order of registration:
+  register the lock before the services that start and stop the datasets. Registered after them, it is stopped first
+  and waits for datasets the host stops only after it, so every shutdown hangs until the host's shutdown timeout and
+  then releases before they flushed. With `HostOptions.ServicesStopConcurrently` the order doesn't matter.
+- When the stop token fires first (the host's shutdown timeout), it logs a warning and releases anyway. A dataset that
+  joins once the lock is stopping gets no state and never has the lock.
+- `lockFolder` names the server: instances that share it hand over to each other, so give every kind of server its own.
+
+A host that builds a service collection per dataset registers the lock, and with it the lock's storage, in its root,
+and adds that instance to every dataset's collection. The root owns both: removing or replacing a dataset disposes
+only that dataset's own storage, and the lock keeps running until the root stops it.
+
+```csharp
+// Root: the storage settings the datasets get (sections, and a PostConfigure<StorageConfig> they have), then the lock,
+// before the service that starts and stops the datasets unless the host stops its services concurrently
+root.AddValidatedConfigSection<GoogleCloudConfig>();
+root.AddSharedDistributedLock<GoogleCloudStorage<SharedDistributedLock>>("MyServerLock");
+
+// Per dataset: the root's instance, so this collection neither starts, stops nor disposes it
+services.AddSingleton(rootProvider.GetRequiredService<SharedDistributedLock>());
+services.AddDtoServer<T>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+```
+
+```mermaid
+sequenceDiagram
+    participant A1 as A: Link
+    participant A2 as A: Label
+    participant LA as A: shared lock
+    participant S as Storage
+    participant LB as B: shared lock
+    participant B1 as B: Link
+    participant B2 as B: Label
+    Note over LA: holds MyServerLock/lock-file
+    LA-->>A1: Acquired
+    LA-->>A2: Acquired
+    Note over LB: B starts, first dataset joins
+    LB->>S: write MyServerLock/request-lock = B
+    LA->>S: read request-lock (≤ 5 s)
+    S-->>LA: B
+    LA->>S: release (expired lock, CAS)
+    LA-->>A1: Lost
+    LA-->>A2: Lost
+    LB->>S: acquire (CAS, ≤ 5 s)
+    LB-->>B1: Acquired
+    LB-->>B2: Acquired
+```
