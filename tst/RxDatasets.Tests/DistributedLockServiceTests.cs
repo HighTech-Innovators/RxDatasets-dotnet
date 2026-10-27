@@ -30,6 +30,7 @@ public class DistributedLockServiceTests : IDisposable
     private readonly CancellationTokenSource _testCts;
     private string? _lastWrittenToken;
     private readonly TestScheduler _scheduler;
+    private readonly ParkSignallingClock _clock;
     private Func<string, Task<ReadOnlyMemory<byte>>> _requestLockHandler;
 
     public DistributedLockServiceTests()
@@ -50,6 +51,7 @@ public class DistributedLockServiceTests : IDisposable
         _scheduler = new TestScheduler();
         // Nudge virtual time away from DateTimeOffset.MinValue to allow negative offsets safely
         _scheduler.AdvanceBy(TimeSpan.FromHours(1).Ticks);
+        _clock = new ParkSignallingClock(new RxSchedulerClock(_scheduler));
     }
 
     [Fact]
@@ -166,7 +168,7 @@ public class DistributedLockServiceTests : IDisposable
     [Fact]
     public async Task ClockDelay_Should_Tick_About_36_Times_When_Advancing_3_Minutes()
     {
-        var clock = new RxSchedulerClock(_scheduler);
+        var clock = new ParkSignallingClock(new RxSchedulerClock(_scheduler));
         var count = 0;
         var cts = new CancellationTokenSource();
 
@@ -181,7 +183,7 @@ public class DistributedLockServiceTests : IDisposable
                 count++;
             }
         });
-        await Task.Delay(10); // let the task start
+        await clock.Parked.WaitAsync(TimeSpan.FromSeconds(30)); // let the task start
 
         // Drive virtual time forward in 5s steps so each await resumes and schedules the next
         for (var i = 0; i < 36; i++)
@@ -605,7 +607,7 @@ public class DistributedLockServiceTests : IDisposable
             _loggerMock,
             _notificationsHubMock,
             Options.Create(_lockOptions),
-            new RxSchedulerClock(_scheduler));
+            _clock);
     }
 
     [Fact]
@@ -747,13 +749,33 @@ public class DistributedLockServiceTests : IDisposable
     private async Task StartServiceAsync(DistributedLockService<TestEntity> service)
     {
         await service.StartAsync(_testCts.Token);
-        // Give the Task.Run loop a turn on the thread pool without sleeping
-        await Task.Delay(100);
+        // The loop's first pass runs on the thread pool, which a busy machine can pick up late. Wait until it parks on
+        // the virtual clock: later passes then run inline as the test advances the scheduler.
+        await _clock.Parked.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     public class TestEntity
     {
         // Empty test entity
+    }
+
+    /// <summary>
+    /// Signals once the first delay has been scheduled, i.e. the service loop is waiting on virtual time.
+    /// </summary>
+    private sealed class ParkSignallingClock(IClock inner) : IClock
+    {
+        private readonly TaskCompletionSource _parked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Parked => _parked.Task;
+
+        public DateTimeOffset UtcNow => inner.UtcNow;
+
+        public Task Delay(TimeSpan dueTime, CancellationToken cancellationToken = default)
+        {
+            Task delay = inner.Delay(dueTime, cancellationToken);
+            _parked.TrySetResult();
+            return delay;
+        }
     }
 
     private async Task WaitForAcquiredAsync(DistributedLockService<TestEntity> service, int maxSteps = 200)
