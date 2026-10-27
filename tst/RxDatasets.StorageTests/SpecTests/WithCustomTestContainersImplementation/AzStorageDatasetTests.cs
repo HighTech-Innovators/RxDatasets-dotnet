@@ -77,6 +77,14 @@ public class AzStorageDatasetTests : StorageTestSpecWithTwoStepInit, IClassFixtu
 
 
     [Fact]
+    public async Task Conditional_Operations_Follow_The_Contract()
+    {
+        _azConfig!.Value.ContainerName = "conditional-ops";
+        await ConditionalStorageContract.VerifyAsync(
+            new AzStorage<object>(Mock.Of<ILogger<AzStorage<object>>>(), _azConfig, false));
+    }
+
+    [Fact]
     public async Task Should_Throw_Invalid_Operation_Exception_On_Inaccessible_AZ_Storage_After_Initialization()
     {
         _azConfig!.Value.ContainerName = new string(

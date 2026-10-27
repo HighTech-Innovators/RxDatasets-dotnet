@@ -27,6 +27,8 @@ Reactive Datasets is a project which provides an efficient way to managing statu
 
 [A README for the diskformat used to store entities](src/RxDatasets/diskFormat.md)
 
+[The distributed lock and fenced writes, with a timeline per scenario](docs/distributed-lock.md)
+
 ## Features
 
 - **Entity Management**: Persistent storage and retrieval of protobuf-formatted entities
