@@ -8,7 +8,7 @@ using RxDatasets.Abstractions;
 
 namespace RxDatasets.StorageProvider.Minio;
 
-public class MinioS3Storage<T> : IDiskStorage<T>
+public class MinioS3Storage<T> : IConditionalDiskStorage<T>
 {
     private readonly IMinioClient _s3Client;
 
@@ -296,6 +296,86 @@ public class MinioS3Storage<T> : IDiskStorage<T>
         catch (MinioException ex) when (ex.IsTransient())
         {
             _logger.LogError(ex, "Failed to delete folder from S3");
+            SetUnhealthy(ex);
+            throw new InvalidOperationException("S3 is unavailable", ex);
+        }
+    }
+
+    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+    {
+        await EnsureInitialized();
+        using var resultStream = new MemoryStream();
+        try
+        {
+            ObjectStat stat = await _s3Client.GetObjectAsync(new GetObjectArgs()
+                .WithBucket(_s3Config.Value.BucketName)
+                .WithObject(objectKey)
+                .WithCallbackStream(x => x.CopyTo(resultStream)));
+            SetHealthy();
+            return (resultStream.ToArray(), stat.ETag);
+        }
+        catch (ObjectNotFoundException ex)
+        {
+            SetHealthy();
+            throw new FileNotFoundException("File is not found.", objectKey, ex);
+        }
+        catch (MinioException ex)
+        {
+            SetUnhealthy(ex);
+            throw new InvalidOperationException("S3 is unavailable", ex);
+        }
+    }
+
+    public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion) =>
+        TryUpload(objectKey, new MemoryStream(bytes), expectedVersion);
+
+    public async Task<bool> TryCreateFromStream(string objectKey, Stream stream) =>
+        await TryUpload(objectKey, stream, null) != null;
+
+    // minio-dotnet uploads objects from 5 MiB in parts, and drops the conditions of those uploads
+    private const long SinglePartLimit = 5L * 1024 * 1024;
+
+    private async Task<string?> TryUpload(string objectKey, Stream stream, string? expectedVersion)
+    {
+        await EnsureInitialized();
+        if (stream.Length - stream.Position >= SinglePartLimit)
+        {
+            if (expectedVersion != null)
+                throw new NotSupportedException($"Minio can't replace an object of 5 MiB or more conditionally ({objectKey})");
+            // ponytail: check, then write, so two writers creating the same large object at once can both succeed. Only
+            // delta data gets here; its index, created after it, is atomic. Closing it needs the S3 SDK's single-part put.
+            try
+            {
+                await GetObjectContentLength(objectKey);
+                return null;
+            }
+            catch (FileNotFoundException)
+            {
+                // absent: create it
+            }
+        }
+
+        try
+        {
+            var args = new PutObjectArgs()
+                .WithBucket(_s3Config.Value.BucketName)
+                .WithObject(objectKey)
+                .WithStreamData(stream)
+                .WithObjectSize(stream.Length - stream.Position);
+            args = expectedVersion == null ? args.WithNotMatchETag("*") : args.WithMatchETag(expectedVersion);
+            var response = await _s3Client.PutObjectAsync(args);
+            SetHealthy();
+            return response.Etag.Trim('"'); // quoted here, unquoted in the stat of a read
+        }
+        // If-Match on an absent object comes back as NoSuchKey; the SDK only maps that to a typed exception for reads
+        catch (MinioException ex) when (ex is PreconditionFailedException or ObjectNotFoundException
+                                        || ex.Response?.Code is "PreconditionFailed" or "NoSuchKey" or "ConditionalRequestConflict")
+        {
+            SetHealthy();
+            return null;
+        }
+        catch (MinioException ex)
+        {
             SetUnhealthy(ex);
             throw new InvalidOperationException("S3 is unavailable", ex);
         }

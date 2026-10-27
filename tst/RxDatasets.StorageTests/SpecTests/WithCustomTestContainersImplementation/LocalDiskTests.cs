@@ -64,6 +64,9 @@ public class LocalDiskDatasetTests : StorageTestSpecWithTwoStepInit, IAsyncLifet
         return (datasetReader, datasetWriter);
     }
 
+    [Fact]
+    public Task Conditional_Operations_Follow_The_Contract() => ConditionalStorageContract.VerifyAsync(_localStorage);
+
     public Task InitializeAsync() => Task.CompletedTask;
 
     public async Task DisposeAsync()

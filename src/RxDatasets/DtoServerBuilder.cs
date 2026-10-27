@@ -34,6 +34,7 @@ namespace RxDatasets
         private bool _withCache;
         private bool _isInMemoryDataset;
         private bool _withDistributedLock;
+        private bool _withSharedDistributedLock;
         private bool _withSnapshot;
         private bool _withCleanup;
         private bool _withSharedReaderWriter;
@@ -109,6 +110,18 @@ namespace RxDatasets
         }
 
         /// <summary>
+        /// Writes this dataset under the instance's <see cref="SharedDistributedLock"/> instead of a lock of its own, so
+        /// one instance writes all datasets that use it, and a handover passes them all at once. Register the shared lock
+        /// in the service collection first (<see cref="SharedDistributedLockExtensions.AddSharedDistributedLock"/>, or an
+        /// instance shared between service collections).
+        /// </summary>
+        public DtoServerBuilder<TEntity> WithSharedDistributedLock()
+        {
+            _withSharedDistributedLock = true;
+            return this;
+        }
+
+        /// <summary>
         /// Uses a single combined reader/writer instance that shares one index and one
         /// initialization path, halving storage round-trips at startup.
         /// Best for datasets with infrequent writes; high-write workloads should use the
@@ -135,10 +148,21 @@ namespace RxDatasets
         {
             AddStorageProvider();
 
-            if (!_isInMemoryDataset && _withDistributedLock)
+            if (_withDistributedLock && _withSharedDistributedLock)
+                throw new InvalidOperationException(
+                    $"{typeof(TEntity).Name}: use either WithDistributedLock or WithSharedDistributedLock, not both");
+
+            if (!_isInMemoryDataset && (_withDistributedLock || _withSharedDistributedLock))
             {
-                services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
-                services.AddSingletonAsHostedService<DistributedLockService<TEntity>>();
+                if (_withSharedDistributedLock)
+                {
+                    services.AddSingletonAsHostedService<IDistributedLock<TEntity>, SharedDistributedLockMember<TEntity>>();
+                }
+                else
+                {
+                    services.AddValidatedConfigSection<DistributedLockOptions>("DistributedLock");
+                    services.AddSingletonAsHostedService<IDistributedLock<TEntity>, DistributedLockService<TEntity>>();
+                }
                 services.AddHealthChecks().AddCheck<DistributedLockHealthCheck<TEntity>>($"DistributedLockHealthCheck-{VersionedEntityName(typeof(TEntity))}", null, readinessTags);
             }
 
