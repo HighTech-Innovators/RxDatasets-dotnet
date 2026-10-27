@@ -450,8 +450,8 @@ and its renewals per dataset. `WithSharedDistributedLock()` puts all datasets of
 // Before the datasets, so a host that stops its services one after the other stops it after them
 services.AddSharedDistributedLock<GoogleCloudStorage<SharedDistributedLock>>("MyServerLock");
 
-services.AddDtoServer<Link>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
-services.AddDtoServer<Label>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+services.AddDtoServer<Order>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
+services.AddDtoServer<Customer>().WithGoogleCloudStorage().WithSharedDistributedLock().Build();
 ```
 
 - `SharedDistributedLock` is a `DistributedLockService` with its files in `{CustomRootFolder}{lockFolder}/`, on a
@@ -497,13 +497,13 @@ services.AddDtoServer<T>().WithGoogleCloudStorage().WithSharedDistributedLock().
 
 ```mermaid
 sequenceDiagram
-    participant A1 as A: Link
-    participant A2 as A: Label
+    participant A1 as A: Order
+    participant A2 as A: Customer
     participant LA as A: shared lock
     participant S as Storage
     participant LB as B: shared lock
-    participant B1 as B: Link
-    participant B2 as B: Label
+    participant B1 as B: Order
+    participant B2 as B: Customer
     Note over LA: holds MyServerLock/lock-file
     LA-->>A1: Acquired
     LA-->>A2: Acquired

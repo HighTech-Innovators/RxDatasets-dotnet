@@ -88,7 +88,7 @@ public static class DI
     /// </summary>
     /// <typeparam name="TEntity"></typeparam>
     /// <param name="services"></param>
-    /// <param name="protoParser">The MessageParser for the protobuf message type (e.g., Link.Parser)</param>
+    /// <param name="protoParser">The MessageParser for the protobuf message type (e.g., Order.Parser)</param>
     /// <param name="idPatterns">One or more ID patterns (e.g. "t/{tenantid}/fonts/{fontid}"). Each entity ID is matched to the first pattern whose segment count equals the ID's segment count.</param>
     /// <param name="aliasConfigs"></param>
     public static void AddDatasetAliases<TEntity>(
@@ -192,8 +192,8 @@ public static class PatternsAndExpressions
 
     /// <summary>
     /// Extracts variable names and their positions from an ID pattern.
-    /// For example, "t/{tenantid}/s/{storeid}/links/{linkid}" produces:
-    /// {tenantid: 1, storeid: 3, linkid: 5} (positions in the split result)
+    /// For example, "t/{tenantid}/s/{siteid}/orders/{orderid}" produces:
+    /// {tenantid: 1, siteid: 3, orderid: 5} (positions in the split result)
     /// </summary>
     public static Dictionary<string, int> ExtractPatternVariables(string idPattern)
     {
@@ -227,12 +227,12 @@ public static class PatternsAndExpressions
     /// one alias for each distinct combination of values.
     /// 
     /// Examples:
-    ///   aliasPattern: "{.id/[..4]}/item/{.single.linked_item.item_id}/links/{linkid}"
-    ///   For Link with id="t/100/s/200/links/abc", single.linked_item.item_id="xyz":
-    ///     Result: ["100/s/200/item/xyz/links/abc"]
+    ///   aliasPattern: "{.id/[..4]}/customer/{.customer_id}/orders/{orderid}"
+    ///   For Order with id="t/100/s/200/orders/abc", customer_id="xyz":
+    ///     Result: ["100/s/200/customer/xyz/orders/abc"]
     ///
-    ///   aliasPattern: "item/{.multi_item.linked_items[].item_id}"
-    ///   For Link with multi_item.linked_items having ["a", "b", "c"] (3 distinct items):
+    ///   aliasPattern: "item/{.lines[].sku}"
+    ///   For Order with lines having skus ["a", "b", "c"] (3 distinct items):
     ///     Result: ["item/a", "item/b", "item/c"]
     /// </summary>
     public static IEnumerable<string> EvaluateAliasPattern(
@@ -347,7 +347,7 @@ public static class PatternsAndExpressions
     }
 
     /// <summary>
-    /// Evaluates an expression that references ID placeholders (e.g. {tenantid}, {storeid})
+    /// Evaluates an expression that references ID placeholders (e.g. {tenantid}, {siteid})
     /// using the provided ID pattern and DTO entity ID.
     /// </summary>
     public static string? EvaluateIdPatternExpression(string expression, string idPattern, string entityId)
@@ -798,7 +798,7 @@ public static class PatternsAndExpressions
 
     /// <summary>
     /// Converts snake_case to PascalCase.
-    /// Examples: "item_id" -> "ItemId", "esl" -> "Esl", "esls" -> "Esls"
+    /// Examples: "item_id" -> "ItemId", "sku" -> "Sku", "skus" -> "Skus"
     /// </summary>
     private static string ConvertSnakeCaseToPascalCase(string snakeCase)
     {

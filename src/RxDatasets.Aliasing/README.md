@@ -2,8 +2,8 @@
 
 ## Overview
 
-An alias is another name for an entity, computed from its data: for example the ESL a link is on
-(`t/{tenantid}/s/{storeid}/esls/{barcode}/link`). Each alias name of a dataset maps its alias values to entities.
+An alias is another name for an entity, computed from its data: for example the customer an order belongs to
+(`t/{tenantid}/s/{siteid}/customers/{customerid}/orders/{orderid}`). Each alias name of a dataset maps its alias values to entities.
 
 Aliases are part of the dataset index:
 
@@ -35,23 +35,23 @@ newest version, then the lowest name; the others lose just that alias. Such conf
 
 ## Registration
 
-From the alias patterns of the DTO (as in the DTOflow templates):
+From alias patterns, as declared in a record type's proto:
 
 ```csharp
-services.AddDatasetAliases<Link>(
-    Link.Parser,
-    ["t/{tenantid}/s/{storeid}/links/{linkid}"],
-    ("by_storeesl", "{.id/[..4]}/esls/{.single.esl.barcode}/link"),
-    ("by_item", "t/{tenantid}/s/{storeid}/items/{.single.linked_item.item_id}/links/{linkid}"));
+services.AddDatasetAliases<Order>(
+    Order.Parser,
+    ["t/{tenantid}/s/{siteid}/orders/{orderid}"],
+    ("by_customer", "t/{tenantid}/s/{siteid}/customers/{.customer_id}/orders/{orderid}"),
+    ("by_item", "t/{tenantid}/s/{siteid}/items/{.lines[].sku}/orders/{orderid}"));
 ```
 
 Or with a factory of your own, which gets the entity name and its bytes, and throws on bytes it can't evaluate. The
 definition hash must change whenever the factory would give other aliases:
 
 ```csharp
-services.AddDatasetAlias<Link>("by_storeesl",
-    (name, bytes) => [AliasOf(Link.Parser.ParseFrom(bytes.Span))],
-    definitionHash: "by_storeesl-v1");
+services.AddDatasetAlias<Order>("by_customer",
+    (name, bytes) => [AliasOf(Order.Parser.ParseFrom(bytes.Span))],
+    definitionHash: "by_customer-v1");
 ```
 
 The order of registration doesn't matter: the dataset's writer reads the definitions from `AliasOptions<T>`.
@@ -59,10 +59,10 @@ The order of registration doesn't matter: the dataset's writer reads the definit
 ## Reading
 
 ```csharp
-var byStoreEsl = serviceProvider.GetDatasetReader<Link>("by_storeesl");
-var link = await byStoreEsl.Get("t/T/s/S/esls/B1/link");
-var links = await byStoreEsl.BatchGet(["t/T/s/S/esls/B1/link", "t/T/s/S/esls/B2/link"], null);
-var (aliases, version) = await byStoreEsl.List("t/T/s/S/esls", CancellationToken.None);
+var byCustomer = serviceProvider.GetDatasetReader<Order>("by_customer");
+var order = await byCustomer.Get("t/T/s/S/customers/C1/orders/O1");
+var orders = await byCustomer.BatchGet(["t/T/s/S/customers/C1/orders/O1", "t/T/s/S/customers/C1/orders/O2"], null);
+var (aliases, version) = await byCustomer.List("t/T/s/S/customers/C1", CancellationToken.None);
 ```
 
 `AliasDatasetReader<T>` is a thin view: it resolves aliases through the dataset reader's `IAliasIndex` and gets the

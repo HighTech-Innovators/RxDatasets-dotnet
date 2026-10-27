@@ -192,7 +192,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
 
     /// <summary>
     /// The default storage folder of a dataset of <paramref name="entityType"/>: the type name, plus <c>V{n}</c> when the
-    /// last namespace segment ends in a version other than 1 (<c>Pricer.Evo.Dtos.LinkV2.Link</c> → <c>LinkV2</c>), so
+    /// last namespace segment ends in a version other than 1 (<c>Acme.Dtos.OrderV2.Order</c> → <c>OrderV2</c>), so
     /// two versions of a DTO don't share a folder. Version 1 and unversioned types keep the bare type name.
     /// </summary>
     public static string StorageFolderName(Type entityType)

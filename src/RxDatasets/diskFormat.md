@@ -15,8 +15,8 @@ In total, there are five different file types stored on disk:
 - `ProcessedVersions.pb`: Storing the metadata about the services that process delta notifications.
 
 All of these live in one folder per dataset: `StorageConfig.DtoName` when set, otherwise the entity type name, plus
-`V{n}` when the last namespace segment ends in a version other than 1 (`Pricer.Evo.Dtos.LinkV2.Link` → `LinkV2/`,
-`Pricer.Evo.Dtos.LinkV1.Link` → `Link/`). Before this, every version used the bare type name, so all versions of a DTO
+`V{n}` when the last namespace segment ends in a version other than 1 (`Acme.Dtos.OrderV2.Order` → `OrderV2/`,
+`Acme.Dtos.OrderV1.Order` → `Order/`). Before this, every version used the bare type name, so all versions of a DTO
 shared one folder.
 
 The full .proto file containing the object definitions can be found [here](src/RxDatasets/Models/DatasetEntities.proto)
@@ -120,10 +120,10 @@ Split the name on `/` into n segments (see `IndexKeys`):
 | Name | Nodes | Template | Variable |
 |---|---|---|---|
 | `t/T/s/S/items/I/values` | `t/T`, `s/S` | `items/{}/values` | `I` |
-| `t/T/s/S/esls/B/pages/P/studioimage` | `t/T`, `s/S`, `esls/B` | `pages/{}/studioimage` | `P` |
-| `t/T/s/S/eccparameters` | `t/T` | `s/{}/eccparameters` | `S` |
+| `t/T/s/S/orders/O/lines/L/note` | `t/T`, `s/S`, `orders/O` | `lines/{}/note` | `L` |
+| `t/T/s/S/sitesettings` | `t/T` | `s/{}/sitesettings` | `S` |
 | `t/T/tenant` | (root) | `t/{}/tenant` | `T` |
-| `esltypes/E` | (root) | `esltypes/{}` | `E` |
+| `currencies/C` | (root) | `currencies/{}` | `C` |
 
 The rule needs no knowledge of id patterns, so a dataset with several patterns needs no configuration, and the fixed
 parts of every pattern are stored once per node. To rebuild a name, join the node path, the template up to its `{}`,
@@ -183,10 +183,10 @@ snapshots and the deltas behind a bad snapshot are kept, and that snapshot can s
 ### Possible later refinement
 Templates and variables are opaque strings to everything except `IndexKeys`. Registered id patterns could map a name
 onto the tree differently later (for example to also share a literal that the pair rule takes as a variable, like
-`studio` in `t/T/s/S/esls/B/link/studio`) without changing these messages.
+`note` in `t/T/s/S/orders/O/invoice/note`) without changing these messages.
 
 ## Aliases
-An alias is another name for an entity, under an alias name (like `by_storeesl`), computed from its data by the alias
+An alias is another name for an entity, under an alias name (like `by_customer`), computed from its data by the alias
 definitions the writer is registered with. An alias value is unique within its alias name; one entity may own many.
 The writer rejects a write that would give an alias two live owners, so the stored state never has two.
 

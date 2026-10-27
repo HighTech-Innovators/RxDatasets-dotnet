@@ -21,9 +21,12 @@ For more details, you can also refer to the full license text at the [SPDX websi
 
   
 
-Reactive Datasets is a project which provides an efficient way to managing status updates of entities in protobuf format. It persistently stores entities in a disk format (On Azure Blob, S3, or in memory). And it allows for the retrieval of entities in a reactive way, allowing clients to get a list of all changed entities since the last time they checked.
+Reactive Datasets is a project which provides an efficient way to managing status updates of entities in protobuf format. It persistently stores entities in a disk format (on local disk, Google Cloud Storage, S3, Azure Blob, MinIO, or in memory). And it allows for the retrieval of entities in a reactive way, allowing clients to get a list of all changed entities since the last time they checked.
 
   
+
+**[The user guide](docs/user-guide/README.md)**: concepts, service contracts, change queues, building a server,
+configuration, storage providers, locking and deployment, testing, and pitfalls.
 
 [A README for the diskformat used to store entities](src/RxDatasets/diskFormat.md)
 
@@ -50,7 +53,9 @@ Reactive Datasets is a project which provides an efficient way to managing statu
 
 - KeepAllDeltas = true (default); // When disabled, all deltas leading to the outdated snapshot would be deleted,
 e.g. lets say we have deltas [1,2,3,4,5,6,7,8,9,10] and snapshots [1,4,7, 10] (assuming a snapshot interval of 3),
-when snapshot 1,4 are deleted, deltas 1,2,3,4,5,6 would also be deleted since the earliest to keep snapshot would 7
+when snapshot 1,4 are deleted, deltas 1 to 7 would also be deleted since the earliest snapshot to keep is 7 (it holds
+delta 7's state). See [Cleaning](docs/user-guide/08-dataset-lifecycle.md#cleaning): nothing is deleted until a
+reporter has stored its progress
 
 - IsEnabled = true (default);
 
