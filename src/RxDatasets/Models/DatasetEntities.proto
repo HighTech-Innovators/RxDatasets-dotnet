@@ -10,8 +10,6 @@ message SnapshotEntity {
 	int32 length = 5;
 	uint32 crc32 = 7;
 	repeated AliasRef aliases = 8; // the full set of aliases the entity owns
-	string tracking_id = 9; // of the write that made the latest change; empty when it passed none
-	google.protobuf.Timestamp sla_timestamp = 10; // of the write that made the latest change, if any
 }
 
 // An alias value under an alias name; unique within the alias name

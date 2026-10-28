@@ -186,20 +186,19 @@ onto the tree differently later (for example to also share a literal that the pa
 `studio` in `t/T/s/S/esls/B/link/studio`) without changing these messages.
 
 ## Tracking id and SLA timestamp
-A write may pass a tracking id and an SLA timestamp with each entity. Deltas record them per change, and snapshots
-per entity for its latest change:
+A write may pass a tracking id and an SLA timestamp with each entity. Deltas record them per change; the index and
+snapshots do not, as they hold the current state only:
 
 ```protobuf
 message DeltaEntity    { ...; string tracking_id = 7; google.protobuf.Timestamp sla_timestamp = 8; }
 message DeletedEntity  { ...; string tracking_id = 3; google.protobuf.Timestamp sla_timestamp = 4; }
-message SnapshotEntity { ...; string tracking_id = 9; google.protobuf.Timestamp sla_timestamp = 10; } // latest change
 ```
 
 - A put with the same bytes makes no change, so the version keeps the tracking id of the write that made it.
-- The history returns them per change (`HistoryEntry.TrackingId`, `SlaTimestamp`), read from the deltas.
-- A change list returns them per changed name for its latest change (`ChangeSet.Origins`,
-  `ListChangesResponse.Origins`), from the index. Snapshots written before they were stored have none, so a name
-  whose latest change predates such a snapshot has no origin in a change list until it changes again.
+- The history returns them per change (`HistoryEntry.TrackingId`, `SlaTimestamp`).
+- `GetHistoryChanges` returns the net change of each name since a version, with the tracking id and SLA timestamp of
+  its last change, read from the deltas after that version. When one of those deltas is no longer kept (cleanup without
+  `KeepAllDeltas`), it answers `ResyncRequiredException`: list the current state and continue from its version.
 
 ## Aliases
 An alias is another name for an entity, under an alias name (like `by_storeesl`), computed from its data by the alias

@@ -107,8 +107,7 @@ public static class DatasetExtensions
                     newEntity.Crc32)
                 {
                     Aliases = OwnedAliases(variable, existingEntity.Aliases, newEntity.AddedAliases,
-                        newEntity.RemovedAliases),
-                    Origin = ImmutableSnapshotEntity.OriginOf(newEntity.TrackingId, newEntity.SlaTimestamp)
+                        newEntity.RemovedAliases)
                 });
             }
 
@@ -125,12 +124,11 @@ public static class DatasetExtensions
                     changedEntity.Crc32)
                 {
                     Aliases = OwnedAliases(variable, existingEntity.Aliases, changedEntity.AddedAliases,
-                        changedEntity.RemovedAliases),
-                    Origin = ImmutableSnapshotEntity.OriginOf(changedEntity.TrackingId, changedEntity.SlaTimestamp)
+                        changedEntity.RemovedAliases)
                 });
             }
 
-            foreach (var (variable, deletedEntity) in group.DeletedEntities)
+            foreach (var variable in group.DeletedEntities.Keys)
             {
                 var key = variable.AsMemory();
                 var existingEntity = node.GetLeaf(template, key) ?? throw NotFound(template, variable, "delete");
@@ -146,8 +144,7 @@ public static class DatasetExtensions
                     Aliases = existingEntity.Aliases.IsEmpty
                         ? []
                         : ApplyAliasChanges(NameOf(template, variable), existingEntity.Aliases, [], existingEntity.Aliases,
-                            aliases),
-                    Origin = ImmutableSnapshotEntity.OriginOf(deletedEntity.TrackingId, deletedEntity.SlaTimestamp)
+                            aliases)
                 });
             }
 
@@ -410,6 +407,62 @@ public static class DatasetExtensions
 
         foreach (var name in delta.DeletedNames.Where(n => !deletedEntityNames.Contains(n) && InParent(n)))
             yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = name };
+    }
+
+    /// <summary>
+    /// The net change of every name in the versions after <paramref name="fromVersion"/> up to and including
+    /// <paramref name="toVersion"/>, read from the delta indexes alone, with the tracking id and SLA timestamp of each
+    /// name's last change in that range.
+    /// </summary>
+    /// <remarks>
+    /// A name's first change in the range says whether it existed at <paramref name="fromVersion"/> (only a creation
+    /// says it did not), its last change whether it exists now. Together: new, changed, deleted, or nothing, as
+    /// <see cref="IDatasetReader{T}.GetChangedNames"/> reports. A live poller reads one delta.
+    /// </remarks>
+    /// <exception cref="ResyncRequiredException">A delta in the range is no longer kept.</exception>
+    public static async Task<HistoryChangeSet> ReadHistoryChanges(this IStorageProviderReader storage, ulong fromVersion,
+        ulong toVersion, CancellationToken ct = default)
+    {
+        var firstChanges = new Dictionary<string, ChangeType>();
+        var lastChanges = new Dictionary<string, HistoryEntry>();
+        var names = new List<string>();
+        for (var version = fromVersion + 1; version <= toVersion; version++)
+        {
+            ct.ThrowIfCancellationRequested();
+            DeltaIndex delta;
+            try
+            {
+                delta = DeltaIndex.Parser.ParseFrom((await storage.ReadDeltaIndex(version)).Span);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new ResyncRequiredException(fromVersion);
+            }
+
+            foreach (var entry in delta.EnumerateHistoryEntries(version, ""))
+            {
+                if (firstChanges.TryAdd(entry.Id, entry.ChangeType))
+                    names.Add(entry.Id);
+                lastChanges[entry.Id] = entry;
+            }
+        }
+
+        var changes = new List<HistoryChange>();
+        foreach (var name in names)
+        {
+            var last = lastChanges[name];
+            var change = (Existed: firstChanges[name] != ChangeType.New, Exists: last.ChangeType != ChangeType.Deleted) switch
+            {
+                (false, true) => ChangeType.New,
+                (true, true) => ChangeType.Changed,
+                (true, false) => ChangeType.Deleted,
+                _ => ChangeType.None
+            };
+            if (change != ChangeType.None)
+                changes.Add(new HistoryChange(name, change, last.TrackingId, last.SlaTimestamp));
+        }
+
+        return new HistoryChangeSet(toVersion, changes);
     }
 
     /// <summary>The entities of a snapshot index with their full names, from the tree and the legacy flat map.</summary>

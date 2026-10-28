@@ -155,11 +155,35 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
             return Task.FromResult(new ChangeSet(toVersion, []));
         }
 
-        var (changedNames, origins) = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return Task.FromResult(new ChangeSet(toVersion, changedNames) { Origins = origins });
+        var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
+        return Task.FromResult(new ChangeSet(toVersion, changedNames));
     }
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
+    {
+        await WaitForVersionAfter(fromVersion, cancellationToken);
+        return await GetChangedNames(fromVersion);
+    }
+
+    public async Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        await WaitForVersionAfter(fromVersion, ct);
+        return await GetHistoryChanges(fromVersion, ct);
+    }
+
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        var toVersion = GetInitializedIndex().LatestVersion;
+        if (fromVersion > toVersion)
+        {
+            throw new ArgumentOutOfRangeException($"fromVersion {fromVersion} can't be bigger than the latest version {toVersion}");
+        }
+
+        return ReadOnlyStorageProvider.ReadHistoryChanges(fromVersion, toVersion, ct);
+    }
+
+    /// <summary>Returns once the latest version is no longer <paramref name="fromVersion"/>.</summary>
+    private async Task WaitForVersionAfter(ulong fromVersion, CancellationToken cancellationToken)
     {
         if (InitializationTask == null || InitializationTask.IsFaulted)
             GetInitializedIndex();
@@ -175,8 +199,6 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
                 break;
             await changed.WaitAsync(cancellationToken);
         }
-
-        return await GetChangedNames(fromVersion);
     }
 
     public async Task<List<HistoryEntry>> GetHistory(string name, int limit = 0, ulong minVersion = 0, CancellationToken ct = default)
@@ -363,12 +385,9 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         return indexRef.SnapshotVersion;
     }
 
-    /// <summary>The names changed since <paramref name="fromVersion"/>, with the origin of each one's latest change.</summary>
-    private static (List<(string key, ChangeType change)> Changes, Dictionary<string, ChangeOrigin> Origins) GenerateChangedNames(
-        ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
+    private static List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
     {
         List<(string key, ChangeType change)> changedNames = [];
-        Dictionary<string, ChangeOrigin> origins = [];
 
         indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
             .ToList()
@@ -394,10 +413,8 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
                 if (relativeChangeType != ChangeType.None)
                 {
                     changedNames.Add((x.Key, relativeChangeType));
-                    if (x.Value.Origin is { } origin)
-                        origins[x.Key] = origin;
                 }
             });
-        return (changedNames, origins);
+        return changedNames;
     }
 }

@@ -1,5 +1,4 @@
 ﻿using System.Collections.Immutable;
-using Google.Protobuf.WellKnownTypes;
 using RxDatasets.Abstractions;
 
 namespace RxDatasets.Models;
@@ -12,15 +11,9 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
     /// <summary>The aliases the entity owns: (alias name, alias value).</summary>
     public ImmutableArray<(string Name, string Value)> Aliases { get; init; } = [];
 
-    /// <summary>
-    /// The tracking id and SLA timestamp of the write that made the latest change; <c>null</c> when it passed
-    /// neither, so an entity costs no more than a reference when nobody tracks.
-    /// </summary>
-    public ChangeOrigin? Origin { get; init; }
-
     public SnapshotEntity ToProto()
     {
-        var proto = new SnapshotEntity
+        return new SnapshotEntity
         {
             LastDeletedVersion = { LastDeletedVersion },
             LastInsertedVersion = { LastInsertedVersion },
@@ -28,17 +21,9 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
             Position = Position,
             Length = Length,
             Crc32 = Crc32,
-            Aliases = { Aliases.ToProto() },
-            TrackingId = Origin?.TrackingId ?? ""
+            Aliases = { Aliases.ToProto() }
         };
-        if (Origin?.SlaTimestamp is { } sla)
-            proto.SlaTimestamp = Timestamp.FromDateTimeOffset(sla);
-        return proto;
     }
-
-    /// <summary>The origin of a change as a delta or snapshot records it; <c>null</c> when there is none.</summary>
-    public static ChangeOrigin? OriginOf(string trackingId, Timestamp? slaTimestamp) =>
-        trackingId.Length == 0 && slaTimestamp == null ? null : new ChangeOrigin(trackingId, slaTimestamp?.ToDateTimeOffset());
 
     public static ImmutableSnapshotEntity FromProto(SnapshotEntity snapshotEntity)
     {
@@ -49,8 +34,7 @@ public record ImmutableSnapshotEntity(ImmutableArray<ulong> LastDeletedVersion, 
             snapshotEntity.Length,
             snapshotEntity.Crc32)
         {
-            Aliases = snapshotEntity.Aliases.FromProto(),
-            Origin = OriginOf(snapshotEntity.TrackingId, snapshotEntity.SlaTimestamp)
+            Aliases = snapshotEntity.Aliases.FromProto()
         };
     }
 }
