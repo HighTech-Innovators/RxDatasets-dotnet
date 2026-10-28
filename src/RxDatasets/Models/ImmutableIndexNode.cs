@@ -3,16 +3,6 @@ using System.Collections.Immutable;
 namespace RxDatasets.Models;
 
 /// <summary>
-/// A value stored in an <see cref="ImmutableIndexNode{TValue}"/> that can be present or not. Values that don't
-/// implement it always count as present.
-/// </summary>
-public interface IIndexValue
-{
-    /// <summary>Whether the value counts as present, for <see cref="ImmutableIndexNode{TValue}.LiveCount"/>.</summary>
-    bool IsLive { get; }
-}
-
-/// <summary>
 /// An immutable node of the hierarchical index. See <see cref="IndexKeys"/> for how names map onto it.
 /// </summary>
 /// <remarks>
@@ -55,8 +45,6 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
     public int LiveCount { get; }
 
     public Builder ToBuilder() => new(this);
-
-    private static bool IsLive(TValue value) => value is not IIndexValue { IsLive: false };
 
     /// <summary>Looks up a value by its full name, without allocating.</summary>
     public bool TryGetValue(string name, out TValue value)
@@ -145,7 +133,7 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
     {
         int count = 0;
         foreach (var match in Match(prefix))
-            count += match.Node?.LiveCount ?? (IsLive(match.Value!) ? 1 : 0);
+            count += match.Node?.LiveCount ?? 1;
         return count;
     }
 
@@ -300,24 +288,22 @@ public sealed class ImmutableIndexNode<TValue> where TValue : class
         public void SetLeaf(string template, ReadOnlyMemory<char> variable, TValue value)
         {
             var group = GetLeafGroupBuilder(template);
-            if (!group.TryGetValue(variable, out var previous))
+            if (!group.ContainsKey(variable))
+            {
                 variable = IndexKeys.ShareVariable(variable);
-            else if (IsLive(previous))
-                _leafLiveCountChange--;
-            if (IsLive(value))
                 _leafLiveCountChange++;
+            }
             group[variable] = value;
         }
 
         /// <summary>Removes a value; <see cref="ToImmutable"/> drops a group or node it empties.</summary>
         public void RemoveLeaf(string template, ReadOnlyMemory<char> variable)
         {
-            if (GetLeaf(template, variable) is not { } previous)
+            if (GetLeaf(template, variable) is null)
                 return;
 
             GetLeafGroupBuilder(template).Remove(variable);
-            if (IsLive(previous))
-                _leafLiveCountChange--;
+            _leafLiveCountChange--;
         }
 
         private ImmutableDictionary<ReadOnlyMemory<char>, TValue>.Builder GetLeafGroupBuilder(string template)

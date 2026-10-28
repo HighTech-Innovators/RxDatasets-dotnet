@@ -371,9 +371,7 @@ public class WriteCoalescingTests
         var entities = ImmutableDictionary<string, ImmutableSnapshotEntity>.Empty.Add(
             "foo",
             new ImmutableSnapshotEntity(
-                LastDeletedVersion: [],
-                LastInsertedVersion: [1],
-                LastUpdatedVersion: 0,
+                Version: 1,
                 Position: 0,
                 Length: dataA.Length,
                 Crc32: crcA));

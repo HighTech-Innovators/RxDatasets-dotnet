@@ -83,7 +83,7 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         // Memory, excluding the entity records both indexes hold
         long before = Memory();
         ImmutableSnapshotEntity[]? records = SnapshotIndex.Parser.ParseFrom(flatBytes).Entities.Values
-            .Select(ImmutableSnapshotEntity.FromProto).ToArray();
+            .Select(entity => ImmutableSnapshotEntity.FromProto(entity)!).ToArray();
         double recordBytes = (Memory() - before) / (double)count;
         GC.KeepAlive(records);
         records = null;
@@ -150,7 +150,7 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         foreach (var change in delta.ChangedEntities)
         {
             flatAfter = flatAfter.SetItem(change.Name,
-                flatAfter[change.Name] with { LastUpdatedVersion = 2, Position = change.Position });
+                flatAfter[change.Name] with { Version = 2, Position = change.Position });
         }
         Row($"ApplyDelta {delta.ChangedEntities.Count:N0}, flat (develop SetItem loop)", Ms(watch.Elapsed));
         GC.KeepAlive(flatAfter);
@@ -165,7 +165,7 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
         // List and CountChildren, after a warm-up call
         state.Root.CountLive(dataset.TenantParent);
         watch.Restart();
-        int listed = state.EnumerateAll(dataset.StoreParent, e => e.IsLive).Count();
+        int listed = state.EnumerateAll(dataset.StoreParent).Count();
         Row($"List(store) -> {listed:N0}", Ms(watch.Elapsed));
         watch.Restart();
         int counted = state.Root.CountLive(dataset.StoreParent);
@@ -182,7 +182,7 @@ public class IndexMemoryBenchmark(ITestOutputHelper output)
     {
         var entities = new Dictionary<string, ImmutableSnapshotEntity>();
         foreach (var (name, entity) in index.Entities)
-            entities.Add(name, ImmutableSnapshotEntity.FromProto(entity));
+            entities.Add(name, ImmutableSnapshotEntity.FromProto(entity)!);
         return entities.ToImmutableDictionary();
     }
 

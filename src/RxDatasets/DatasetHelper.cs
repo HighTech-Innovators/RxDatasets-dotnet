@@ -57,7 +57,6 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     public static IEnumerable<string> GetImplicitDeletes(ImmutableDatasetState index, HashSet<string> receivedNames)
     {
         return index.EnumerateAll()
-            .Where(x => x.Value.IsLive)
             .Select(x => x.Key)
             .Except(receivedNames);
     }
@@ -67,7 +66,7 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     {
         return allParents
             .SelectMany(parent => index.EnumerateAll(parent)
-                .Where(entity => entity.Value.IsLive && FindParentOfEntity(entity.Key) == parent))
+                .Where(entity => FindParentOfEntity(entity.Key) == parent))
             .Select(x => x.Key)
             .Except(receivedNames);
     }

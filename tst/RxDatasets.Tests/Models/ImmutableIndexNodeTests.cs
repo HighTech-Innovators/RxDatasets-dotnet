@@ -4,9 +4,7 @@ namespace RxDatasets.Tests.Models;
 
 public class ImmutableIndexNodeTests
 {
-    private static ImmutableSnapshotEntity Live(long position = 0) => new([], [1], 0, position, 10);
-
-    private static ImmutableSnapshotEntity Deleted() => new([2], [1], 0, 0, 0);
+    private static ImmutableSnapshotEntity Live(long position = 0) => new(1, position, 10);
 
     private static ImmutableIndexNode<ImmutableSnapshotEntity> Build(
         params (string Name, ImmutableSnapshotEntity Entity)[] entities)
@@ -103,7 +101,7 @@ public class ImmutableIndexNodeTests
         root.LiveCount.Should().Be(3);
 
         var builder = root.ToBuilder();
-        builder.Set("t/T/s/S/items/I1/values", Deleted());
+        builder.Remove("t/T/s/S/items/I1/values");
         var afterDelete = builder.ToImmutable();
         afterDelete.LiveCount.Should().Be(2);
         afterDelete.CountLive("t/T/s/S").Should().Be(1);
@@ -156,21 +154,13 @@ public class ImmutableIndexNodeTests
     [MemberData(nameof(Parents))]
     public void EnumerateAllAndCountLive_MatchDevelopList(string parent)
     {
+        // A deleted entity is not in the index at all
         var deleted = new HashSet<string> { "t/T/s/S/items/I3/values", "esltypes/F" };
-        var root = Build(Names.Select(n => (n, deleted.Contains(n) ? Deleted() : Live())).ToArray());
+        var root = Build(Names.Where(n => !deleted.Contains(n)).Select(n => (n, Live())).ToArray());
         var expected = DevelopList(Names.Where(n => !deleted.Contains(n)), parent).ToList();
 
-        root.EnumerateAll(parent, e => e.IsLive).Select(e => e.Key).Should().BeEquivalentTo(expected);
+        root.EnumerateAll(parent).Select(e => e.Key).Should().BeEquivalentTo(expected);
         root.CountLive(parent).Should().Be(expected.Count);
-    }
-
-    [Fact]
-    public void EnumerateAll_WithoutFilter_IncludesDeleted()
-    {
-        var root = Build(("t/T/s/S/items/I1/values", Live()), ("t/T/s/S/items/I2/values", Deleted()));
-
-        root.EnumerateAll("t/T/s/S/items").Should().HaveCount(2);
-        root.CountLive("t/T/s/S/items").Should().Be(1);
     }
 
     [Fact]
