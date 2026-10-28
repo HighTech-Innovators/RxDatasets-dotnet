@@ -14,11 +14,10 @@ import "change_queue.proto";
 service CqsIngressPushService {
   // Pushes a batch of notifications into CQS. Routing is by
   // dtoType/aliasName via the registry (a notification can fan out into
-  // multiple queues) — there is deliberately no queue selector, see
-  // reserved field 1.
+  // multiple queues) — there is deliberately no queue selector.
   //
   // Durable mode (default): the response is held until the batch's
-  // generation is confirmed durably persisted (or durability_timeout_ms
+  // ingest_generation is confirmed durably persisted (or durability_timeout_ms
   // elapses, in which case durable=false and the caller decides whether
   // to retry — enqueuing is idempotent thanks to dedup).
   //
@@ -28,35 +27,34 @@ service CqsIngressPushService {
 }
 
 message PushBatchRequest {
-  // queue_name was considered and deliberately omitted from v1 — push
-  // ingress routes INTO queues by dtoType/alias, it does not target one
-  // queue. See ticket 160's open question before ever adding it.
-  reserved 1;
+  // There is deliberately no queue_name: push ingress routes INTO queues
+  // by dtoType/alias, it does not target one queue. See ticket 160's open
+  // question before ever adding it.
 
   // ack_token is ignored/unused on ingress; sla_timestamp unset = the
   // pipeline default applies (now + 1h truncated to the minute).
-  repeated hti.rxdatasets.cqs.v1.DtoChangeNotification notifications = 2;
+  repeated hti.rxdatasets.cqs.v1.DtoChangeNotification notifications = 1;
 
   // Explicit opt-out of the durability wait: respond as soon as the batch
   // is enqueued in memory. Weaker guarantee — see ticket 160.
-  bool fire_and_forget = 3;
+  bool fire_and_forget = 2;
 
   // Max time to hold the response waiting for durability; 0 = server
   // config default.
-  int32 durability_timeout_ms = 4;
+  int32 durability_timeout_ms = 3;
 }
 
 message PushBatchResponse {
-  // Items that routed to at least one queue.
-  int32 accepted = 1;
+  // Number of items that routed to at least one queue.
+  int32 accepted_count = 1;
 
   // Ingestion generation, -1 if nothing routed (nothing to persist).
-  int64 generation = 2;
+  int64 ingest_generation = 2;
 
-  // True if the response was held until the generation was confirmed
-  // durable. Always false when fire_and_forget, even when generation == -1:
-  // nothing was waited for, so the response promises nothing about
-  // durability. Otherwise always true when generation == -1 (nothing to
-  // persist).
+  // True if the response was held until the ingest_generation was
+  // confirmed durable. Always false when fire_and_forget, even when
+  // ingest_generation == -1: nothing was waited for, so the response
+  // promises nothing about durability. Otherwise always true when
+  // ingest_generation == -1 (nothing to persist).
   bool durable = 3;
 }

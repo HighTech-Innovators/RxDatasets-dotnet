@@ -104,7 +104,9 @@ public class DatasetUpdateConsumingService<TDto, TConsumer> : BackgroundService
                 await _thereIsANotificationToProcess.Task.WaitAsync(stoppingToken);
                 _thereIsANotificationToProcess = new TaskCompletionSource();
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            // Only the stopping token's cancellation ends the loop. Any other, such as an HTTP timeout from a storage SDK,
+            // would stop the host (BackgroundServiceExceptionBehavior.StopHost), so it is retried like other failures.
+            catch (Exception e) when (e is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
             {
                 _logger.LogWarning(e, "Exception during consuming notification");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);

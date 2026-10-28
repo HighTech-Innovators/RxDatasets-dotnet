@@ -13,6 +13,8 @@ internal sealed class RealCqsHost : IAsyncDisposable
     private readonly ConcurrentQueue<string> _log = new();
     private readonly string? _image = Environment.GetEnvironmentVariable("CQS_TEST_IMAGE");
     private readonly string? _executable = Environment.GetEnvironmentVariable("CQS_TEST_EXECUTABLE");
+    // Picked once and bound again after every restart, so the reporter's endpoint stays valid across an outage. The port
+    // is free when picked, not reserved: if the end-to-end test flakes after the restart, look at this rebind first.
     private readonly int _grpcPort = FreePort();
     private readonly int _healthPort = FreePort();
     private Process? _process;
@@ -27,7 +29,8 @@ internal sealed class RealCqsHost : IAsyncDisposable
         Directory.CreateDirectory(Path.Combine(_directory, "storage"));
         string config = Path.Combine(_directory, "cqs.toml");
         bool containerMode = !string.IsNullOrWhiteSpace(_image);
-        string storage = containerMode ? "/cqs-test/storage" : Path.Combine(_directory, "storage").Replace('\\', '/');
+        // The image's own data directory, which is kept when the container is stopped and started again
+        string storage = containerMode ? "/data" : Path.Combine(_directory, "storage").Replace('\\', '/');
         await File.WriteAllTextAsync(config, $"""
             [auth]
             skip_validation = true
@@ -38,15 +41,17 @@ internal sealed class RealCqsHost : IAsyncDisposable
             store_url = "{storage}"
             interval = "100ms"
             [queues.demodto]
-            dto_types = ["hightechinnovators.dtos.demodto.v1.Demodto"]
+            dto_types = ["demodto.v1"]
             [queues.demodto2]
-            dto_types = ["hightechinnovators.dtos.demodto2.v1.Demodto2"]
+            dto_types = ["demodto2.v1"]
             """, cancellation);
 
         if (containerMode)
         {
-            _container ??= new ContainerBuilder().WithImage(_image!)
-                .WithBindMount(_directory, "/cqs-test")
+            // The config is copied in, not bind-mounted: in CI the Docker daemon is on another host than the test, which
+            // runs inside a docker build. The host ports are fixed, so the endpoint survives a stop and start.
+            _container ??= new ContainerBuilder(_image!)
+                .WithResourceMapping(await File.ReadAllBytesAsync(config, cancellation), "/cqs-test/cqs.toml")
                 .WithEnvironment("CQS_CONFIG", "/cqs-test/cqs.toml")
                 .WithPortBinding(_grpcPort, 50051).WithPortBinding(_healthPort, 8081)
                 .Build();

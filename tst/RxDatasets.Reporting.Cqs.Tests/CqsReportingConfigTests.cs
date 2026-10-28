@@ -1,10 +1,11 @@
 using System.ComponentModel.DataAnnotations;
-using Google.Protobuf.WellKnownTypes;
+using Hightechinnovators.Dtos.DemodtoV1;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using RxDatasets.BackgroundServices;
+using RxDatasets.StorageProviders;
 using Xunit;
 
 namespace RxDatasets.Reporting.Cqs.Tests;
@@ -18,8 +19,16 @@ public class CqsReportingConfigTests
         config.MaxDeltasPerTransaction.Should().Be(1000);
         config.MaxNotificationsPerPush.Should().Be(10000);
         config.DurabilityTimeout.Should().Be(TimeSpan.FromSeconds(35));
+        config.ReportingIdentifier.Should().Be("cqs-reporter");
         IsValid(config).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RejectsAnEmptyReportingIdentifier(string identifier) =>
+        IsValid(new CqsReportingConfig { Endpoint = "http://localhost:5000", ReportingIdentifier = identifier })
+            .Should().BeFalse();
 
     [Theory]
     [InlineData("")]
@@ -63,6 +72,16 @@ public class CqsReportingConfigTests
         }).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void DurabilityTimeoutMustFitTheRequestsMillisecondField(int extraMilliseconds, bool valid) =>
+        IsValid(new CqsReportingConfig
+        {
+            Endpoint = "http://localhost:5000",
+            DurabilityTimeout = TimeSpan.FromMilliseconds(int.MaxValue) + TimeSpan.FromMilliseconds(extraMilliseconds)
+        }).Should().Be(valid);
+
     [Fact]
     public async Task BuilderBindsConfigRegistersPipelineAndUsesGrpcClientFactory()
     {
@@ -76,20 +95,18 @@ public class CqsReportingConfigTests
             ["CqsReporting:DurabilityTimeout"] = "00:00:04"
         }).Build();
         services.AddSingleton(configuration);
-        DtoServerBuilder<Timestamp> builder = new(services);
-        builder.WithCqsReporting().Should().BeSameAs(builder);
+        DtoServerBuilder<Demodto> builder = new(services);
+        builder.WithInMemoryDataset().WithCqsReporting().Should().BeSameAs(builder);
+        builder.Build();
         await using ServiceProvider provider = services.BuildServiceProvider();
-        CqsReporter<Timestamp> reporter = provider.GetRequiredService<CqsReporter<Timestamp>>();
-        provider.GetRequiredService<CqsReporter<Timestamp>>().Should().BeSameAs(reporter);
+        CqsReporter<Demodto> reporter = provider.GetRequiredService<CqsReporter<Demodto>>();
+        provider.GetRequiredService<CqsReporter<Demodto>>().Should().BeSameAs(reporter);
         reporter.MaxDeltasPerTransaction.Should().Be(17);
         CqsReportingConfig config = provider.GetRequiredService<IOptions<CqsReportingConfig>>().Value;
         config.DurabilityTimeout.Should().Be(TimeSpan.FromSeconds(4));
         services.Should().Contain(descriptor => descriptor.ServiceType ==
-            typeof(BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>));
-        services.Should().Contain(descriptor => descriptor.ServiceType == typeof(IHostedService)
-            && descriptor.ImplementationType ==
-            typeof(DatasetUpdateConsumingService<Timestamp,
-                BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>>));
+            typeof(DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>));
+        services.Should().ContainSingle(descriptor => IsCqsConsumer(descriptor));
         object transaction = (await reporter.OpenDeltaTransaction(1))!;
         await reporter.OnDeletedDto("factory-client", null, null, transaction);
         server.Service.Requests.Should().ContainSingle();
@@ -105,11 +122,33 @@ public class CqsReportingConfigTests
             ["CqsReporting:Endpoint"] = "not-an-endpoint",
             ["CqsReporting:MaxNotificationsPerPush"] = "0"
         }).Build());
-        new DtoServerBuilder<Timestamp>(services).WithCqsReporting();
+        new DtoServerBuilder<Demodto>(services).WithCqsReporting();
         using ServiceProvider provider = services.BuildServiceProvider();
-        FluentActions.Invoking(() => provider.GetRequiredService<CqsReporter<Timestamp>>())
+        FluentActions.Invoking(() => provider.GetRequiredService<CqsReporter<Demodto>>())
             .Should().Throw<OptionsValidationException>();
     }
+
+    [Fact]
+    public void ConsumerIsRegisteredAfterTheLockAndStorageSoItStopsBeforeThem()
+    {
+        // Hosted services stop in reverse registration order: the consumer's last cursor write needs the lock and storage.
+        ServiceCollection services = new();
+        DtoServerBuilder<Demodto> builder = new DtoServerBuilder<Demodto>(services).WithDistributedLock().WithCqsReporting();
+        services.Should().NotContain(descriptor => IsCqsConsumer(descriptor), "the consumer is registered by Build()");
+        builder.Build();
+
+        int consumer = services.IndexOf(services.Single(IsCqsConsumer));
+        consumer.Should().BeGreaterThan(IndexOfSingleton(services, typeof(DistributedLockService<Demodto>)))
+            .And.BeGreaterThan(IndexOfSingleton(services, typeof(ObjectStorageProvider<Demodto>)));
+        FluentActions.Invoking(() => builder.RegisterLast(_ => { })).Should().Throw<InvalidOperationException>();
+    }
+
+    private static bool IsCqsConsumer(ServiceDescriptor descriptor) =>
+        descriptor.ServiceType == typeof(IHostedService) && descriptor.ImplementationType ==
+        typeof(DatasetUpdateConsumingService<Demodto, DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>>);
+
+    private static int IndexOfSingleton(ServiceCollection services, System.Type type) =>
+        services.IndexOf(services.Single(descriptor => descriptor.ServiceType == type));
 
     private static bool IsValid(CqsReportingConfig config) =>
         Validator.TryValidateObject(config, new ValidationContext(config), new List<ValidationResult>(), true);

@@ -8,6 +8,7 @@ using Hti.RxDatasets.Cqs.V1;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RxDatasets.BackgroundServices;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProviders;
 using Xunit.Abstractions;
@@ -19,7 +20,8 @@ public sealed class CqsEndToEndFactAttribute : FactAttribute
 {
     public CqsEndToEndFactAttribute()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CQS_TEST_IMAGE")) &&
+        if (!CqsSource.ContractRequired &&
+            string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CQS_TEST_IMAGE")) &&
             string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CQS_TEST_EXECUTABLE")))
         {
             Skip = "Real CQS required: set CQS_TEST_IMAGE (Docker image) or CQS_TEST_EXECUTABLE (cqs-server binary).";
@@ -29,6 +31,9 @@ public sealed class CqsEndToEndFactAttribute : FactAttribute
 
 public sealed class CqsEndToEndTests(ITestOutputHelper output)
 {
+    // Short, so the plugins notice the restarted server soon instead of backing off toward a minute while it is down
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(250);
+
     [CqsEndToEndFact]
     public async Task RealDtosRouteToSeparateQueuesAndResumeWithoutLossAfterServerOutage()
     {
@@ -45,11 +50,12 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
             InMemoryStorageProvider<Demodto2> second = CreateStorage<Demodto2>();
             CqsReporter<Demodto> firstReporter = CreateReporter<Demodto>(ingress, server.Endpoint);
             CqsReporter<Demodto2> secondReporter = CreateReporter<Demodto2>(ingress, server.Endpoint);
-            FailureLogger<BatchingDatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>> firstLog = new();
-            FailureLogger<BatchingDatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>>> secondLog = new();
-            BatchingDatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>> firstPlugin = new(first, firstLog, firstReporter);
-            BatchingDatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>> secondPlugin =
-                new(second, secondLog, secondReporter);
+            FailureLogger<DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>> firstLog = new();
+            FailureLogger<DatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>>> secondLog = new();
+            DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>> firstPlugin =
+                new(first, firstLog, firstReporter, RetryDelay);
+            DatasetUpdateReportingPlugin<Demodto2, CqsReporter<Demodto2>> secondPlugin =
+                new(second, secondLog, secondReporter, RetryDelay);
 
             await Store(first, 1, new Demodto { Name = "demo/before", SomeString = "first payload" });
             await Store(second, 1, new Demodto2 { Name = "demo2/before", SomeInt = 42 });
@@ -87,9 +93,9 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
             (await first.GetProcessedVersion(firstReporter.ReportingIdentifier)).Should().Be(2ul);
             (await second.GetProcessedVersion(secondReporter.ReportingIdentifier)).Should().Be(2ul);
             output.WriteLine("Restarted with original storage: both cursors advanced to 2.");
-            await VerifyQueue(consumer, "demodto", Demodto.Descriptor.FullName,
+            await VerifyQueue(consumer, "demodto", "demodto.v1",
                 ["demo/before", "demo/during"], timeout.Token);
-            await VerifyQueue(consumer, "demodto2", Demodto2.Descriptor.FullName,
+            await VerifyQueue(consumer, "demodto2", "demodto2.v1",
                 ["demo2/before", "demo2/during"], timeout.Token);
         }
         finally
@@ -140,8 +146,9 @@ public sealed class CqsEndToEndTests(ITestOutputHelper output)
     private static CqsReporter<TDto> CreateReporter<TDto>(CqsIngressPushService.CqsIngressPushServiceClient client,
         string endpoint) where TDto : class, IMessage<TDto>, new() => new(client, Options.Create(new CqsReportingConfig
         {
-            Endpoint = endpoint, DurabilityTimeout = TimeSpan.FromSeconds(3)
-        }));
+            // The deltas are stored before the plugin first runs: replay them
+            Endpoint = endpoint, DurabilityTimeout = TimeSpan.FromSeconds(3), ReplayRetainedHistory = true
+        }), NullLogger<CqsReporter<TDto>>.Instance);
 
     private static async Task Store<TDto>(InMemoryStorageProvider<TDto> storage, ulong version, TDto dto)
         where TDto : class, IMessage<TDto>, new()

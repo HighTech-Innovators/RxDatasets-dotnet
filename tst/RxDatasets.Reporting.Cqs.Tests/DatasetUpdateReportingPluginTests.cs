@@ -1,28 +1,31 @@
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using Google.Protobuf.WellKnownTypes;
 using Google.Protobuf;
 using Grpc.Core;
+using Hightechinnovators.Dtos.DemodtoV1;
 using Hti.RxDatasets.Cqs.Ingress.V1;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProviders;
 using Xunit;
 
 namespace RxDatasets.Reporting.Cqs.Tests;
 
-public class BatchingDatasetUpdateReportingPluginTests
+public class DatasetUpdateReportingPluginTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
+    // The plugin's wait before a retry, in every test that does not measure it: 5 s by default
+    private static readonly TimeSpan FastRetry = TimeSpan.FromMilliseconds(20);
 
     [Fact]
     public async Task TwoHundredQueuedDeltasUseOneRequestAndAdvanceCursorOnlyAfterDurableResponse()
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(200);
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(200);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
         TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<PushBatchResponse> response = new(TaskCreationOptions.RunContinuationsAsynchronously);
         server.Service.Handler = (request, context) =>
@@ -52,11 +55,112 @@ public class BatchingDatasetUpdateReportingPluginTests
     }
 
     [Fact]
+    public async Task StoppingCancelsTheOutstandingPushInsteadOfWaitingForTheDurableAnswer()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3);
+        // The production timeout, 35 s, outlasts the host's default shutdown timeout of 30 s.
+        CqsReporter<Demodto> reporter = new(server.Client,
+            Options.Create(new CqsReportingConfig { Endpoint = server.Endpoint, ReplayRetainedHistory = true }),
+            NullLogger<CqsReporter<Demodto>>.Instance);
+        TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.Service.Handler = async (request, context) =>
+        {
+            arrived.TrySetResult();
+            await Task.Delay(Timeout.Infinite, context.CancellationToken);
+            return new PushBatchResponse { Durable = true };
+        };
+        using CancellationTokenSource stopping = new();
+        Task processing = CreatePlugin(storage, reporter).HandleNewDeltas(stopping.Token);
+        await arrived.Task.WaitAsync(TestTimeout);
+
+        await stopping.CancelAsync();
+        await FluentActions.Awaiting(() => processing.WaitAsync(TimeSpan.FromSeconds(5)))
+            .Should().ThrowAsync<OperationCanceledException>();
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(0ul);
+    }
+
+    [Fact]
+    public async Task FailuresInARowAreRetriedWithAGrowingDelay()
+    {
+        TimeSpan firstDelay = TimeSpan.FromMilliseconds(500);
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(1);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        List<DateTime> attempts = [];
+        server.Service.Handler = (request, context) =>
+        {
+            lock (attempts)
+            {
+                attempts.Add(DateTime.UtcNow);
+                return Task.FromResult(new PushBatchResponse { Durable = attempts.Count == 3 });
+            }
+        };
+        using CancellationTokenSource cancellation = new(TimeSpan.FromSeconds(30));
+
+        await CreatePlugin(storage, reporter, firstDelay).HandleNewDeltas(cancellation.Token);
+
+        attempts.Should().HaveCount(3);
+        (attempts[1] - attempts[0]).TotalSeconds.Should().BeInRange(0.45, 1.5, "the first retry waits the first delay");
+        (attempts[2] - attempts[1]).TotalSeconds.Should().BeInRange(0.95, 2.5, "the second failure in a row doubles it");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(1ul);
+    }
+
+    [Fact]
+    public async Task APushThatFailsAfterAnEarlierFlushReplaysTheWholeTransactionWithoutMovingTheCursor()
+    {
+        // Five deltas in one transaction, pushed two notifications at a time: 1-2 and 3-4 as they fill, 5 on commit.
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(5);
+        CqsReporter<Demodto> reporter = CreateReporter(server, maxNotificationsPerPush: 2);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        int attempts = 0;
+        server.Service.Handler = (request, context) => Interlocked.Increment(ref attempts) == 2
+            ? throw new RpcException(new Status(StatusCode.Unavailable, "temporarily unavailable"))
+            : Task.FromResult(new PushBatchResponse { Durable = true, AcceptedCount = request.Notifications.Count });
+        using CancellationTokenSource cancellation = new(TestTimeout);
+
+        await CreatePlugin(observedStorage, reporter).HandleNewDeltas(cancellation.Token);
+
+        // 1-2 was durable when 3-4 failed, but the cursor covers only committed transactions: all of it is pushed again.
+        PushBatchRequest[] requests = server.Service.Requests.ToArray();
+        requests.Should().HaveCount(5);
+        AssertTransaction(requests[0], 1, 2);
+        AssertTransaction(requests[1], 3, 2);
+        AssertTransaction(requests[2], 1, 2);
+        AssertTransaction(requests[3], 3, 2);
+        AssertTransaction(requests[4], 5, 1);
+        probe.CursorWriteAttempts.Should().Equal(5ul);
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(5ul);
+    }
+
+    [Fact]
+    public void AReporterWithANonPositiveTransactionLimitIsRefusedWhenThePluginIsCreated()
+    {
+        RecordingReporter reporter = new() { MaxDeltasPerTransaction = 0 };
+
+        FluentActions.Invoking(() => CreatePlugin(new InMemoryStorageProvider<Demodto>(
+                NullLogger<InMemoryStorageProvider<Demodto>>.Instance, new NotificationsHub<Demodto>()), reporter))
+            .Should().Throw<ArgumentOutOfRangeException>().WithMessage("*MaxDeltasPerTransaction must be positive*");
+    }
+
+    [Fact]
+    public async Task AFailedAssertionInAReporterCallbackEndsTheRunInsteadOfBeingRetried()
+    {
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(1);
+        RecordingReporter reporter = new() { AfterRecord = () => throw new Xunit.Sdk.XunitException("callback assertion") };
+
+        // Without a token: if the plugin retried it, this would never return.
+        await FluentActions.Awaiting(() => CreatePlugin(storage, reporter).HandleNewDeltas(CancellationToken.None))
+            .Should().ThrowAsync<Xunit.Sdk.XunitException>().WithMessage("callback assertion");
+    }
+
+    [Fact]
     public async Task ReporterWithALimitOfOneUsesOneTransactionPerDelta()
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(4);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(4);
         RecordingReporter reporter = new();
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
 
         await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
 
@@ -72,8 +176,8 @@ public class BatchingDatasetUpdateReportingPluginTests
     public async Task MissingIndexIsSkippedAndRemainingDeltasCommitTogether()
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(3, missingVersion: 2);
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3, missingVersion: 2);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
 
         await CreatePlugin(storage, reporter).HandleNewDeltas(CancellationToken.None);
 
@@ -88,9 +192,9 @@ public class BatchingDatasetUpdateReportingPluginTests
     public async Task NondurableOrUnavailableResponseRetriesAllTwoHundredDeltasWithoutAdvancingCursor(bool unavailable)
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(200);
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(200);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
         TaskCompletionSource firstArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource retryArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource releaseFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -145,9 +249,9 @@ public class BatchingDatasetUpdateReportingPluginTests
     public async Task CursorWriteFailureReplaysTheAlreadyDurableTransactionBeforeAdvancing()
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(200);
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(200);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
         probe.BeforeStore = (who, version) => probe.CursorWriteAttempts.Count == 1
             ? Task.FromException(new IOException("cursor write failed"))
             : Task.CompletedTask;
@@ -187,13 +291,64 @@ public class BatchingDatasetUpdateReportingPluginTests
     }
 
     [Fact]
+    public async Task ACancellationThatIsNotTheStoppingTokensIsRetriedLikeAnyFailure()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(2);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        // What an HttpClient timeout in a storage SDK throws, while the plugin itself is not stopping
+        probe.FailIndexRead = version => version == 2 && probe.IndexReads == 2
+            ? new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")
+            : null;
+        using CancellationTokenSource cancellation = new(TestTimeout);
+
+        await CreatePlugin(observedStorage, reporter).HandleNewDeltas(cancellation.Token);
+
+        AssertTransaction(server.Service.Requests.Should().ContainSingle().Which, 1, 2);
+        probe.CursorWriteAttempts.Should().Equal(2ul);
+    }
+
+    [Fact]
+    public async Task AfterALostLockTheRetryReadsTheCursorAgainInsteadOfMovingItBack()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        probe.BeforeStore = async (who, version) =>
+        {
+            if (probe.CursorWriteAttempts.Count != 1)
+            {
+                return;
+            }
+
+            // Meanwhile the lock moved to another instance, which stored deltas 4 and 5 and reported up to 5.
+            for (ulong other = 4; other <= 5; other++)
+            {
+                await storage.StoreDelta(other, new DeltaIndex { DeltaVersion = other }.ToByteArray(), []);
+            }
+
+            await storage.StoreProcessedVersion(who, 5);
+            throw new SynchronizationLockException("We can't write to storage as we have to get a lock first");
+        };
+        using CancellationTokenSource cancellation = new(TestTimeout);
+
+        await CreatePlugin(observedStorage, reporter).HandleNewDeltas(cancellation.Token);
+
+        AssertTransaction(server.Service.Requests.Should().ContainSingle().Which, 1, 3);
+        probe.CursorWriteAttempts.Should().Equal(3ul);
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(5ul);
+    }
+
+    [Fact]
     public async Task ConfiguredTransactionLimitResumesAfterCursorAndPersistsOnlyEachTransactionEnd()
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(7);
-        CqsReporter<Timestamp> reporter = CreateReporter(server, transactionLimit: 2);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(7);
+        CqsReporter<Demodto> reporter = CreateReporter(server, transactionLimit: 2);
         await storage.StoreProcessedVersion(reporter.ReportingIdentifier, 2);
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
 
         await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
 
@@ -211,7 +366,7 @@ public class BatchingDatasetUpdateReportingPluginTests
     [InlineData(true)]
     public async Task CallbackOrCommitFailureRollsBackAndRetriesTheDeltaWithAFreshTransaction(bool failCommit)
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(1);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(1);
         RecordingReporter reporter = new();
         Func<Task> failFirstTransaction = () => reporter.OpenedVersions.Count == 1
             ? Task.FromException(new IOException("reporting failed"))
@@ -240,10 +395,10 @@ public class BatchingDatasetUpdateReportingPluginTests
     [Fact]
     public async Task CancellationDuringDeltaRollsBackAndLeavesCursorForFullReplay()
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(1);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(1);
         DeltaIndex index = DeltaIndex.Parser.ParseFrom((await storage.ReadDeltaIndex(1)).Span);
         index.DeletedNames.Add("second-entity");
-        await storage.StoreDelta(1, index.ToByteArray(), new Timestamp { Seconds = 1 }.ToByteArray());
+        await storage.StoreDelta(1, index.ToByteArray(), new Demodto { SomeInt = 1 }.ToByteArray());
         using CancellationTokenSource cancellation = new(TestTimeout);
         RecordingReporter reporter = new()
         {
@@ -275,7 +430,7 @@ public class BatchingDatasetUpdateReportingPluginTests
     [Fact]
     public async Task CancellationDuringRetryBackoffPropagatesAfterRollbackWithoutWritingCursor()
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(1);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(1);
         using CancellationTokenSource cancellation = new(TestTimeout);
         RecordingReporter reporter = new()
         {
@@ -299,9 +454,9 @@ public class BatchingDatasetUpdateReportingPluginTests
     public async Task MissingDataFileRollsBackThatDeltaAndSkipsItWhileTheOthersCommit()
     {
         // The default limit of 1: what the delta had already handed to the reporter is discarded, as before.
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(3, twoEntitiesVersion: 2);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3, twoEntitiesVersion: 2);
         RecordingReporter reporter = new();
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
         probe.FailRead = (version, position) => version == 2 && position > 0;
 
         await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
@@ -314,11 +469,86 @@ public class BatchingDatasetUpdateReportingPluginTests
     }
 
     [Fact]
+    public async Task CqsReporterNeedsNoDataSoAMissingDataFileDoesNotSkipTheDelta()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3, twoEntitiesVersion: 2);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        probe.FailRead = (_, _) => true;
+
+        await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
+
+        probe.DataReads.Should().Be(0);
+        server.Service.Requests.Should().ContainSingle().Which.Notifications.Select(notification => notification.DtoId)
+            .Should().Equal("entity/1", "entity/2", "entity/2b", "entity/3");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(3ul);
+    }
+
+    [Fact]
+    public async Task ByDefaultANewReporterStartsAtTheNewestDeltaInsteadOfReplayingTheHistory()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(3);
+        CqsReporter<Demodto> reporter = CreateReporter(server, replayRetainedHistory: false);
+        DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>> plugin =
+            CreatePlugin(StorageProbe.Create(storage, out StorageProbe probe), reporter);
+
+        await plugin.HandleNewDeltas(CancellationToken.None);
+        server.Service.Requests.Should().BeEmpty();
+        probe.CursorWriteAttempts.Should().Equal(3ul);
+
+        await AddDelta(storage, 4);
+        await plugin.HandleNewDeltas(CancellationToken.None);
+        server.Service.Requests.Should().ContainSingle().Which.Notifications.Should().ContainSingle()
+            .Which.DtoId.Should().Be("entity/4");
+        probe.IndexReads.Should().Be(1, "only delta 4 is read");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(4ul);
+    }
+
+    [Fact]
+    public async Task ANewReporterOnAnEmptyDatasetStillReportsItsFirstDelta()
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(0);
+        CqsReporter<Demodto> reporter = CreateReporter(server, replayRetainedHistory: false);
+        DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>> plugin = CreatePlugin(storage, reporter);
+
+        await plugin.HandleNewDeltas(CancellationToken.None);
+        await AddDelta(storage, 1);
+        await plugin.HandleNewDeltas(CancellationToken.None);
+
+        server.Service.Requests.Should().ContainSingle().Which.Notifications.Should().ContainSingle()
+            .Which.DtoId.Should().Be("entity/1");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(1ul);
+    }
+
+    [Theory]
+    [InlineData(0ul)]
+    [InlineData(1ul)]
+    public async Task DeltasThatWereCleanedUpAreNotRead(ulong cursor)
+    {
+        await using FakeCqsServer server = await FakeCqsServer.Start();
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(6);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
+        await storage.StoreProcessedVersion(reporter.ReportingIdentifier, cursor);
+        await storage.DeleteOlderThan(3);
+
+        await CreatePlugin(StorageProbe.Create(storage, out StorageProbe probe), reporter)
+            .HandleNewDeltas(CancellationToken.None);
+
+        probe.IndexReads.Should().Be(3, "deltas 1 to 3 are gone, so only 4 to 6 are read");
+        server.Service.Requests.Should().ContainSingle().Which.Notifications.Select(notification => notification.DtoId)
+            .Should().Equal("entity/4", "entity/5", "entity/6");
+        (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(6ul);
+    }
+
+    [Fact]
     public async Task MissingDataFileInsideABatchCommitsTheEarlierDeltasAndSkipsOnlyTheBrokenOne()
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(4, twoEntitiesVersion: 3);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(4, twoEntitiesVersion: 3);
         RecordingReporter reporter = new() { MaxDeltasPerTransaction = 10 };
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
         probe.FailRead = (version, position) => version == 3 && position > 0;
 
         await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
@@ -337,7 +567,7 @@ public class BatchingDatasetUpdateReportingPluginTests
     public async Task EveryDeltaFormatIsReportedWithTheEntitiesFullNames(bool tree)
     {
         // A tree delta leaves each entity's own name empty: the position in the tree is the name.
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(4, tree: tree);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(4, tree: tree);
         RecordingReporter reporter = new() { MaxDeltasPerTransaction = 10 };
 
         await CreatePlugin(storage, reporter).HandleNewDeltas(CancellationToken.None);
@@ -351,14 +581,14 @@ public class BatchingDatasetUpdateReportingPluginTests
     [InlineData(true)]
     public async Task EmptyOrAlreadyProcessedStorageDoesNotOpenATransaction(bool alreadyProcessed)
     {
-        InMemoryStorageProvider<Timestamp> storage = await CreateStorage(alreadyProcessed ? 2 : 0);
+        InMemoryStorageProvider<Demodto> storage = await CreateStorage(alreadyProcessed ? 2 : 0);
         RecordingReporter reporter = new();
         if (alreadyProcessed)
         {
             await storage.StoreProcessedVersion(reporter.ReportingIdentifier, 2);
         }
 
-        IStorageProvider<Timestamp> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
+        IStorageProvider<Demodto> observedStorage = StorageProbe.Create(storage, out StorageProbe probe);
 
         await CreatePlugin(observedStorage, reporter).HandleNewDeltas(CancellationToken.None);
 
@@ -368,25 +598,38 @@ public class BatchingDatasetUpdateReportingPluginTests
         (await storage.GetProcessedVersion(reporter.ReportingIdentifier)).Should().Be(alreadyProcessed ? 2ul : 0ul);
     }
 
-    private static BatchingDatasetUpdateReportingPlugin<Timestamp, TReporter> CreatePlugin<TReporter>(
-        IStorageProvider<Timestamp> storage, TReporter reporter) where TReporter : IBatchedDatasetUpdateReporting<Timestamp> =>
-        new(storage, NullLogger<BatchingDatasetUpdateReportingPlugin<Timestamp, TReporter>>.Instance, reporter);
+    private static DatasetUpdateReportingPlugin<Demodto, TReporter> CreatePlugin<TReporter>(IStorageProvider<Demodto> storage,
+        TReporter reporter, TimeSpan? firstRetryDelay = null) where TReporter : IBatchedDatasetUpdateReporting<Demodto> =>
+        new(storage, new RetryLogger<DatasetUpdateReportingPlugin<Demodto, TReporter>>(), reporter,
+            firstRetryDelay ?? FastRetry);
 
-    private static CqsReporter<Timestamp> CreateReporter(FakeCqsServer server, int transactionLimit = 1000) =>
+    private static CqsReporter<Demodto> CreateReporter(FakeCqsServer server, int transactionLimit = 1000,
+        bool replayRetainedHistory = true, int maxNotificationsPerPush = 10000) =>
         new(server.Client, Options.Create(new CqsReportingConfig
         {
             Endpoint = server.Endpoint,
             MaxDeltasPerTransaction = transactionLimit,
-            MaxNotificationsPerPush = 10000,
-            DurabilityTimeout = TimeSpan.FromSeconds(5)
-        }));
+            MaxNotificationsPerPush = maxNotificationsPerPush,
+            DurabilityTimeout = TimeSpan.FromSeconds(5),
+            // The deltas are stored before the plugin first runs: replay them
+            ReplayRetainedHistory = replayRetainedHistory
+        }), NullLogger<CqsReporter<Demodto>>.Instance);
+
+    /// <summary>A delta with one new entity, <c>entity/{version}</c>.</summary>
+    private static async Task AddDelta(InMemoryStorageProvider<Demodto> storage, ulong version)
+    {
+        byte[] data = new Demodto { SomeInt = (int)version }.ToByteArray();
+        DeltaIndex index = new() { DeltaVersion = version };
+        index.NewEntities.Add(new DeltaEntity { Name = $"entity/{version}", Position = 0, Length = data.Length });
+        await storage.StoreDelta(version, index.ToByteArray(), data);
+    }
 
     /// <summary>Uses the production in-memory provider for real index/data reads and persisted reporting cursors.</summary>
-    internal static async Task<InMemoryStorageProvider<Timestamp>> CreateStorage(int count, ulong? missingVersion = null,
+    internal static async Task<InMemoryStorageProvider<Demodto>> CreateStorage(int count, ulong? missingVersion = null,
         ulong? twoEntitiesVersion = null, bool tree = false)
     {
-        InMemoryStorageProvider<Timestamp> storage = new(
-            NullLogger<InMemoryStorageProvider<Timestamp>>.Instance, new NotificationsHub<Timestamp>());
+        InMemoryStorageProvider<Demodto> storage = new(
+            NullLogger<InMemoryStorageProvider<Demodto>>.Instance, new NotificationsHub<Demodto>());
         for (ulong version = 1; version <= (ulong)count; version++)
         {
             if (version == missingVersion)
@@ -394,7 +637,7 @@ public class BatchingDatasetUpdateReportingPluginTests
                 continue;
             }
 
-            byte[] data = new Timestamp { Seconds = (long)version }.ToByteArray();
+            byte[] data = new Demodto { SomeInt = (int)version }.ToByteArray();
             DeltaIndex index = new() { DeltaVersion = version };
             DeltaEntity entity = new() { Name = $"entity/{version}", Position = 0, Length = data.Length };
             switch (version % 4)
@@ -443,10 +686,10 @@ public class BatchingDatasetUpdateReportingPluginTests
         request.Notifications.Select(notification => notification.DtoId)
             .Should().Equal(Enumerable.Range(first, count).Select(version => $"entity/{version}"));
         request.Notifications.Should().AllSatisfy(
-            notification => notification.DtoType.Should().Be(Timestamp.Descriptor.FullName));
+            notification => notification.DtoType.Should().Be("demodto.v1"));
     }
 
-    private sealed class RecordingReporter : IBatchedDatasetUpdateReporting<Timestamp>
+    private sealed class RecordingReporter : IBatchedDatasetUpdateReporting<Demodto>
     {
         public int MaxDeltasPerTransaction { get; init; } = 1;
         public string ReportingIdentifier => "plugin-test-reporter";
@@ -457,6 +700,9 @@ public class BatchingDatasetUpdateReportingPluginTests
         public List<string> Names { get; } = [];
         public Func<Task>? AfterRecord { get; set; }
         public Func<Task>? BeforeCommit { get; set; }
+
+        public Task<object?> OpenDeltaTransaction(ulong deltaVersion, CancellationToken cancellationToken) =>
+            OpenDeltaTransaction(deltaVersion);
 
         public Task<object?> OpenDeltaTransaction(ulong deltaVersion)
         {
@@ -502,14 +748,17 @@ public class BatchingDatasetUpdateReportingPluginTests
     /// <summary>Forwards to real in-memory storage, injecting only cursor-write failures and recording write attempts.</summary>
     public class StorageProbe : DispatchProxy
     {
-        private InMemoryStorageProvider<Timestamp> _storage = null!;
+        private InMemoryStorageProvider<Demodto> _storage = null!;
         public List<ulong> CursorWriteAttempts { get; } = [];
         public Func<string, ulong, Task>? BeforeStore { get; set; }
         public Func<ulong, long, bool>? FailRead { get; set; }
+        public Func<ulong, Exception?>? FailIndexRead { get; set; }
+        public int DataReads { get; private set; }
+        public int IndexReads { get; private set; }
 
-        public static IStorageProvider<Timestamp> Create(InMemoryStorageProvider<Timestamp> storage, out StorageProbe probe)
+        public static IStorageProvider<Demodto> Create(InMemoryStorageProvider<Demodto> storage, out StorageProbe probe)
         {
-            IStorageProvider<Timestamp> proxy = Create<IStorageProvider<Timestamp>, StorageProbe>();
+            IStorageProvider<Demodto> proxy = Create<IStorageProvider<Demodto>, StorageProbe>();
             probe = (StorageProbe)proxy;
             probe._storage = storage;
             return proxy;
@@ -521,6 +770,20 @@ public class BatchingDatasetUpdateReportingPluginTests
             if (targetMethod.Name == nameof(IStorageProvider.StoreProcessedVersion))
             {
                 return StoreProcessedVersion((string)args![0]!, (ulong)args[1]!);
+            }
+
+            if (targetMethod.Name == nameof(IStorageProvider.ReadDataFromSources))
+            {
+                DataReads++;
+            }
+
+            if (targetMethod.Name == nameof(IStorageProvider.ReadDeltaIndex))
+            {
+                IndexReads++;
+                if (FailIndexRead?.Invoke((ulong)args![0]!) is { } failure)
+                {
+                    return Task.FromException<ReadOnlyMemory<byte>>(failure);
+                }
             }
 
             if (targetMethod.Name == nameof(IStorageProvider.ReadDataFromSources) && FailRead != null

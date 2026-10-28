@@ -12,9 +12,9 @@ namespace RxDatasets.Reporting
             builder.Services.AddValidatedConfigSection<JsonOutputConfig>();
             builder.Services.AddSingleton<ProtobufJsonToObjectStorageReporter<TEntity>>();
             builder.Services.AddSingleton<DatasetUpdateReportingPlugin<TEntity, ProtobufJsonToObjectStorageReporter<TEntity>>>();
-            builder.Services.AddHostedService<DatasetUpdateConsumingService<TEntity, DatasetUpdateReportingPlugin<TEntity, ProtobufJsonToObjectStorageReporter<TEntity>>>>();
-
-            return builder;
+            // Last, so it stops before the lock and storage: its cursor write needs both.
+            return builder.RegisterLast(services => services.AddHostedService<DatasetUpdateConsumingService<TEntity,
+                DatasetUpdateReportingPlugin<TEntity, ProtobufJsonToObjectStorageReporter<TEntity>>>>());
         }
     }
 }

@@ -87,6 +87,47 @@ public class DatasetUpdateConsumingServiceTests
         await stop.Should().NotThrowAsync();
     }
 
+    [Fact]
+    public async Task Loop_ShouldRetry_WhenTheConsumerThrowsACancellationThatIsNotTheStoppingTokens()
+    {
+        // Arrange — a consumer whose first run fails like an HttpClient timeout in a storage SDK
+        var consumer = new CancelledOnceConsumer();
+        using var hub = new NotificationsHubSync<object>();
+        var service = new DatasetUpdateConsumingService<object, CancelledOnceConsumer>(
+            NullLogger<DatasetUpdateConsumingService<object, CancelledOnceConsumer>>.Instance, hub, consumer);
+        await hub.Notify(new StorageProviderReadinessNotifcation(ServiceStatus.Ready));
+
+        // Act
+        await service.StartAsync(CancellationToken.None);
+
+        // Assert — the loop retries after its 5 s delay instead of ending, which would stop the host
+        await consumer.SecondRunStarted.WaitAsync(TimeSpan.FromSeconds(15));
+        service.ExecuteTask!.IsCompleted.Should().BeFalse();
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    private sealed class CancelledOnceConsumer : IDatasetUpdateConsumer<object>
+    {
+        private readonly TaskCompletionSource _secondRunStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _runs;
+
+        public Task SecondRunStarted => _secondRunStarted.Task;
+
+        public string ConsumerIdentifier => "cancelled-once";
+
+        public Task HandleNewDeltas(CancellationToken stoppingToken)
+        {
+            if (Interlocked.Increment(ref _runs) == 1)
+            {
+                throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
+            }
+
+            _secondRunStarted.TrySetResult();
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class GatedConsumer : IDatasetUpdateConsumer<object>
     {
         private readonly TaskCompletionSource _firstRunStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);

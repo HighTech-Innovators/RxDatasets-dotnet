@@ -72,42 +72,42 @@ message DtoChangeNotification {
     // The parent_id of multiple DTOs (or aliases) that must be
     // re-evaluated — typically re-enqueued as individual children via
     // ReEnqueue rather than processed directly.
-    string parent_id = 6;
+    string parent_id = 4;
   }
 
   // The alias namespace for which dto_id / parent_id is valid. Set only
   // when the alias itself changed target (not when the aliased DTO's
   // content changed).
-  string alias_name = 7;
+  string alias_name = 5;
 
   // Business deadline; the queue's primary sort key.
-  google.protobuf.Timestamp sla_timestamp = 4;
+  google.protobuf.Timestamp sla_timestamp = 6;
 
   // Optional tracing identifier.
-  string tracking_id = 5;
+  string tracking_id = 7;
 }
 
 message BatchDequeueRequest {
-  // Queue to dequeue from. Empty = server picks (compatibility shim,
-  // flagged for removal — ticket 300). Unknown name = NOT_FOUND.
-  string queue_name = 4;
+  // Queue to dequeue from. REQUIRED: empty = INVALID_ARGUMENT, unknown
+  // name = NOT_FOUND.
+  string queue_name = 1;
 
   // Upper bound on returned notifications; <= 0 defaults to 1.
-  int32 max_notifications = 1;
+  int32 max_notifications = 2;
 
   // When set, only notifications whose dto_id matches this prefix are
   // returned. Always respected regardless of prefix_depth. Segment count
   // must not exceed the queue's max tree depth (INVALID_ARGUMENT).
-  string prefix = 5;
+  string prefix = 3;
 
   // Number of leading '/'-separated dto_id segments subsequent items must
   // share with the first item (2 = tenant, 4 = store). <= 0 disables
   // prefix grouping.
-  int32 prefix_depth = 2;
+  int32 prefix_depth = 4;
 
   // Max time to wait for at least one notification (long-poll). No
   // server-side cap (ADR 0003 in the reference implementation).
-  int32 wait_time_milliseconds = 3;
+  int32 wait_time_milliseconds = 5;
 
   // Stable per-worker-instance GUID. Enables organic worker tracking for
   // pull-mode capacity accounting (ticket 240). NEW vs. the reference
@@ -124,11 +124,11 @@ message BatchDequeueResponse {
 }
 
 message BatchAcknowledgeRequest {
-  // Queue the tokens belong to. Empty = server picks (same shim as
-  // BatchDequeueRequest.queue_name). Unknown name = NOT_FOUND.
-  string queue_name = 2;
+  // Queue the tokens belong to. REQUIRED: empty = INVALID_ARGUMENT,
+  // unknown name = NOT_FOUND.
+  string queue_name = 1;
 
-  repeated string ack_tokens = 1;
+  repeated string ack_tokens = 2;
 }
 
 message BatchAcknowledgeResponse {
@@ -150,16 +150,18 @@ message CreateOrConfigureQueueRequest {
   // Replaces ALL existing subscriptions for the queue (not additive).
   repeated DtoTypeSubscription subscriptions = 2;
 
-  // Default prefix-grouping depth. CREATE-ONLY: a nonzero value differing
-  // from an existing queue's depth returns INVALID_ARGUMENT. <= 0 on
-  // creation defaults to 4.
-  int32 depth = 3;
+  // Number of '/'-separated dto_id segments the queue's SLA tree indexes;
+  // also the most segments BatchDequeueRequest.prefix may have.
+  // CREATE-ONLY: a nonzero value differing from an existing queue's
+  // max_tree_depth returns INVALID_ARGUMENT. <= 0 keeps an existing
+  // queue's value, or uses the server default for a new queue.
+  int32 max_tree_depth = 3;
 }
 
 message CreateOrConfigureQueueResponse {
   string queue_name = 1;
   repeated DtoTypeSubscription subscriptions = 2;
-  int32 depth = 3;
+  int32 max_tree_depth = 3;
 }
 
 // One child item in SelfEnqueue/ReEnqueue. Exactly one of dto_id /
@@ -194,7 +196,7 @@ message SelfEnqueueRequest {
 }
 
 message SelfEnqueueResponse {
-  int32 items_enqueued = 1;
+  int32 enqueued_count = 1;
 }
 
 message ReEnqueueHeader {
@@ -219,5 +221,5 @@ message ReEnqueueRequest {
 }
 
 message ReEnqueueResponse {
-  int32 items_enqueued = 1;
+  int32 enqueued_count = 1;
 }

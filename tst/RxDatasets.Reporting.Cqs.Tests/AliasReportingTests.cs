@@ -1,10 +1,12 @@
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Hightechinnovators.Dtos.DemodtoV1;
 using Hti.RxDatasets.Cqs.Ingress.V1;
 using Hti.RxDatasets.Cqs.V1;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RxDatasets.Abstractions;
+using RxDatasets.BackgroundServices;
 using RxDatasets.GenericNotifierLogic;
 using RxDatasets.StorageProviders;
 using Xunit;
@@ -22,7 +24,7 @@ public class AliasReportingTests
     public async Task AnAliasChangeIsANotificationUnderItsAliasName_GainedOrLost()
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
         object transaction = (await reporter.OpenDeltaTransaction(7))!;
         DateTimeOffset sla = new(2026, 10, 20, 13, 14, 15, TimeSpan.Zero);
 
@@ -34,7 +36,7 @@ public class AliasReportingTests
         DtoChangeNotification[] sent = server.Service.Requests.Should().ContainSingle().Which.Notifications.ToArray();
         sent.Select(n => (n.AliasName, n.DtoId)).Should()
             .Equal(("", "things/A"), ("by_value", "values/x"), ("by_value", "values/y"));
-        sent[1].DtoType.Should().Be(Timestamp.Descriptor.FullName);
+        sent[1].DtoType.Should().Be("demodto.v1");
         sent[1].UrnCase.Should().Be(DtoChangeNotification.UrnOneofCase.DtoId);
         sent[1].TrackingId.Should().Be("track-1");
         sent[1].SlaTimestamp.Should().Be(Timestamp.FromDateTimeOffset(sla));
@@ -48,11 +50,11 @@ public class AliasReportingTests
     public async Task TheBatchingPluginSendsTheEntitiesAndTheirAliasChangesToCqs(bool tree)
     {
         await using FakeCqsServer server = await FakeCqsServer.Start();
-        InMemoryStorageProvider<Timestamp> storage = await AliasDeltas(tree);
-        CqsReporter<Timestamp> reporter = CreateReporter(server);
+        InMemoryStorageProvider<Demodto> storage = await AliasDeltas(tree);
+        CqsReporter<Demodto> reporter = CreateReporter(server);
 
-        await new BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>(storage,
-            NullLogger<BatchingDatasetUpdateReportingPlugin<Timestamp, CqsReporter<Timestamp>>>.Instance, reporter)
+        await new DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>(storage,
+            NullLogger<DatasetUpdateReportingPlugin<Demodto, CqsReporter<Demodto>>>.Instance, reporter)
             .HandleNewDeltas(CancellationToken.None);
 
         // Four deltas share one transaction, hence one call. The alias changes follow their entity.
@@ -69,11 +71,11 @@ public class AliasReportingTests
     /// Four deltas with aliases, as a writer stores them: a new entity gaining one, a changed entity trading one
     /// for another, a deleted entity releasing one, and an alias-only change from a rebuild.
     /// </summary>
-    internal static async Task<InMemoryStorageProvider<Timestamp>> AliasDeltas(bool tree)
+    internal static async Task<InMemoryStorageProvider<Demodto>> AliasDeltas(bool tree)
     {
-        InMemoryStorageProvider<Timestamp> storage = new(
-            NullLogger<InMemoryStorageProvider<Timestamp>>.Instance, new NotificationsHub<Timestamp>());
-        byte[] data = new Timestamp { Seconds = 1 }.ToByteArray();
+        InMemoryStorageProvider<Demodto> storage = new(
+            NullLogger<InMemoryStorageProvider<Demodto>>.Instance, new NotificationsHub<Demodto>());
+        byte[] data = new Demodto { SomeInt = 1 }.ToByteArray();
 
         async Task Store(ulong version, DeltaIndex index, byte[] bytes)
         {
@@ -117,9 +119,10 @@ public class AliasReportingTests
 
     private static AliasRef Alias(string value) => new() { Name = "by_value", Value = value };
 
-    private static CqsReporter<Timestamp> CreateReporter(FakeCqsServer server) =>
+    private static CqsReporter<Demodto> CreateReporter(FakeCqsServer server) =>
         new(server.Client, Options.Create(new CqsReportingConfig
         {
-            Endpoint = server.Endpoint, DurabilityTimeout = TimeSpan.FromSeconds(5)
-        }));
+            // The deltas are stored before the plugin first runs: replay them
+            Endpoint = server.Endpoint, DurabilityTimeout = TimeSpan.FromSeconds(5), ReplayRetainedHistory = true
+        }), NullLogger<CqsReporter<Demodto>>.Instance);
 }

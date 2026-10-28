@@ -4,15 +4,15 @@ using Xunit;
 namespace RxDatasets.Reporting.Cqs.Tests;
 
 /// <summary>
-/// A <see cref="TheoryAttribute"/> that skips itself when the CQS checkout is not available. This repository
-/// builds on its own in CI, where the sibling ChangeQueueService-rust is not there; wherever it is (a developer
-/// checkout, or <c>CQS_SOURCE_ROOT</c>), the test runs and fails on any drift.
+/// A <see cref="TheoryAttribute"/> that skips itself when the CQS checkout is not available. This repository's own
+/// build does not have the private ChangeQueueService-rust; wherever it is (a developer checkout, or
+/// <c>CQS_SOURCE_ROOT</c>), the test runs and fails on any drift. The GitLab job <c>cqs contract test</c> provides it.
 /// </summary>
 public sealed class CqsSourceTheoryAttribute : TheoryAttribute
 {
     public CqsSourceTheoryAttribute()
     {
-        if (!Directory.Exists(CqsSource.Root))
+        if (!CqsSource.ContractRequired && !Directory.Exists(CqsSource.Root))
         {
             Skip = $"CQS source not found at {CqsSource.Root}. " +
                 "Check out the sibling ChangeQueueService-rust or set CQS_SOURCE_ROOT.";
@@ -22,6 +22,13 @@ public sealed class CqsSourceTheoryAttribute : TheoryAttribute
 
 internal static class CqsSource
 {
+    /// <summary>
+    /// Set (<c>CQS_CONTRACT_REQUIRED=true</c>) by the CI job that checks the contract, so a missing CQS source or
+    /// server fails the CQS contract tests there instead of skipping them.
+    /// </summary>
+    public static bool ContractRequired =>
+        string.Equals(Environment.GetEnvironmentVariable("CQS_CONTRACT_REQUIRED"), "true", StringComparison.OrdinalIgnoreCase);
+
     public static string Root
     {
         get

@@ -38,6 +38,8 @@ namespace RxDatasets
         private bool _withSnapshot;
         private bool _withCleanup;
         private bool _withSharedReaderWriter;
+        private bool _built;
+        private readonly List<Action<IServiceCollection>> _lastRegistrations = [];
 
         public IServiceCollection Services => services;
 
@@ -144,7 +146,31 @@ namespace RxDatasets
             return this;
         }
 
+        /// <summary>
+        /// Runs <paramref name="register"/> at the end of <see cref="Build"/>, after the storage provider and the distributed
+        /// lock are registered. Hosted services stop in reverse registration order, so a hosted service registered here stops
+        /// before the lock is released and the storage provider stops. A consumer that writes its processed version under
+        /// the lock (a <see cref="DatasetUpdateConsumingService{TEntity,TPlugin}"/>) must be registered here; registered
+        /// directly, it outlives the lock on shutdown and its last cursor write fails.
+        /// </summary>
+        public DtoServerBuilder<TEntity> RegisterLast(Action<IServiceCollection> register)
+        {
+            if (_built)
+                throw new InvalidOperationException($"{typeof(TEntity).Name}: register before Build(), it has already run");
+
+            _lastRegistrations.Add(register);
+            return this;
+        }
+
         public void Build(params string[] readinessTags)
+        {
+            AddDatasetServices(readinessTags);
+            _built = true;
+            foreach (Action<IServiceCollection> register in _lastRegistrations)
+                register(services);
+        }
+
+        private void AddDatasetServices(string[] readinessTags)
         {
             AddStorageProvider();
 
