@@ -45,6 +45,15 @@ services.AddDatasetAliases<Link>(
     ("by_item", "t/{tenantid}/s/{storeid}/items/{.single.linked_item.item_id}/links/{linkid}"));
 ```
 
+A pattern combines literal text with placeholders:
+
+- `{tenantid}`: a variable of the id pattern, taken from the entity's id as is.
+- `{.field}`: a field of the entity (`{.a.b}`, `{.list[].c}`, `{.id/[..4]}`), as is: one alias per value of a list.
+- `{~.field}`: like `{.field}`, but each value is encoded as one id segment (`IdSegment.Encode`): every UTF-8 byte
+  outside `A-Z a-z 0-9 - . _` becomes `~` and two lowercase hex digits, so `951a/b` gives `951a~2fb`. Use it for raw
+  values, such as codes that may contain `/` or any other character. A `~xx` with lowercase hex is kept, so encoding
+  an encoded value changes nothing.
+
 Or with a factory of your own, which gets the entity name and its bytes, and throws on bytes it can't evaluate. The
 definition hash must change whenever the factory would give other aliases:
 
