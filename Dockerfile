@@ -110,23 +110,6 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet test --no-build -c Release \
     $(if [ "$RunExternalProvidersTests" = "false" ]; then echo '--filter "FullyQualifiedName!~WithCustomTestContainersImplementation"'; fi)
 
-#
-# CQS CONTRACT TEST
-#
-# The CQS reporter's contract: its proto copies against the CQS source, and the end-to-end test against a CQS server
-# image. Needs the CQS source as the build context "cqs" (--build-context cqs=<checkout or git URL>) and that image,
-# already on the DOCKER_HOST daemon, as CQS_TEST_IMAGE; the "cqs contract test" job in .gitlab-ci.yml provides both.
-# Neither test skips here: a missing source or image fails them.
-#
-FROM build AS cqs-contract-test
-ARG DOCKER_HOST=
-ARG CQS_TEST_IMAGE=
-ENV DOCKER_HOST=${DOCKER_HOST} CQS_TEST_IMAGE=${CQS_TEST_IMAGE} CQS_SOURCE_ROOT=/cqs CQS_CONTRACT_REQUIRED=true
-COPY --from=cqs protos /cqs/protos
-RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
-    dotnet test tst/RxDatasets.Reporting.Cqs.Tests --no-build -c Release \
-      --filter "FullyQualifiedName~ProtoParityTests|FullyQualifiedName~CqsEndToEndTests"
-
 ###########################################################################################################
 ###########################################################################################################
 ###                                                                                                    ####

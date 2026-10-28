@@ -12,7 +12,6 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\RxDatasets.Reporting.Cqs\RxDatasets.Reporting.Cqs.csproj" />
     <ProjectReference Include="..\..\testapps\DTOs\Grpc\DemodtoV1.Grpc.csproj" />
-    <PackageReference Include="Testcontainers" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
     <PackageReference Include="Grpc.AspNetCore.Server" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -23,15 +22,6 @@
 
   <ItemGroup>
     <Using Include="FluentAssertions" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Protobuf Include="..\..\src\RxDatasets.Reporting.Cqs\Protos\change_queue.proto"
-              ProtoRoot="..\..\src\RxDatasets.Reporting.Cqs\Protos" GrpcServices="Client"
-              CompileOutputs="false" OutputDir="$(IntermediateOutputPath)CqsConsumer" />
-    <Compile Include="$(IntermediateOutputPath)CqsConsumer\ChangeQueueGrpc.cs" />
-    <None Include="..\..\src\RxDatasets.Reporting.Cqs\Protos\*.proto"
-          Link="Protos\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

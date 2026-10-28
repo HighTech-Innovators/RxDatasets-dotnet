@@ -113,8 +113,5 @@ services.AddDtoServer<Demodto>()
   queue subscribed to `type:alias` is told which alias changed and reads it through the alias reader. The entity's own
   change is a separate notification with an empty `alias_name`. The reporter reads both the index tree a writer stores
   today and the legacy flat lists of older deltas.
-- The protos in `src/RxDatasets.Reporting.Cqs/Protos` are copies of the CQS repository's `protos/`. Two tests check
-  the contract: `ProtoParityTests` compares the copies with a CQS checkout (a sibling `ChangeQueueService-rust`, or
-  `CQS_SOURCE_ROOT`), and `CqsEndToEndTests` reports to a real CQS (`CQS_TEST_EXECUTABLE`, a `cqs-server` binary, or
-  `CQS_TEST_IMAGE`, a server image). Locally they skip when those are missing; the GitLab job `cqs contract test`
-  builds the image from CQS's `CQS_REF` and runs both, failing rather than skipping.
+- The protos in `src/RxDatasets.Reporting.Cqs/Protos` are copies of the CQS repository's `protos/`: refresh them
+  when CQS changes its contract.

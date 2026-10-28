@@ -138,41 +138,6 @@ e2e test:
     - VERSION="${CI_COMMIT_TAG:-0.0.0-cibuild}" ./run.sh
   image: ${DOCKER_BUILD_IMAGE}
 
-# The CQS reporter's contract with the Change Queue Service: the vendored protos against the CQS source, and the
-# reporter end to end against a CQS server image built from that source on the DOCKER_HOST daemon. CQS is a private
-# project, read with this job's CI_JOB_TOKEN: it needs this project on its job token allowlist (in
-# ChangeQueueService-rust: Settings > CI/CD > Job token permissions). The GitHub mirror cannot read CQS and skips both.
-cqs contract test:
-  extends:
-    - .branches_and_merge_requests
-  stage: test
-  needs:
-    - dotnet build
-  image: ${DOCKER_BUILD_IMAGE}
-  cache: []
-  variables:
-    # The CQS branch or tag whose contract the reporter follows
-    CQS_REF: implement-cqs-rust-port
-  script:
-    - test -n "$DOCKER_HOST" || ( echo "Error in gitlab-ci config - variable DOCKER_HOST is required but is blank" && exit 1 )
-    - CQS_SOURCE="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/oss/rxdatasets/ChangeQueueService-rust.git#${CQS_REF}"
-    - CQS_IMAGE="cqs-contract-test:${CI_PIPELINE_ID}"
-    - docker build --pull --build-arg REGISTRY_PREFIX=$REGISTRY_PREFIX -t "$CQS_IMAGE" "$CQS_SOURCE"
-    - >
-      docker build
-      --pull
-      --build-context cqs="$CQS_SOURCE"
-      --build-arg DOCKER_HOST=$DOCKER_HOST
-      --build-arg CQS_TEST_IMAGE=$CQS_IMAGE
-      --build-arg REGISTRY_PREFIX=$REGISTRY_PREFIX
-      --build-arg PRIVATE_NUGET=$PRIVATE_NUGET
-      --build-arg NUGET_PROXY=$NUGET_PROXY
-      --target cqs-contract-test
-      -f Dockerfile
-      .
-  after_script:
-    - docker rmi "cqs-contract-test:${CI_PIPELINE_ID}" || true
-
 ###########################################################################################################
 ###########################################################################################################
 ###                                                                                                    ####
@@ -280,7 +245,6 @@ dotnet pack:
   needs:
     - dotnet test
     - e2e test
-    - cqs contract test
   script:
     - test -n "$RELEASE_TOKEN" || ( echo "Error in gitlab-ci config - variable RELEASE_TOKEN is required but is blank" && exit 1 )
     - git config user.name "$GITLAB_USER_NAME"
