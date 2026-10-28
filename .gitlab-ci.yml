@@ -266,3 +266,38 @@ release major:
   extends: .release
   variables:
     BUMP: major
+
+# Manual pre-release of any non-master branch, for testing downstream: tags the commit with git-flow-version's SemVer
+# (e.g. 0.19.0-dev.20.cqs-reporter.23) as a lightweight tag; the tag pipeline builds and publishes it like a release.
+# Branches git-flow-version doesn't know (fix/x, tests/x, x) are versioned as feature/<slug>.
+# Needs the same RELEASE_TOKEN as the release jobs.
+pre-release:
+  stage: release
+  image: ${REGISTRY_PREFIX}mcr.microsoft.com/dotnet/sdk:10.0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH !~ /^(master|main)$/
+      when: manual
+      allow_failure: true
+  needs: []
+  script:
+    - test -n "$RELEASE_TOKEN" || ( echo "Error in gitlab-ci config - variable RELEASE_TOKEN is required but is blank" && exit 1 )
+    - dotnet tool install --tool-path /tmp/tools ${NUGET_PROXY:+--add-source "$NUGET_PROXY"} git-flow-version
+    - git remote set-url origin "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    # git-flow-version needs origin/master and origin/develop, which a branch pipeline doesn't fetch.
+    - >
+      git fetch --tags origin
+      "+refs/heads/master:refs/remotes/origin/master"
+      "+refs/heads/develop:refs/remotes/origin/develop"
+    - |
+      case "$CI_COMMIT_BRANCH" in
+        develop|feature/*|bugfix/*|release/*|hotfix/*|support/*) BRANCH="$CI_COMMIT_BRANCH" ;;
+        *) BRANCH="feature/$CI_COMMIT_REF_SLUG" ;;
+      esac
+    # git-flow-version looks the branch up by name; the pipeline checkout is a detached HEAD.
+    - git checkout -B "$BRANCH"
+    - |
+      VERSION=$(/tmp/tools/git-flow-version --branch "$BRANCH" | sed -n 's/.*"SemVer": *"\([^"]*\)".*/\1/p')
+    - test -n "$VERSION" || ( echo "git-flow-version returned no SemVer" && exit 1 )
+    - echo "Tagging $CI_COMMIT_SHA as $VERSION"
+    - git tag "$VERSION" "$CI_COMMIT_SHA"
+    - git push origin "refs/tags/$VERSION"
