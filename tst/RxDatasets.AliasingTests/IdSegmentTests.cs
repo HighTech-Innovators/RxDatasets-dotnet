@@ -16,20 +16,13 @@ public class IdSegmentTests
             .Should().Be("2~272~d0~b2~d0~b0~d0~bc~27abc~2f~27~27~3f~2a_~25-~2b");
     }
 
+    // Not idempotent: a ~ in a raw value is data like any other byte.
     [Theory]
-    [InlineData("2'2вам'abc/''?*_%-+")]
-    [InlineData("951a/b/c")]
-    [InlineData("~")]
-    [InlineData("a~2")]
-    public void Encode_IsIdempotent(string value)
-    {
-        string once = IdSegment.Encode(value);
-
-        IdSegment.Encode(once).Should().Be(once);
-    }
-
-    [Fact]
-    public void Encode_DoesNotKeepUppercaseHex() => IdSegment.Encode("~2F").Should().Be("~7e2F");
+    [InlineData("~", "~7e")]
+    [InlineData("~2f", "~7e2f")]
+    [InlineData("~2F", "~7e2F")]
+    [InlineData("10810283~~BOX", "10810283~7e~7eBOX")]
+    public void Encode_EscapesTilde(string value, string encoded) => IdSegment.Encode(value).Should().Be(encoded);
 
     [Fact]
     public void AliasPattern_EncodesTildeFieldPlaceholders_PerValue()
