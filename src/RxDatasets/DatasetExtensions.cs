@@ -264,31 +264,76 @@ public static class DatasetExtensions
     /// </summary>
     public static (ChangeType Change, ulong PreviousVersion, DeltaEntity? Entity) FindChange(this DeltaIndex delta, string name)
     {
+        var (change, entity, deleted) = Locate(delta, name);
+        return (change, entity?.PreviousVersion ?? deleted?.PreviousVersion ?? 0, entity);
+    }
+
+    /// <summary>
+    /// The history entry for <paramref name="name"/> in this delta, with the tracking id and SLA timestamp its write
+    /// passed; <c>null</c> when the delta does not change it.
+    /// </summary>
+    public static HistoryEntry? FindHistoryEntry(this DeltaIndex delta, ulong version, string name)
+    {
+        var (change, entity, deleted) = Locate(delta, name);
+        if (change == ChangeType.None)
+            return null;
+
+        var timestamp = delta.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
+        return entity != null
+            ? ToHistoryEntry(version, change, timestamp, name, entity)
+            : deleted != null
+                ? ToHistoryEntry(version, timestamp, name, deleted)
+                : new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = name };
+    }
+
+    /// <summary>
+    /// How <paramref name="name"/> changed in this delta, in either format, with the entry that records it. Both
+    /// entries are <c>null</c> for a legacy deleted name.
+    /// </summary>
+    private static (ChangeType Change, DeltaEntity? Entity, DeletedEntity? Deleted) Locate(DeltaIndex delta, string name)
+    {
         var group = FindLeafGroup(delta.Root, name, out var variable);
         if (group != null)
         {
             if (group.NewEntities.TryGetValue(variable, out var newEntity))
-                return (ChangeType.New, newEntity.PreviousVersion, newEntity);
+                return (ChangeType.New, newEntity, null);
             if (group.ChangedEntities.TryGetValue(variable, out var changedEntity))
-                return (ChangeType.Changed, changedEntity.PreviousVersion, changedEntity);
+                return (ChangeType.Changed, changedEntity, null);
             if (group.DeletedEntities.TryGetValue(variable, out var deletedEntity))
-                return (ChangeType.Deleted, deletedEntity.PreviousVersion, null);
+                return (ChangeType.Deleted, null, deletedEntity);
         }
 
         var legacyNew = delta.NewEntities.FirstOrDefault(e => e.Name == name);
         if (legacyNew != null)
-            return (ChangeType.New, legacyNew.PreviousVersion, legacyNew);
+            return (ChangeType.New, legacyNew, null);
         var legacyChanged = delta.ChangedEntities.FirstOrDefault(e => e.Name == name);
         if (legacyChanged != null)
-            return (ChangeType.Changed, legacyChanged.PreviousVersion, legacyChanged);
+            return (ChangeType.Changed, legacyChanged, null);
         var legacyDeleted = delta.DeletedEntities.FirstOrDefault(e => e.Name == name);
         if (legacyDeleted != null)
-            return (ChangeType.Deleted, legacyDeleted.PreviousVersion, null);
+            return (ChangeType.Deleted, null, legacyDeleted);
         if (delta.DeletedNames.Contains(name))
-            return (ChangeType.Deleted, 0, null);
+            return (ChangeType.Deleted, null, null);
 
-        return (ChangeType.None, 0, null);
+        return (ChangeType.None, null, null);
     }
+
+    private static HistoryEntry ToHistoryEntry(ulong version, ChangeType change, DateTimeOffset timestamp, string name,
+        DeltaEntity entity) =>
+        new(version, change, timestamp, entity.PreviousVersion)
+        {
+            Id = name,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp?.ToDateTimeOffset()
+        };
+
+    private static HistoryEntry ToHistoryEntry(ulong version, DateTimeOffset timestamp, string name, DeletedEntity entity) =>
+        new(version, ChangeType.Deleted, timestamp, entity.PreviousVersion)
+        {
+            Id = name,
+            TrackingId = entity.TrackingId,
+            SlaTimestamp = entity.SlaTimestamp?.ToDateTimeOffset()
+        };
 
     /// <summary>The new entities of a delta with their full names, from the tree and the legacy flat list.</summary>
     public static IEnumerable<(string Name, DeltaEntity Entity)> EnumerateNewEntities(this DeltaIndex delta) =>
@@ -347,21 +392,77 @@ public static class DatasetExtensions
         bool InParent(string name) => string.IsNullOrEmpty(parent) || name.StartsWith(parent, StringComparison.Ordinal);
 
         foreach (var (name, entity) in delta.EnumerateNewEntities().Where(e => InParent(e.Name)))
-            yield return new HistoryEntry(version, ChangeType.New, timestamp, entity.PreviousVersion) { Id = name };
+            yield return ToHistoryEntry(version, ChangeType.New, timestamp, name, entity);
 
         foreach (var (name, entity) in delta.EnumerateChangedEntities().Where(e => InParent(e.Name)))
-            yield return new HistoryEntry(version, ChangeType.Changed, timestamp, entity.PreviousVersion) { Id = name };
+            yield return ToHistoryEntry(version, ChangeType.Changed, timestamp, name, entity);
 
         var deletedEntityNames = new HashSet<string>();
         foreach (var (name, entity) in delta.EnumerateDeletedEntities())
         {
             deletedEntityNames.Add(name);
             if (InParent(name))
-                yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, entity.PreviousVersion) { Id = name };
+                yield return ToHistoryEntry(version, timestamp, name, entity);
         }
 
         foreach (var name in delta.DeletedNames.Where(n => !deletedEntityNames.Contains(n) && InParent(n)))
             yield return new HistoryEntry(version, ChangeType.Deleted, timestamp, 0) { Id = name };
+    }
+
+    /// <summary>
+    /// The net change of every name in the versions after <paramref name="fromVersion"/> up to and including
+    /// <paramref name="toVersion"/>, read from the delta indexes alone, with the tracking id and SLA timestamp of each
+    /// name's last change in that range.
+    /// </summary>
+    /// <remarks>
+    /// A name's first change in the range says whether it existed at <paramref name="fromVersion"/> (only a creation
+    /// says it did not), its last change whether it exists now. Together: new, changed, deleted, or nothing, as
+    /// <see cref="IDatasetReader{T}.GetChangedNames"/> reports. A live poller reads one delta.
+    /// </remarks>
+    /// <exception cref="ResyncRequiredException">A delta in the range is no longer kept.</exception>
+    public static async Task<HistoryChangeSet> ReadHistoryChanges(this IStorageProviderReader storage, ulong fromVersion,
+        ulong toVersion, CancellationToken ct = default)
+    {
+        var firstChanges = new Dictionary<string, ChangeType>();
+        var lastChanges = new Dictionary<string, HistoryEntry>();
+        var names = new List<string>();
+        for (var version = fromVersion + 1; version <= toVersion; version++)
+        {
+            ct.ThrowIfCancellationRequested();
+            DeltaIndex delta;
+            try
+            {
+                delta = DeltaIndex.Parser.ParseFrom((await storage.ReadDeltaIndex(version)).Span);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new ResyncRequiredException(fromVersion);
+            }
+
+            foreach (var entry in delta.EnumerateHistoryEntries(version, ""))
+            {
+                if (firstChanges.TryAdd(entry.Id, entry.ChangeType))
+                    names.Add(entry.Id);
+                lastChanges[entry.Id] = entry;
+            }
+        }
+
+        var changes = new List<HistoryChange>();
+        foreach (var name in names)
+        {
+            var last = lastChanges[name];
+            var change = (Existed: firstChanges[name] != ChangeType.New, Exists: last.ChangeType != ChangeType.Deleted) switch
+            {
+                (false, true) => ChangeType.New,
+                (true, true) => ChangeType.Changed,
+                (true, false) => ChangeType.Deleted,
+                _ => ChangeType.None
+            };
+            if (change != ChangeType.None)
+                changes.Add(new HistoryChange(name, change, last.TrackingId, last.SlaTimestamp));
+        }
+
+        return new HistoryChangeSet(toVersion, changes);
     }
 
     /// <summary>The entities of a snapshot index with their full names, from the tree and the legacy flat map.</summary>

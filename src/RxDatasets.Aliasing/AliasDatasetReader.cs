@@ -89,6 +89,12 @@ public class AliasDatasetReader<T> : IDatasetReader<T>
         CancellationToken ct = default) =>
         throw new NotImplementedException("TailHistory is not supported for alias datasets");
 
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default) =>
+        throw new InvalidOperationException("Can't provide history by alias");
+
+    public Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default) =>
+        throw new InvalidOperationException("Can't provide history by alias");
+
     /// <summary>
     /// The aliases this alias name would give the entity, as (alias name, alias value); none when the factory can't
     /// evaluate it. The write itself rejects such an entity.
