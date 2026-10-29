@@ -14,6 +14,7 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
 {
     public record struct ListChangesRequest(ulong FromDatasetVersion, int PageSize, string PageToken, bool WaitForChanges);
     public record struct ListChangesResponse(ulong ToDatasetVersion, IEnumerable<string> NewEntities, IEnumerable<string> ChangedEntities, IEnumerable<string> DeletedEntities, string NextPageToken);
+    public record struct ListHistoryChangesResponse(ulong ToDatasetVersion, IReadOnlyList<HistoryChange> Changes, string NextPageToken);
     public async Task<ICollection<TEntity>> BatchGet(IEnumerable<string> listOfNames, string? requestParent,
         CancellationToken cancellationToken) => await BatchGet(listOfNames, requestParent, "", cancellationToken);
 
@@ -236,6 +237,62 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 DeletedEntities = [],
                 NextPageToken = ""
             };
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ListChanges"/> from the deltas, each changed name with the tracking id and SLA timestamp of its last
+    /// change (<see cref="IDatasetReader{T}.GetHistoryChanges"/>). Paged the same way; a page token of one listing does
+    /// not continue the other.
+    /// </summary>
+    /// <exception cref="RpcException">
+    /// <c>OutOfRange</c> when the deltas after <c>FromDatasetVersion</c> are no longer all kept: the caller lists the
+    /// current state and continues from its version. <c>InvalidArgument</c> when <c>FromDatasetVersion</c> is newer
+    /// than the latest version.
+    /// </exception>
+    public async Task<ListHistoryChangesResponse> ListHistoryChanges(ListChangesRequest request, CancellationToken cancellationToken)
+    {
+        using var cts = CombiTokenSource(cancellationToken);
+        try
+        {
+            List<HistoryChange> allChanges;
+            var alreadySkipped = 0;
+            ulong toDatasetVersion;
+
+            if (request.PageToken?.Length > 0)
+            {
+                (allChanges, alreadySkipped, toDatasetVersion) = PullRemainder<HistoryChange>(request.PageToken, ListingScope.WholeDataset);
+            }
+            else
+            {
+                var changes = request.WaitForChanges
+                    ? await dataset.WaitHistoryChanges(request.FromDatasetVersion, cts.Token)
+                    : await dataset.GetHistoryChanges(request.FromDatasetVersion, cts.Token);
+                allChanges = [.. changes.Changes];
+                toDatasetVersion = changes.ToVersion;
+            }
+
+            var (page, nextPageToken, responseToDatasetVersion) =
+                Paginate(allChanges, request.PageSize, alreadySkipped, toDatasetVersion, ListingScope.WholeDataset);
+            return new ListHistoryChangesResponse(responseToDatasetVersion, page, nextPageToken);
+        }
+        catch (ResyncRequiredException ex)
+        {
+            throw new RpcException(new Status(StatusCode.OutOfRange, ex.Message));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "fromDatasetVersion is newer than latest DatasetVersion"));
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            if (appLifetime.ApplicationStopping.IsCancellationRequested)
+            {
+                throw new RpcException(new Status(StatusCode.Unavailable, "Server is shutting down. Operation was aborted."));
+            }
+
+            // The client has gone; as for ListChanges, an empty answer rather than nulls.
+            return new ListHistoryChangesResponse(0, [], "");
         }
     }
 

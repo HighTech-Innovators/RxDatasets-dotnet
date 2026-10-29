@@ -571,6 +571,16 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
         throw new NotImplementedException();
     }
 
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
     private record Delta((string Name, byte[]? Entity, ChangeType Change)[] Changes, ulong DatasetVersion);
 }
 

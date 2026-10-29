@@ -304,6 +304,30 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
     {
+        await WaitForVersionAfter(fromVersion, cancellationToken);
+        return await GetChangedNames(fromVersion);
+    }
+
+    public async Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        await WaitForVersionAfter(fromVersion, ct);
+        return await GetHistoryChanges(fromVersion, ct);
+    }
+
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        var toVersion = ThrowIfNotInitialized().LatestVersion;
+        if (fromVersion > toVersion)
+        {
+            throw new ArgumentOutOfRangeException($"fromVersion {fromVersion} can't be bigger than the latest version {toVersion}");
+        }
+
+        return _storageProvider.ReadHistoryChanges(fromVersion, toVersion, ct);
+    }
+
+    /// <summary>Returns once the latest version is no longer <paramref name="fromVersion"/>.</summary>
+    private async Task WaitForVersionAfter(ulong fromVersion, CancellationToken cancellationToken)
+    {
         if (_initializationTask == null || _initializationTask.IsFaulted)
             ThrowIfNotInitialized();
 
@@ -320,8 +344,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 
             await changed.WaitAsync(cancellationToken);
         }
-
-        return await GetChangedNames(fromVersion);
     }
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string name)
@@ -517,14 +539,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
                 break;
             }
 
-            var (changeType, previousVersion, _) = deltaIndex.FindChange(name);
+            var entry = deltaIndex.FindHistoryEntry(currentVersion, name);
 
-            if (changeType != ChangeType.None)
+            if (entry != null)
             {
-                var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-
-                history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
-                currentVersion = previousVersion;
+                history.Add(entry);
+                currentVersion = entry.PreviousVersion;
             }
             else
             {
