@@ -465,6 +465,28 @@ public static class DatasetExtensions
         return new HistoryChangeSet(toVersion, changes);
     }
 
+    /// <summary>
+    /// The names changed after <paramref name="fromVersion"/> up to <paramref name="index"/>'s latest version, with how
+    /// each changed: from the delta indexes (<see cref="ReadHistoryChanges"/>), so the in-memory index needs no history.
+    /// </summary>
+    /// <remarks>
+    /// From version 0 nothing existed before, so the changes are the live entities, all new, and the index answers that
+    /// without reading a delta: a full round needs no deltas that cleanup may have removed.
+    /// </remarks>
+    /// <exception cref="ResyncRequiredException">
+    /// <paramref name="fromVersion"/> is not 0 and a delta after it is no longer kept.
+    /// </exception>
+    public static async Task<ChangeSet> ReadChangedNames(this IStorageProviderReader storage, ImmutableDatasetState index,
+        ulong fromVersion, CancellationToken ct = default)
+    {
+        var toVersion = index.LatestVersion;
+        if (fromVersion == 0)
+            return new ChangeSet(toVersion, [.. index.EnumerateAll(where: entity => entity.IsLive).Select(entity => (entity.Key, ChangeType.New))]);
+
+        var changes = await storage.ReadHistoryChanges(fromVersion, toVersion, ct);
+        return new ChangeSet(toVersion, [.. changes.Changes.Select(change => (change.Id, change.ChangeType))]);
+    }
+
     /// <summary>The entities of a snapshot index with their full names, from the tree and the legacy flat map.</summary>
     public static IEnumerable<(string Name, SnapshotEntity Entity)> EnumerateEntities(this SnapshotIndex index) =>
         EnumerateTree(index.Root,

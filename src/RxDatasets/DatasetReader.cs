@@ -361,6 +361,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
         return (name, entityBytes);
     }
 
+    /// <exception cref="ResyncRequiredException">
+    /// <paramref name="fromVersion"/> is not 0 and a delta after it is no longer kept.
+    /// </exception>
     public Task<ChangeSet> GetChangedNames(ulong fromVersion)
     {
         var indexRef = ThrowIfNotInitialized();
@@ -375,42 +378,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
             return Task.FromResult(new ChangeSet(toVersion, []));
         }
 
-        var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return Task.FromResult(new ChangeSet(toVersion, changedNames));
+        return _storageProvider.ReadChangedNames(indexRef, fromVersion);
     }
 
-    private List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
-    {
-        List<(string key, ChangeType change)> changedNames = [];
-
-        indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
-            .ToList()
-            .ForEach(x =>
-            {
-                var relativeChangeType = x.Value.LastDeletedVersion.Select(y => (y, ChangeType.Deleted))
-                    .Concat(x.Value.LastInsertedVersion.Select(y => (y, ChangeType.New)))
-                    .Append((x.Value.LastUpdatedVersion, ChangeType.Changed))
-                    .Where(x => x.Item1 > fromVersion)
-                    .OrderBy(x => x.Item1)
-                    .Select(x => x.Item2)
-                    .Aggregate((current, next) =>
-                    {
-                        return next switch
-                        {
-                            ChangeType.New => current == ChangeType.Deleted ? ChangeType.Changed : ChangeType.New,
-                            ChangeType.Changed => current == ChangeType.New ? ChangeType.New : ChangeType.Changed,
-                            ChangeType.Deleted => current == ChangeType.New ? ChangeType.None : ChangeType.Deleted,
-                            _ => next,
-                        };
-                    });
-
-                if (relativeChangeType != ChangeType.None)
-                {
-                    changedNames.Add((x.Key, relativeChangeType));
-                }
-            });
-        return changedNames;
-    }
 
     /// <summary>
     /// The names of all live descendants of <paramref name="parent"/>, at any depth, and an entity named
