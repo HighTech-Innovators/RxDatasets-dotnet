@@ -8,24 +8,20 @@ namespace RxDatasets.Aliasing;
 public static class IdSegment
 {
     /// <summary>
-    /// Every UTF-8 byte outside <c>A-Z a-z 0-9 - . _</c> becomes <c>~</c> plus two lowercase hex digits. A <c>~xx</c>
-    /// with lowercase hex is already encoded and kept as is, so encoding is idempotent; <c>~2F</c> becomes
-    /// <c>~7e2F</c>.
+    /// Every UTF-8 byte outside <c>A-Z a-z 0-9 - . _</c> (so <c>~</c> too) becomes <c>~</c> plus two lowercase hex
+    /// digits. Not idempotent: pass raw values only, never an encoded one (<c>~2f</c> becomes <c>~7e2f</c>).
     /// </summary>
     public static string Encode(string value)
     {
         var bytes = Encoding.UTF8.GetBytes(value);
         var sb = new StringBuilder(bytes.Length);
-        for (var i = 0; i < bytes.Length; i++)
+        foreach (var b in bytes)
         {
-            var c = (char)bytes[i];
+            var c = (char)b;
             if (char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_')
                 sb.Append(c);
-            else if (c == '~' && i + 2 < bytes.Length
-                     && char.IsAsciiHexDigitLower((char)bytes[i + 1]) && char.IsAsciiHexDigitLower((char)bytes[i + 2]))
-                sb.Append(c).Append((char)bytes[++i]).Append((char)bytes[++i]);
             else
-                sb.Append('~').Append(bytes[i].ToString("x2"));
+                sb.Append('~').Append(b.ToString("x2"));
         }
 
         return sb.ToString();
