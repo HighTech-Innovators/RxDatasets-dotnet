@@ -216,6 +216,11 @@ public class GrpcReaderServiceImpl<TEntity>(ILogger<GrpcReaderServiceImpl<TEntit
                 NextPageToken = nextPageToken
             };
         }
+        catch (ResyncRequiredException ex)
+        {
+            // The changes since then can't be told: list from 0, which needs no deltas, and continue from there.
+            throw new RpcException(new Status(StatusCode.OutOfRange, ex.Message));
+        }
         catch (ArgumentOutOfRangeException)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, "fromDatasetVersion is newer than latest DatasetVersion"));
