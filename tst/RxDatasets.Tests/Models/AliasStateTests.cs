@@ -61,7 +61,7 @@ public class AliasStateTests
 
         state.ResolveAlias("by_storeesl", Esl).Should().BeNull();
         state.ListAliases("by_storeesl", "").Should().BeEmpty();
-        state.GetEntity(Link1).Aliases.Should().BeEmpty();
+        state.TryGetEntity(Link1, out _).Should().BeFalse("a deleted entity leaves the index");
         before.ResolveAlias("by_storeesl", Esl).Should().Be(Link1, "the earlier state is untouched");
     }
 

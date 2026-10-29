@@ -83,14 +83,14 @@ public class DatasetHelperTests
         // Arrange
         ImmutableDictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>
         {
-            { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent1/child2/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/1", new ImmutableSnapshotEntity([0ul], [1ul], 1ul, 0, 1) },
-            { "parent2/child2/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/1", new ImmutableSnapshotEntity([0ul], [1ul], 1ul, 0, 1) },
-            { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child3/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
+            { "parent1/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent1/child2/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/1", new ImmutableSnapshotEntity(1ul, 0, 1) },
+            { "parent2/child2/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/1", new ImmutableSnapshotEntity(1ul, 0, 1) },
+            { "parent3/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child3/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
         }.ToImmutableDictionary();
 
         var index = ImmutableDatasetState.FromEntities(entities, 0, 0);
@@ -110,14 +110,14 @@ public class DatasetHelperTests
         // Arrange
         var entities = new Dictionary<string, ImmutableSnapshotEntity>
         {
-            { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/3", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
+            { "parent1/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/3", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
         }.ToImmutableDictionary();
 
         var index = ImmutableDatasetState.FromEntities(entities, 0, 0);
