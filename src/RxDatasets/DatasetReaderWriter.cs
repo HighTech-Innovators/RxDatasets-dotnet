@@ -73,7 +73,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         var index = CurrentIndex!;
         var snapshotIndex = MostRecentSnapshotIndex;
         var entityInMainIndex = index.GetEntity(name);
-        var entityVersion = entityInMainIndex.GetLatestEntityVersion();
+        var entityVersion = entityInMainIndex.Version;
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
@@ -104,9 +104,6 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         if (!indexRef.TryGetEntity(name, out var entity))
             return null;
 
-        if (entity.GetLatestChangeType() == ChangeType.Deleted)
-            return null;
-
         var entityBytes = await ReadEntityBytes(name);
         return (name, entityBytes);
     }
@@ -116,7 +113,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         var indexRef = GetInitializedIndex();
         var tasks = names.Select(async name =>
         {
-            if (!indexRef.TryGetEntity(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+            if (!indexRef.TryGetEntity(name, out var entity))
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
             }
@@ -130,7 +127,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = GetInitializedIndex();
-        var names = indexRef.EnumerateAll(parent, entity => entity.IsLive).Select(entity => entity.Key).ToList();
+        var names = indexRef.EnumerateAll(parent).Select(entity => entity.Key).ToList();
         return Task.FromResult((names, indexRef.LatestVersion));
     }
 
@@ -212,7 +209,7 @@ public class DatasetReaderWriter<T> : DatasetWriter<T>, IDatasetReader<T>, IAlia
         }
 
         var history = new List<HistoryEntry>();
-        var currentVersion = entity.GetLatestEntityVersion();
+        var currentVersion = entity.Version;
 
         while (currentVersion > 0 && currentVersion > minVersion)
         {

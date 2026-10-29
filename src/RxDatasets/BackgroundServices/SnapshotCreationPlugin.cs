@@ -163,32 +163,23 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         ImmutableIndexNode<ImmutableSnapshotEntity>.Builder newSnapshotEntities,
         Stream targetSnapshotStream, long targetSnapshotStreamPosition, CancellationToken stoppingToken)
     {
-        foreach (var entity in currentIndex.EnumerateAll(where: x =>
-                     x.GetLatestEntityVersion() > currentIndex.SnapshotVersion))
+        // The index holds live entities only, so a snapshot carries no tombstones
+        foreach (var entity in currentIndex.EnumerateAll(where: x => x.Version > currentIndex.SnapshotVersion))
         {
             stoppingToken.ThrowIfCancellationRequested();
 
-            if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
-            {
-                var newSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
-            }
-            else
-            {
-                var entityLength = entity.Value.Length;
+            var entityLength = entity.Value.Length;
 
-                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                var targetEntityPosition = targetSnapshotStreamPosition;
+            targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+            var targetEntityPosition = targetSnapshotStreamPosition;
 
-                var latestEntityVersion = entity.Value.GetLatestEntityVersion();
-                var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, latestEntityVersion, entity.Value.Position)], entity.Value.Length);
+            var entityBytes = await _storageProvider.ReadDataFromSources([(ObjectNameTypeEnum.Delta, entity.Value.Version, entity.Value.Position)], entity.Value.Length);
 
-                await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
-                targetSnapshotStreamPosition += entityLength;
+            await targetSnapshotStream.WriteAsync(entityBytes, stoppingToken);
+            targetSnapshotStreamPosition += entityLength;
 
-                var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
-                newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
-            }
+            var newSnapshotEntity = entity.Value with { Position = targetEntityPosition, Length = entityLength };
+            newSnapshotEntities.Set(entity.Key, newSnapshotEntity);
         }
 
         return targetSnapshotStreamPosition;
@@ -202,40 +193,31 @@ public class SnapshotCreationPlugin<T> : IDatasetUpdateConsumer<T>
         {
             long sourceStreamPosition = 0;
 
-            foreach (var entity in currentIndex.EnumerateAll(
-                         where: x => x.GetLatestEntityVersion() <= currentIndex.SnapshotVersion)
+            foreach (var entity in currentIndex.EnumerateAll(where: x => x.Version <= currentIndex.SnapshotVersion)
                          .OrderBy(x => x.Value.Position))
             {
                 if (stoppingToken.IsCancellationRequested)
                     return;
 
-                if (entity.Value.GetLatestChangeType() == ChangeType.Deleted)
+                var entityLength = entity.Value.Length;
+
+                targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
+                var targetEntityPosition = targetSnapshotStreamPosition;
+
+                var gap = entity.Value.Position - sourceStreamPosition;
+                sourceStreamPosition += SeekForwardBy(sourceStream, gap);
+
+                EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
+
+                sourceStreamPosition += entityLength;
+                targetSnapshotStreamPosition += entityLength;
+
+                ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
                 {
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with { Position = 0, Length = 0 };
-                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
-                }
-                else
-                {
-                    var entityLength = entity.Value.Length;
-
-                    targetSnapshotStreamPosition += DatasetHelper.WriteProtobufLengthPrefix(targetSnapshotStream, entityLength);
-                    var targetEntityPosition = targetSnapshotStreamPosition;
-
-                    var gap = entity.Value.Position - sourceStreamPosition;
-                    sourceStreamPosition += SeekForwardBy(sourceStream, gap);
-
-                    EfficientCopy(sourceStream, targetSnapshotStream, entityLength);
-
-                    sourceStreamPosition += entityLength;
-                    targetSnapshotStreamPosition += entityLength;
-
-                    ImmutableSnapshotEntity newSnapshotSnapshotEntity = entity.Value with
-                    {
-                        Position = targetEntityPosition,
-                        Length = entityLength
-                    };
-                    newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
-                }
+                    Position = targetEntityPosition,
+                    Length = entityLength
+                };
+                newSnapshotEntities.Set(entity.Key, newSnapshotSnapshotEntity);
             }
         });
 

@@ -6,31 +6,16 @@ namespace RxDatasets;
 
 public static class DatasetExtensions
 {
-    private static readonly ImmutableSnapshotEntity NeverSeenEntity = ImmutableSnapshotEntity.FromProto(new SnapshotEntity());
-
-    public static ulong GetLatestEntityVersion(this ImmutableSnapshotEntity snapshotEntity)
-    {
-        return Math.Max(snapshotEntity.LastUpdatedVersion, Math.Max(snapshotEntity.LastDeletedVersion.LastOrDefault(), snapshotEntity.LastInsertedVersion.LastOrDefault()));
-    }
-
-    public static ChangeType GetLatestChangeType(this ImmutableSnapshotEntity snapshotEntity)
-    {
-        ulong latestVersion = snapshotEntity.GetLatestEntityVersion();
-
-        if (latestVersion == snapshotEntity.LastInsertedVersion.LastOrDefault())
-            return ChangeType.New;
-
-        if (latestVersion == snapshotEntity.LastUpdatedVersion)
-            return ChangeType.Changed;
-
-        return ChangeType.Deleted;
-    }
-
+    /// <summary>The version of the entity's latest change, in either snapshot format.</summary>
     public static ulong GetLatestEntityVersion(this SnapshotEntity entity)
     {
         return Math.Max(entity.LastUpdatedVersion, Math.Max(entity.LastDeletedVersion.LastOrDefault(), entity.LastInsertedVersion.LastOrDefault()));
     }
 
+    /// <summary>
+    /// The entity's latest change: <see cref="ChangeType.Deleted"/> only for a tombstone of the earlier format. A
+    /// current snapshot holds live entities only, each recorded as created at its version.
+    /// </summary>
     public static ChangeType GetLatestChangeType(this SnapshotEntity entity)
     {
         ulong latestVersion = entity.GetLatestEntityVersion();
@@ -97,17 +82,10 @@ public static class DatasetExtensions
             foreach (var (variable, newEntity) in group.NewEntities)
             {
                 var key = variable.AsMemory();
-                var existingEntity = node.GetLeaf(template, key) ?? NeverSeenEntity;
-                node.SetLeaf(template, key, new ImmutableSnapshotEntity(
-                    existingEntity.LastDeletedVersion,
-                    existingEntity.LastInsertedVersion.Add(deltaVersion),
-                    existingEntity.LastUpdatedVersion,
-                    newEntity.Position,
-                    newEntity.Length,
+                node.SetLeaf(template, key, new ImmutableSnapshotEntity(deltaVersion, newEntity.Position, newEntity.Length,
                     newEntity.Crc32)
                 {
-                    Aliases = OwnedAliases(variable, existingEntity.Aliases, newEntity.AddedAliases,
-                        newEntity.RemovedAliases)
+                    Aliases = OwnedAliases(variable, [], newEntity.AddedAliases, newEntity.RemovedAliases)
                 });
             }
 
@@ -115,13 +93,8 @@ public static class DatasetExtensions
             {
                 var key = variable.AsMemory();
                 var existingEntity = node.GetLeaf(template, key) ?? throw NotFound(template, variable, "update");
-                node.SetLeaf(template, key, new ImmutableSnapshotEntity(
-                    existingEntity.LastDeletedVersion,
-                    existingEntity.LastInsertedVersion,
-                    deltaVersion,
-                    changedEntity.Position,
-                    changedEntity.Length,
-                    changedEntity.Crc32)
+                node.SetLeaf(template, key, new ImmutableSnapshotEntity(deltaVersion, changedEntity.Position,
+                    changedEntity.Length, changedEntity.Crc32)
                 {
                     Aliases = OwnedAliases(variable, existingEntity.Aliases, changedEntity.AddedAliases,
                         changedEntity.RemovedAliases)
@@ -132,20 +105,11 @@ public static class DatasetExtensions
             {
                 var key = variable.AsMemory();
                 var existingEntity = node.GetLeaf(template, key) ?? throw NotFound(template, variable, "delete");
-                node.SetLeaf(template, key, new ImmutableSnapshotEntity(
-                    existingEntity.LastDeletedVersion.Add(deltaVersion),
-                    existingEntity.LastInsertedVersion,
-                    existingEntity.LastUpdatedVersion,
-                    0,
-                    0,
-                    existingEntity.Crc32)
-                {
-                    // A deleted entity owns nothing: release all it owned, not only what the delta lists
-                    Aliases = existingEntity.Aliases.IsEmpty
-                        ? []
-                        : ApplyAliasChanges(NameOf(template, variable), existingEntity.Aliases, [], existingEntity.Aliases,
-                            aliases)
-                });
+                // A deleted entity owns nothing: release all it owned, not only what the delta lists. It leaves the
+                // index; that it was deleted, and when, is in the delta.
+                if (!existingEntity.Aliases.IsEmpty)
+                    ApplyAliasChanges(NameOf(template, variable), existingEntity.Aliases, [], existingEntity.Aliases, aliases);
+                node.RemoveLeaf(template, key);
             }
 
             // The full name is only built for an entity whose aliases change
@@ -481,7 +445,7 @@ public static class DatasetExtensions
     {
         var toVersion = index.LatestVersion;
         if (fromVersion == 0)
-            return new ChangeSet(toVersion, [.. index.EnumerateAll(where: entity => entity.IsLive).Select(entity => (entity.Key, ChangeType.New))]);
+            return new ChangeSet(toVersion, [.. index.EnumerateAll().Select(entity => (entity.Key, ChangeType.New))]);
 
         var changes = await storage.ReadHistoryChanges(fromVersion, toVersion, ct);
         return new ChangeSet(toVersion, [.. changes.Changes.Select(change => (change.Id, change.ChangeType))]);

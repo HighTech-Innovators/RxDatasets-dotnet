@@ -105,6 +105,12 @@ message SnapshotEntity {
 }
 ```
 
+A snapshot holds the live entities only, the current state. Each records the version of its latest change as the
+only entry of `created_in_versions`; `deleted_in_versions` and `last_updated_in_version` stay empty, and a deleted
+entity is not in the snapshot. A reader of the earlier format reads such an entity as live, created at that version.
+Snapshots written before this kept every version and kept deleted entities as tombstones; they are still read, taking
+the latest of the versions and leaving the tombstones out. How an entity got to its current state is in the deltas.
+
 ## Hierarchical index (tree format)
 The `index.pb` of a snapshot or delta stores its entities in a tree, in the `root` field, instead of in the flat
 `entities` map or `*_entities` lists shown above. Entity names repeat their leading path (`t/{tenant}/s/{store}/...`) and

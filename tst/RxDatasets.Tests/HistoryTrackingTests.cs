@@ -26,10 +26,10 @@ public class HistoryTrackingTests : IDisposable
     public void Dispose() => _hub.Dispose();
 
     /// <summary>
-    /// Version 1 new with "A", the same bytes again with "B" (no version), version 2 changed with "C", version 3
-    /// deleted with "D".
+    /// Version 1 new with "A", the same bytes again with "B" (no version), version 2 changed with "C", and unless
+    /// <paramref name="delete"/> is false version 3 deleted with "D".
     /// </summary>
-    private async Task<DatasetReaderWriter<object>> WriteTrackedChanges()
+    private async Task<DatasetReaderWriter<object>> WriteTrackedChanges(bool delete = true)
     {
         var readerWriter = new DatasetReaderWriter<object>(
             _hub, NullLogger<DatasetWriter<object>>.Instance, _storage, Options.Create(new WriterConfig()));
@@ -37,7 +37,8 @@ public class HistoryTrackingTests : IDisposable
         await readerWriter.Put(Item, Encoding.UTF8.GetBytes("one"), "A", Sla);
         await readerWriter.Put(Item, Encoding.UTF8.GetBytes("one"), "B", null);
         await readerWriter.Put(Item, Encoding.UTF8.GetBytes("two"), "C", null);
-        await readerWriter.Delete(Item, "D", Sla);
+        if (delete)
+            await readerWriter.Delete(Item, "D", Sla);
         return readerWriter;
     }
 
@@ -54,24 +55,50 @@ public class HistoryTrackingTests : IDisposable
     [Fact]
     public async Task ReaderWriter_GetHistory_ReturnsTheTrackingIdOfTheWriteThatMadeEachVersion()
     {
-        var readerWriter = await WriteTrackedChanges();
+        var readerWriter = await WriteTrackedChanges(delete: false);
 
         var history = await readerWriter.GetHistory(Item);
 
         // The same bytes with "B" made no version, and version 1 keeps "A".
-        Tracked(history).Should().Equal(Expected);
+        Tracked(history).Should().Equal(Expected.Skip(1));
     }
 
     [Fact]
     public async Task Reader_GetHistory_ReturnsTheTrackingIdOfTheWriteThatMadeEachVersion()
     {
-        await WriteTrackedChanges();
+        await WriteTrackedChanges(delete: false);
         var reader = new DatasetReader<object>(NullLogger<DatasetReader<object>>.Instance, _storage, null);
         await reader.StartAsync(CancellationToken.None);
 
         var history = await reader.GetHistory(Item);
 
-        Tracked(history).Should().Equal(Expected);
+        Tracked(history).Should().Equal(Expected.Skip(1));
+    }
+
+    [Fact]
+    public async Task GetHistory_CoversTheCurrentLifeOnly_AndStreamHistoryKeepsTheRest()
+    {
+        var readerWriter = await WriteTrackedChanges();
+        await readerWriter.Put(Item, Encoding.UTF8.GetBytes("three"), "E", null);
+
+        var history = await readerWriter.GetHistory(Item);
+        var streamed = new List<HistoryEntry>();
+        await foreach (var entry in readerWriter.StreamHistory("t/T"))
+            streamed.Add(entry);
+
+        // The index holds the current state only, so the history of a name starts at its latest creation; the deltas
+        // still have every change before it.
+        Tracked(history).Should().Equal((Item, 4UL, ChangeType.New, "E", (DateTimeOffset?)null));
+        history.Single().PreviousVersion.Should().Be(0);
+        Tracked(streamed).Should().Equal(Expected.Prepend((Item, 4UL, ChangeType.New, "E", null)));
+    }
+
+    [Fact]
+    public async Task GetHistory_OfADeletedName_IsEmpty()
+    {
+        var readerWriter = await WriteTrackedChanges();
+
+        (await readerWriter.GetHistory(Item)).Should().BeEmpty();
     }
 
     [Fact]
