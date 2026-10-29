@@ -220,6 +220,8 @@ public static class PatternsAndExpressions
     /// 1. Extracting the entity's ID and parsing it according to the ID pattern
     /// 2. For each placeholder in the alias pattern:
     ///    - If {.field} syntax: use JSON-style field access on the proto message (may yield multiple values for arrays)
+    ///    - If {~.field} syntax: as {.field}, with each value encoded as one id segment (<see cref="IdSegment.Encode"/>),
+    ///      for raw values such as codes that may contain '/' or any other character
     ///    - If {variable}: use the value extracted from the ID
     /// 3. Joining the parts to form the final alias(es)
     /// 
@@ -234,6 +236,10 @@ public static class PatternsAndExpressions
     ///   aliasPattern: "item/{.multi_item.linked_items[].item_id}"
     ///   For Link with multi_item.linked_items having ["a", "b", "c"] (3 distinct items):
     ///     Result: ["item/a", "item/b", "item/c"]
+    ///
+    ///   aliasPattern: "item/{~.multi_item.linked_items[].item_id}"
+    ///   For Link with multi_item.linked_items having ["a/b", "c"]:
+    ///     Result: ["item/a~2fb", "item/c"]
     /// </summary>
     public static IEnumerable<string> EvaluateAliasPattern(
         string aliasPattern,
@@ -313,10 +319,13 @@ public static class PatternsAndExpressions
             if (!isPlaceholder)
                 continue;
 
-            if (content.StartsWith('.'))
+            bool encode = content.StartsWith("~.", StringComparison.Ordinal);
+            if (encode || content.StartsWith('.'))
             {
                 // JSON-style field access - may return multiple values for array iteration
-                var values = EvaluateJsonPath(content, entity).ToList();
+                var values = EvaluateJsonPath(encode ? content[1..] : content, entity).ToList();
+                if (encode)
+                    values = [.. values.Select(IdSegment.Encode)];
                 if (values.Count == 0)
                 {
                     // If field doesn't exist or is empty, skip this alias pattern entirely
