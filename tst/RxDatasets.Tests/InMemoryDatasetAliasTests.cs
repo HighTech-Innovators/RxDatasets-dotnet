@@ -85,4 +85,16 @@ public class InMemoryDatasetAliasTests
         (await dataset.Get(descendant)).Should().NotBeNull("it is not a direct child");
         (await dataset.Get(otherParentsChild)).Should().NotBeNull("its parent only starts with the same text");
     }
+
+    [Fact]
+    public async Task PutAllChildren_RejectsANameWithoutAParent_AndStoresNothing()
+    {
+        ulong version = await _dataset.GetLatestVersion();
+
+        var put = () => _dataset.PutAllChildren(Puts((L1, Payload(B1)), ("programs/P1/structure", Payload())));
+
+        await put.Should().ThrowAsync<ArgumentException>();
+        (await _dataset.GetLatestVersion()).Should().Be(version);
+        (await _dataset.Get(L1)).Should().BeNull();
+    }
 }

@@ -625,9 +625,7 @@ public class DatasetWriter<T> : IDatasetWriter<T>, IDisposable
 
             if (includeParents)
             {
-                var parent = DatasetHelper.FindParentOfEntity(name);
-                if (string.IsNullOrEmpty(parent))
-                    continue;
+                var parent = DatasetHelper.ParentForPutAllChildren(name);
                 // The first time a parent appears, its existing children free their aliases: each is either sent
                 // again or implicitly deleted
                 if (allParents.Add(parent))

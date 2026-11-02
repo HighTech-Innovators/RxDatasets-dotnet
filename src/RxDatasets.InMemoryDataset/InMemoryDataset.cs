@@ -170,9 +170,7 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
         {
             if (includeParents)
             {
-                var parent = DatasetHelper.FindParentOfEntity(name);
-                if (string.IsNullOrEmpty(parent))
-                    continue;
+                var parent = DatasetHelper.ParentForPutAllChildren(name);
                 if (allParents.Add(parent))
                     staging.ReleaseChildren(parent);
             }
