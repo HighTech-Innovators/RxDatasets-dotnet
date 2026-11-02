@@ -25,10 +25,15 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
     /// </summary>
     public static string? FindParentOfEntity(string name)
     {
-        // Remove any trailing slashes to handle cases like "parent/child/"
-        var segments = name.TrimEnd('/').Split('/');
-        int keep = segments.Length - (segments.Length % 2 == 0 ? 2 : 3);
-        return keep > 0 ? string.Join('/', segments, 0, keep) : null;
+        int segments = name.AsSpan().Count('/') + 1;
+        int drop = segments % 2 == 0 ? 2 : 3;
+        if (segments <= drop)
+            return null;
+
+        int end = name.Length;
+        for (int i = 0; i < drop; i++)
+            end = name.LastIndexOf('/', end - 1);
+        return name[..end];
     }
 
     public static string? FindParentOfEntity(string name, int level)

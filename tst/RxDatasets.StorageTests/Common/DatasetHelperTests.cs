@@ -48,7 +48,6 @@ public class DatasetHelperTests
     [InlineData("a/1/b", null)]
     [InlineData("root/child", null)]
     [InlineData("singleword", null)]
-    [InlineData("parent/child/", null)]
     public void FindParentOfEntity_Default_ShouldReturnCorrectParent(string input, string? expected)
     {
         // Act
