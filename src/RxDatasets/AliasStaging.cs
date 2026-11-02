@@ -33,7 +33,7 @@ internal sealed class AliasStaging(
         if (definitions.Count == 0)
             return;
 
-        Claim(name, state.TryGetEntity(name, out var entity) && entity.IsLive && entity.Crc32 != 0 && entity.Crc32 == crc
+        Claim(name, state.TryGetEntity(name, out var entity) && entity.Crc32 != 0 && entity.Crc32 == crc
             ? entity.Aliases
             : Evaluate(definitions, name, bytes));
     }
@@ -122,7 +122,7 @@ internal sealed class AliasStaging(
         }
     }
 
-    private static bool HasAliases(ImmutableSnapshotEntity entity) => entity.IsLive && !entity.Aliases.IsEmpty;
+    private static bool HasAliases(ImmutableSnapshotEntity entity) => !entity.Aliases.IsEmpty;
 
     /// <summary>The aliases the definitions give for an entity.</summary>
     /// <exception cref="ArgumentException">A definition can't evaluate the bytes.</exception>
@@ -171,7 +171,7 @@ internal sealed class AliasStaging(
         _owned.TryGetValue(name, out var owned) ? owned : OwnedInState(name);
 
     private ImmutableArray<(string Name, string Value)> OwnedInState(string name) =>
-        state.TryGetEntity(name, out var entity) && entity.IsLive ? entity.Aliases : [];
+        state.TryGetEntity(name, out var entity) ? entity.Aliases : [];
 
     private void Set<TKey, TValue>(Dictionary<TKey, TValue> map, TKey key, TValue value) where TKey : notnull
     {

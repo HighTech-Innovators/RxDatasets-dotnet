@@ -55,8 +55,11 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
         if (snapshotIndex.Root != null)
             AddNode(builder, snapshotIndex.Root, aliases, []);
         // The flat format is from before aliases, so its entities have none for the reverse maps
-        foreach (var (name, entity) in snapshotIndex.Entities)
-            builder.Set(name, ImmutableSnapshotEntity.FromProto(entity));
+        foreach (var (name, protoEntity) in snapshotIndex.Entities)
+        {
+            if (ImmutableSnapshotEntity.FromProto(protoEntity) is { } entity)
+                builder.Set(name, entity);
+        }
 
         var snapshotIndexSnapshotVersion = snapshotIndex.SnapshotVersion > 0 ? snapshotIndex.SnapshotVersion : snapshotIndex.SnapshotVersionLegacy;
         return new ImmutableDatasetState(builder.ToImmutable(), snapshotIndexSnapshotVersion, snapshotIndexSnapshotVersion)
@@ -73,9 +76,11 @@ public record ImmutableDatasetState(ImmutableIndexNode<ImmutableSnapshotEntity> 
         {
             foreach (var (variable, protoEntity) in group.Entities)
             {
-                var entity = ImmutableSnapshotEntity.FromProto(protoEntity);
+                // A tombstone of the earlier format stays out: the index holds live entities only
+                if (ImmutableSnapshotEntity.FromProto(protoEntity) is not { } entity)
+                    continue;
                 builder.SetLeaf(template, variable.AsMemory(), entity);
-                if (entity.IsLive && !entity.Aliases.IsEmpty)
+                if (!entity.Aliases.IsEmpty)
                     aliases.Add(IndexKeys.Join(string.Join('/', path), IndexKeys.LeafName(template, variable)), entity.Aliases);
             }
         }

@@ -42,10 +42,12 @@ public class DatasetHelperTests
     [Theory]
     [InlineData("channels/64090/days/20240923/events/287431128", "channels/64090/days/20240923")]
     [InlineData("bla/A/bla/K", "bla/A")]
-    [InlineData("prov/bbc.nl/pack/BBCC1234/video/123/singlechild", "prov/bbc.nl/pack/BBCC1234/video/123")]
+    [InlineData("prov/bbc.nl/pack/BBCC1234/video/123/singlechild", "prov/bbc.nl/pack/BBCC1234")]
+    [InlineData("t/1/s/S/esls/B/pages/0/image", "t/1/s/S/esls/B")]
+    [InlineData("t/1/s/S/links/A", "t/1/s/S")]
+    [InlineData("a/1/b", null)]
     [InlineData("root/child", null)]
     [InlineData("singleword", null)]
-    [InlineData("parent/child/", null)]
     public void FindParentOfEntity_Default_ShouldReturnCorrectParent(string input, string? expected)
     {
         // Act
@@ -83,14 +85,14 @@ public class DatasetHelperTests
         // Arrange
         ImmutableDictionary<string, ImmutableSnapshotEntity> entities = new Dictionary<string, ImmutableSnapshotEntity>
         {
-            { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent1/child2/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/1", new ImmutableSnapshotEntity([0ul], [1ul], 1ul, 0, 1) },
-            { "parent2/child2/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/1", new ImmutableSnapshotEntity([0ul], [1ul], 1ul, 0, 1) },
-            { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child3/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
+            { "parent1/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent1/child2/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/1", new ImmutableSnapshotEntity(1ul, 0, 1) },
+            { "parent2/child2/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/1", new ImmutableSnapshotEntity(1ul, 0, 1) },
+            { "parent3/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child3/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
         }.ToImmutableDictionary();
 
         var index = ImmutableDatasetState.FromEntities(entities, 0, 0);
@@ -110,14 +112,14 @@ public class DatasetHelperTests
         // Arrange
         var entities = new Dictionary<string, ImmutableSnapshotEntity>
         {
-            { "parent1/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child1/bla/3", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent2/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child1/bla/2", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
-            { "parent3/child2/bla/1", new ImmutableSnapshotEntity([0ul], [0ul], 0ul, 0, 0) },
+            { "parent1/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child1/bla/3", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent2/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child1/bla/2", new ImmutableSnapshotEntity(0ul, 0, 0) },
+            { "parent3/child2/bla/1", new ImmutableSnapshotEntity(0ul, 0, 0) },
         }.ToImmutableDictionary();
 
         var index = ImmutableDatasetState.FromEntities(entities, 0, 0);

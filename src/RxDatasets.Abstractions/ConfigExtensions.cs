@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -6,7 +7,8 @@ namespace RxDatasets.Abstractions
 {
     public static class ConfigExtensions
     {
-        private static readonly HashSet<string> LoggedConfigKeys = [];
+        // Hosts in one process bind their sections concurrently, so the set must be safe for that.
+        private static readonly ConcurrentDictionary<string, byte> LoggedConfigKeys = new();
         /// <summary>
         /// Adds and validates a configuration section.
         /// </summary>
@@ -37,7 +39,9 @@ namespace RxDatasets.Abstractions
             {
                 var configuration = services.BuildServiceProvider().GetRequiredService<IConfiguration>();
                 configuration.GetSection(key).Bind(options);
-                if (LoggedConfigKeys.Contains(key))
+                // Claimed before writing, in one step, so that of two hosts binding the same section at once only
+                // one writes its keys.
+                if (!LoggedConfigKeys.TryAdd(key, 0))
                     return;
                 var configSection = configuration.GetSection(key).GetChildren();
                 foreach (var child in configSection)
@@ -51,8 +55,6 @@ namespace RxDatasets.Abstractions
                     // SecretKey or ConnectionString), and stdout is the container log (VLOW-37).
                     Console.WriteLine($"{typeof(TConfig).Namespace}.{typeof(TConfig).Name} \n      Key: {key}__{child.Key}");
                 }
-
-                LoggedConfigKeys.Add(key);
             });
 
             services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<TConfig>>().Value);

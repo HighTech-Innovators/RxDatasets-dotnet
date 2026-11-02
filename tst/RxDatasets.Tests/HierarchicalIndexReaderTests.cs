@@ -90,8 +90,8 @@ public class HierarchicalIndexReaderTests : IDisposable
         (await readerWriter.Get(Tenant)).Should().BeNull();
         (await readerWriter.List("t/T/s/S/items")).Names.Should().Equal(Item2);
         (await readerWriter.CountChildren("t/T")).Should().Be(1);
-        (await readerWriter.GetHistory(Item1)).Select(h => (h.Version, h.ChangeType, h.PreviousVersion)).Should().Equal(
-            (4UL, ChangeType.Deleted, 2UL), (2UL, ChangeType.Changed, 1UL), (1UL, ChangeType.New, 0UL));
+        // A deleted name is not in the index, so GetHistory has nothing to start from; StreamHistory reads the deltas
+        (await readerWriter.GetHistory(Item1)).Should().BeEmpty();
         Text(await readerWriter.GetHistoric(Item1, 2)).Should().Be("uno");
         (await readerWriter.GetHistoric(Item1, 4)).Should().BeNull();
     }

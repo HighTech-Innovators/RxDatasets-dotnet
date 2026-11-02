@@ -118,9 +118,12 @@ public class DataWatcherTests : IAsyncLifetime
         datasetObserver.Verify(o => o.OnDatasetVersionStart(6), Times.Once);
         datasetObserver.Verify(o => o.OnDatasetVersionStart(7), Times.Once);
 
+        // The snapshot holds live entities only, each as created: one deleted before it is not reported, and one
+        // changed before it is created by the snapshot and changed by the two deltas after it.
         datasetObserver.Verify(o => o.OnCreate(testAdd, It.IsAny<ReadOnlyMemory<byte>>()), Times.Once);
-        datasetObserver.Verify(o => o.OnDelete(testAddUpdateDeleted), Times.Once);
-        datasetObserver.Verify(o => o.OnChange(testAddUpdate3Times, It.IsAny<ReadOnlyMemory<byte>>()), Times.Exactly(3));
+        datasetObserver.Verify(o => o.OnDelete(testAddUpdateDeleted), Times.Never);
+        datasetObserver.Verify(o => o.OnCreate(testAddUpdate3Times, It.IsAny<ReadOnlyMemory<byte>>()), Times.Once);
+        datasetObserver.Verify(o => o.OnChange(testAddUpdate3Times, It.IsAny<ReadOnlyMemory<byte>>()), Times.Exactly(2));
 
         datasetObserver.Verify(o => o.OnDatasetVersionEnd(6), Times.Once);
         datasetObserver.Verify(o => o.OnDatasetVersionEnd(7), Times.Once);

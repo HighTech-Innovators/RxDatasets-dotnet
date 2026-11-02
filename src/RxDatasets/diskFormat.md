@@ -105,6 +105,12 @@ message SnapshotEntity {
 }
 ```
 
+A snapshot holds the live entities only, the current state. Each records the version of its latest change as the
+only entry of `created_in_versions`; `deleted_in_versions` and `last_updated_in_version` stay empty, and a deleted
+entity is not in the snapshot. A reader of the earlier format reads such an entity as live, created at that version.
+Snapshots written before this kept every version and kept deleted entities as tombstones; they are still read, taking
+the latest of the versions and leaving the tombstones out. How an entity got to its current state is in the deltas.
+
 ## Hierarchical index (tree format)
 The `index.pb` of a snapshot or delta stores its entities in a tree, in the `root` field, instead of in the flat
 `entities` map or `*_entities` lists shown above. Entity names repeat their leading path (`t/{tenant}/s/{store}/...`) and
@@ -184,6 +190,21 @@ snapshots and the deltas behind a bad snapshot are kept, and that snapshot can s
 Templates and variables are opaque strings to everything except `IndexKeys`. Registered id patterns could map a name
 onto the tree differently later (for example to also share a literal that the pair rule takes as a variable, like
 `studio` in `t/T/s/S/esls/B/link/studio`) without changing these messages.
+
+## Tracking id and SLA timestamp
+A write may pass a tracking id and an SLA timestamp with each entity. Deltas record them per change; the index and
+snapshots do not, as they hold the current state only:
+
+```protobuf
+message DeltaEntity    { ...; string tracking_id = 7; google.protobuf.Timestamp sla_timestamp = 8; }
+message DeletedEntity  { ...; string tracking_id = 3; google.protobuf.Timestamp sla_timestamp = 4; }
+```
+
+- A put with the same bytes makes no change, so the version keeps the tracking id of the write that made it.
+- The history returns them per change (`HistoryEntry.TrackingId`, `SlaTimestamp`).
+- `GetHistoryChanges` returns the net change of each name since a version, with the tracking id and SLA timestamp of
+  its last change, read from the deltas after that version. When one of those deltas is no longer kept (cleanup without
+  `KeepAllDeltas`), it answers `ResyncRequiredException`: list the current state and continue from its version.
 
 ## Aliases
 An alias is another name for an entity, under an alias name (like `by_storeesl`), computed from its data by the alias

@@ -62,6 +62,37 @@ public class ImmutableDatasetStateTests
         Entities(state).Keys.Should().BeEquivalentTo(Names.Append("palettes/P"));
     }
 
+    [Fact]
+    public void FromProto_LeavesOutTheTombstonesOfTheEarlierFormat_AndTakesTheLatestVersion()
+    {
+        var proto = FlatSnapshot();
+        proto.Entities["t/T/tenant"] = new SnapshotEntity { LastInsertedVersion = { 1 }, LastDeletedVersion = { 2 } };
+        proto.Entities["esltypes/E"] = new SnapshotEntity
+        {
+            LastInsertedVersion = { 1, 4 }, LastDeletedVersion = { 3 }, LastUpdatedVersion = 5, Position = 7, Length = 2
+        };
+
+        var state = ImmutableDatasetState.FromProto(proto);
+
+        state.TryGetEntity("t/T/tenant", out _).Should().BeFalse();
+        state.GetEntity("esltypes/E").Should().BeEquivalentTo(new ImmutableSnapshotEntity(5, 7, 2));
+        state.Root.LiveCount.Should().Be(Names.Length - 1);
+    }
+
+    [Fact]
+    public void ToProto_WritesTheVersionAsTheOnlyCreation_SoAnEarlierReaderSeesALiveEntity()
+    {
+        var state = ImmutableDatasetState.FromProto(FlatSnapshot()).ApplyDelta(FlatDelta());
+
+        var entity = state.ToProto().EnumerateEntities().Single(e => e.Name == "t/T/s/S/items/I1/values").Entity;
+
+        entity.LastInsertedVersion.Should().Equal(2UL);
+        entity.LastDeletedVersion.Should().BeEmpty();
+        entity.LastUpdatedVersion.Should().Be(0);
+        entity.GetLatestChangeType().Should().Be(ChangeType.New);
+        entity.GetLatestEntityVersion().Should().Be(2);
+    }
+
     private static DeltaIndex FlatDelta()
     {
         var delta = new DeltaIndex { DeltaVersion = 2 };
@@ -78,10 +109,11 @@ public class ImmutableDatasetStateTests
     {
         state.LatestVersion.Should().Be(2);
         state.SnapshotVersion.Should().Be(1);
-        state.GetEntity("t/T/s/S/items/I3/values").Should().BeEquivalentTo(new ImmutableSnapshotEntity([], [2], 0, 1, 5, 7));
-        state.GetEntity("t/T/s/S/items/I1/values").Should().BeEquivalentTo(new ImmutableSnapshotEntity([], [1], 2, 6, 5, 8));
-        state.GetEntity("t/T/tenant").GetLatestChangeType().Should().Be(ChangeType.Deleted);
-        state.GetEntity("esltypes/E").GetLatestChangeType().Should().Be(ChangeType.Deleted);
+        state.GetEntity("t/T/s/S/items/I3/values").Should().BeEquivalentTo(new ImmutableSnapshotEntity(2, 1, 5, 7));
+        state.GetEntity("t/T/s/S/items/I1/values").Should().BeEquivalentTo(new ImmutableSnapshotEntity(2, 6, 5, 8));
+        // A deleted entity leaves the index; that it was deleted is in the delta
+        state.TryGetEntity("t/T/tenant", out _).Should().BeFalse();
+        state.TryGetEntity("esltypes/E", out _).Should().BeFalse();
         state.Root.LiveCount.Should().Be(Names.Length + 1 - 2);
         state.Root.CountLive("t/T/s/S/items").Should().Be(3);
     }
@@ -125,8 +157,7 @@ public class ImmutableDatasetStateTests
         state.Root.LiveCount.Should().Be(Names.Length + 1 - 2 + 1);
         state.Root.CountLive("t/T").Should().Be(6);
         state.TryGetEntity("t/T/tenant", out var entity).Should().BeTrue();
-        entity.Should().BeEquivalentTo(new ImmutableSnapshotEntity([2], [1, 3], 0, 11, 4, 9));
-        entity.GetLatestChangeType().Should().Be(ChangeType.New);
+        entity.Should().BeEquivalentTo(new ImmutableSnapshotEntity(3, 11, 4, 9));
     }
 
     [Fact]

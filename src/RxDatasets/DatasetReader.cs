@@ -258,7 +258,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
         var indexRef = ThrowIfNotInitialized();
         var tasks = names.Select(async name =>
         {
-            if (!indexRef.TryGetEntity(name, out var entity) || entity.GetLatestChangeType() == ChangeType.Deleted)
+            if (!indexRef.TryGetEntity(name, out var entity))
             {
                 return (name, (ReadOnlyMemory<byte>?)null);
             }
@@ -273,7 +273,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
     {
         // Precondition: calling method MUST have checked it exists AND is not deleted.
         var entityInMainIndex = _index!.GetEntity(name);
-        var entityVersion = entityInMainIndex.GetLatestEntityVersion();
+        var entityVersion = entityInMainIndex.Version;
 
         List<(ObjectNameTypeEnum type, ulong version, long position)> sources = new(2);
 
@@ -304,6 +304,30 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 
     public async Task<ChangeSet> WaitChangedNames(ulong fromVersion, CancellationToken cancellationToken)
     {
+        await WaitForVersionAfter(fromVersion, cancellationToken);
+        return await GetChangedNames(fromVersion);
+    }
+
+    public async Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        await WaitForVersionAfter(fromVersion, ct);
+        return await GetHistoryChanges(fromVersion, ct);
+    }
+
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        var toVersion = ThrowIfNotInitialized().LatestVersion;
+        if (fromVersion > toVersion)
+        {
+            throw new ArgumentOutOfRangeException($"fromVersion {fromVersion} can't be bigger than the latest version {toVersion}");
+        }
+
+        return _storageProvider.ReadHistoryChanges(fromVersion, toVersion, ct);
+    }
+
+    /// <summary>Returns once the latest version is no longer <paramref name="fromVersion"/>.</summary>
+    private async Task WaitForVersionAfter(ulong fromVersion, CancellationToken cancellationToken)
+    {
         if (_initializationTask == null || _initializationTask.IsFaulted)
             ThrowIfNotInitialized();
 
@@ -320,8 +344,6 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
 
             await changed.WaitAsync(cancellationToken);
         }
-
-        return await GetChangedNames(fromVersion);
     }
 
     public async Task<(string name, ReadOnlyMemory<byte> entityBytes)?> Get(string name)
@@ -331,14 +353,14 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
         if (!indexRef.TryGetEntity(name, out var entity))
             return null;
 
-        if (entity.GetLatestChangeType() == ChangeType.Deleted)
-            return null;
-
         var entityBytes = await ReadEntityBytes(name);
 
         return (name, entityBytes);
     }
 
+    /// <exception cref="ResyncRequiredException">
+    /// <paramref name="fromVersion"/> is not 0 and a delta after it is no longer kept.
+    /// </exception>
     public Task<ChangeSet> GetChangedNames(ulong fromVersion)
     {
         var indexRef = ThrowIfNotInitialized();
@@ -353,42 +375,9 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
             return Task.FromResult(new ChangeSet(toVersion, []));
         }
 
-        var changedNames = GenerateChangedNames(fromVersion, toVersion, indexRef);
-        return Task.FromResult(new ChangeSet(toVersion, changedNames));
+        return _storageProvider.ReadChangedNames(indexRef, fromVersion);
     }
 
-    private List<(string key, ChangeType change)> GenerateChangedNames(ulong fromVersion, ulong toVersion, ImmutableDatasetState indexRef)
-    {
-        List<(string key, ChangeType change)> changedNames = [];
-
-        indexRef.EnumerateAll(where: x => x.GetLatestEntityVersion() > fromVersion && x.GetLatestEntityVersion() <= toVersion)
-            .ToList()
-            .ForEach(x =>
-            {
-                var relativeChangeType = x.Value.LastDeletedVersion.Select(y => (y, ChangeType.Deleted))
-                    .Concat(x.Value.LastInsertedVersion.Select(y => (y, ChangeType.New)))
-                    .Append((x.Value.LastUpdatedVersion, ChangeType.Changed))
-                    .Where(x => x.Item1 > fromVersion)
-                    .OrderBy(x => x.Item1)
-                    .Select(x => x.Item2)
-                    .Aggregate((current, next) =>
-                    {
-                        return next switch
-                        {
-                            ChangeType.New => current == ChangeType.Deleted ? ChangeType.Changed : ChangeType.New,
-                            ChangeType.Changed => current == ChangeType.New ? ChangeType.New : ChangeType.Changed,
-                            ChangeType.Deleted => current == ChangeType.New ? ChangeType.None : ChangeType.Deleted,
-                            _ => next,
-                        };
-                    });
-
-                if (relativeChangeType != ChangeType.None)
-                {
-                    changedNames.Add((x.Key, relativeChangeType));
-                }
-            });
-        return changedNames;
-    }
 
     /// <summary>
     /// The names of all live descendants of <paramref name="parent"/>, at any depth, and an entity named
@@ -397,7 +386,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
     public Task<(List<string> Names, ulong LatestVersion)> List(string parent, CancellationToken ct = default)
     {
         var indexRef = ThrowIfNotInitialized();
-        var names = indexRef.EnumerateAll(parent, entity => entity.IsLive).Select(entity => entity.Key).ToList();
+        var names = indexRef.EnumerateAll(parent).Select(entity => entity.Key).ToList();
         return Task.FromResult((names, indexRef.LatestVersion));
     }
 
@@ -496,7 +485,7 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
         }
 
         var history = new List<HistoryEntry>();
-        var currentVersion = entity.GetLatestEntityVersion();
+        var currentVersion = entity.Version;
 
         while (currentVersion > 0 && currentVersion > minVersion)
         {
@@ -517,14 +506,12 @@ public class DatasetReader<T> : IDatasetReader<T>, IAliasIndex, IHostedService
                 break;
             }
 
-            var (changeType, previousVersion, _) = deltaIndex.FindChange(name);
+            var entry = deltaIndex.FindHistoryEntry(currentVersion, name);
 
-            if (changeType != ChangeType.None)
+            if (entry != null)
             {
-                var timestamp = deltaIndex.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.MinValue.ToUniversalTime();
-
-                history.Add(new HistoryEntry(currentVersion, changeType, timestamp, previousVersion));
-                currentVersion = previousVersion;
+                history.Add(entry);
+                currentVersion = entry.PreviousVersion;
             }
             else
             {

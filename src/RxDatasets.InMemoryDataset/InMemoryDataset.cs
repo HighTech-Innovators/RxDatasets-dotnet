@@ -170,9 +170,7 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
         {
             if (includeParents)
             {
-                var parent = DatasetHelper.FindParentOfEntity(name);
-                if (string.IsNullOrEmpty(parent))
-                    continue;
+                var parent = DatasetHelper.ParentForPutAllChildren(name);
                 if (allParents.Add(parent))
                     staging.ReleaseChildren(parent);
             }
@@ -567,6 +565,16 @@ public class InMemoryDataset<T>(IReadOnlyList<AliasDefinition>? aliasDefinitions
     }
 
     public IAsyncEnumerable<HistoryEntry> TailHistory(string parent, ulong sinceVersion = 0, bool follow = false, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<HistoryChangeSet> GetHistoryChanges(ulong fromVersion, CancellationToken ct = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<HistoryChangeSet> WaitHistoryChanges(ulong fromVersion, CancellationToken ct = default)
     {
         throw new NotImplementedException();
     }
