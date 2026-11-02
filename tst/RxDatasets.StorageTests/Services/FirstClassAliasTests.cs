@@ -238,6 +238,25 @@ public class FirstClassAliasTests
     }
 
     [Fact]
+    public async Task PutAllChildren_ReplacesAllPagesOfAnEsl_AndMayMoveAnAliasBetweenThem()
+    {
+        const string b1Page0 = "t/T/s/S/esls/B1/pages/0/image";
+        const string b1Page1 = "t/T/s/S/esls/B1/pages/1/image";
+        const string b2Page1 = "t/T/s/S/esls/B2/pages/1/image";
+        var writer = await StartWriter();
+        await writer.PutMany(Puts((b1Page0, Payload("x=0")), (b1Page1, Payload(Esl(B1))), (b2Page1, Payload(Esl(B2)))));
+
+        // Parent t/T/s/S/esls/B1: page 1 is replaced, so page 0 may take its alias
+        var response = await writer.PutAllChildren(Puts((b1Page0, Payload(Esl(B1)))));
+
+        response.NumDeletedEntities.Should().Be(1);
+        (await writer.Get(b1Page1)).Should().BeNull();
+        writer.ResolveAlias(StoreEsl, B1).Should().Be(b1Page0);
+        (await writer.Get(b2Page1)).Should().NotBeNull("another ESL's pages have another parent");
+        writer.ResolveAlias(StoreEsl, B2).Should().Be(b2Page1);
+    }
+
+    [Fact]
     public async Task APayloadTheFactoryCantEvaluate_IsRejected_AndKeepsTheStoredAliases()
     {
         var writer = await StartWriter();

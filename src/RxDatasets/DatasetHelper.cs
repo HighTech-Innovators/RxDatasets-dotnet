@@ -10,25 +10,25 @@ namespace RxDatasets;
 
 public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvider)
 {
-    private const string TypeAndId = "[^/]+/[^/]+";
-
-    private static readonly Regex ParentRegex = new(
-        $"^({TypeAndId}(/{TypeAndId})*)/[^/]+(/[^/]+)?$",
-        RegexOptions.Compiled);
-
     public async Task<ImmutableDatasetState> GetLatestIndex()
     {
         var availableVersion = await storageProvider.ListVersions();
 
         return await GetIndexOfVersion(availableVersion.NewestDelta);
     }
+
+    /// <summary>
+    /// The parent whose children PutAllChildren replaces, always type/id pairs. Names follow AIP-122: type/id pairs,
+    /// optionally ending in a singleton type (AIP-156). The parent drops the last pair, and the singleton type if any:
+    /// <c>t/1/s/S/links/A</c> → <c>t/1/s/S</c>, <c>t/1/s/S/esls/B/pages/0/image</c> → <c>t/1/s/S/esls/B</c>, so all
+    /// pages of an ESL share one parent. Null when nothing is left.
+    /// </summary>
     public static string? FindParentOfEntity(string name)
     {
         // Remove any trailing slashes to handle cases like "parent/child/"
-        name = name.TrimEnd('/');
-        var match = ParentRegex.Match(name);
-
-        return match.Success ? match.Groups[1].Value : null;
+        var segments = name.TrimEnd('/').Split('/');
+        int keep = segments.Length - (segments.Length % 2 == 0 ? 2 : 3);
+        return keep > 0 ? string.Join('/', segments, 0, keep) : null;
     }
 
     public static string? FindParentOfEntity(string name, int level)
