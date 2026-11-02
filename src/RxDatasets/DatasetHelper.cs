@@ -36,6 +36,16 @@ public class DatasetHelper(ILogger logger, IStorageProviderReader storageProvide
         return name[..end];
     }
 
+    /// <summary>
+    /// The parent of an entity PutAllChildren writes. A name of fewer than four segments has no parent, so it can't be
+    /// written that way.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="name"/> has no parent.</exception>
+    public static string ParentForPutAllChildren(string name) =>
+        FindParentOfEntity(name) ?? throw new ArgumentException(
+            $"PutAllChildren needs a name of at least four segments, so that it has a parent; '{name}' has none",
+            nameof(name));
+
     public static string? FindParentOfEntity(string name, int level)
     {
         if (string.IsNullOrEmpty(name) || level <= 0)

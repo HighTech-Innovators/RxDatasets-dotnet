@@ -256,6 +256,22 @@ public class FirstClassAliasTests
         writer.ResolveAlias(StoreEsl, B2).Should().Be(b2Page1);
     }
 
+    [Theory]
+    [InlineData("programs/P1/structure")]
+    [InlineData("links/L1")]
+    public async Task PutAllChildren_RejectsANameWithoutAParent_AndStoresNothing(string withoutParent)
+    {
+        var writer = await StartWriter();
+        var version = writer.GetLatestVersion();
+
+        var put = () => writer.PutAllChildren(Puts((L1, Payload(Esl(B1))), (withoutParent, Payload("x=1"))));
+
+        await put.Should().ThrowAsync<ArgumentException>().WithMessage($"*'{withoutParent}'*");
+        writer.GetLatestVersion().Should().Be(version);
+        (await writer.Get(L1)).Should().BeNull();
+        writer.ResolveAlias(StoreEsl, B1).Should().BeNull();
+    }
+
     [Fact]
     public async Task APayloadTheFactoryCantEvaluate_IsRejected_AndKeepsTheStoredAliases()
     {
