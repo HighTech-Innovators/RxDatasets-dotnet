@@ -17,8 +17,8 @@ public sealed class LostResponseStorage<T>(IConditionalDiskStorage<T> inner, Fun
         return version != null && matches(objectKey) && Interlocked.Exchange(ref _lost, 1) == 0 ? null : version;
     }
 
-    public Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey) =>
-        inner.DownloadBytesWithVersion(objectKey);
+    public Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey) =>
+        inner.TryDownloadBytesWithVersion(objectKey);
     public Task<bool> TryCreateFromStream(string objectKey, Stream stream) => inner.TryCreateFromStream(objectKey, stream);
     public Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey) => inner.DownloadBytes(objectKey);
     public Task<ReadOnlyMemory<byte>> DownloadBytes(string objectKey, long position, int length) =>

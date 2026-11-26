@@ -283,7 +283,7 @@ public class AzStorage<T> : IConditionalDiskStorage<T>
         }
     }
 
-    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey)
     {
         try
         {
@@ -295,7 +295,7 @@ public class AzStorage<T> : IConditionalDiskStorage<T>
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             SetHealthy();
-            throw new FileNotFoundException(File404Message, objectKey);
+            return null;
         }
         catch (Exception ex)
         {

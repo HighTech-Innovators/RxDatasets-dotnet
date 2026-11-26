@@ -183,10 +183,23 @@ namespace RxDatasets.StorageProvider.LocalDisk
         // The version is a hash of the content. Compare-and-swap holds an exclusive handle (FileShare.None, which .NET
         // maps to flock on Unix) across read, compare and rewrite, so it is atomic between processes on this machine.
         // ponytail: in-place rewrite, not crash-atomic; fine for small coordination files like the lock, not for data.
-        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string key)
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string key)
         {
-            byte[] bytes = (await DownloadBytes(key)).ToArray();
-            return (bytes, ContentVersion(bytes));
+            string filePath = Path.Combine(_rootFolder, key); // no GetFullPath: a read must not create directories
+            if (!File.Exists(filePath))
+            {
+                return null;
+            }
+
+            try
+            {
+                byte[] bytes = await File.ReadAllBytesAsync(filePath);
+                return (bytes, ContentVersion(bytes));
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return null; // deleted since the check
+            }
         }
 
         public async Task<string?> TryUploadBytes(string key, byte[] data, string? expectedVersion)

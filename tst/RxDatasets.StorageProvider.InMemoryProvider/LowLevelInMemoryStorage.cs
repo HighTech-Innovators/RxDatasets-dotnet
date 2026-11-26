@@ -77,13 +77,14 @@ namespace RxDatasets.TestImplementations.InMemoryProvider
             await Task.CompletedTask;
         }
 
-        public Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        public Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey)
         {
             if (!_storage.TryGetValue(objectKey, out var entry))
             {
-                throw new FileNotFoundException($"File not found in memory storage: {objectKey}");
+                return Task.FromResult<(ReadOnlyMemory<byte> Bytes, string Version)?>(null);
             }
-            return Task.FromResult((new ReadOnlyMemory<byte>(entry.Data), Version(entry.Data)));
+            return Task.FromResult<(ReadOnlyMemory<byte> Bytes, string Version)?>(
+                (new ReadOnlyMemory<byte>(entry.Data), Version(entry.Data)));
         }
 
         public Task<string?> TryUploadBytes(string objectKey, byte[] bytes, string? expectedVersion)

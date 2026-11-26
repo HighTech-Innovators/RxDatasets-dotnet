@@ -438,7 +438,7 @@ namespace RxDatasets.StorageProvider.S3
             }
         }
 
-        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey)
         {
             await EnsureInitialized();
             try
@@ -453,7 +453,7 @@ namespace RxDatasets.StorageProvider.S3
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound || ex.ErrorCode == "NotFound")
             {
                 SetHealthy();
-                throw new FileNotFoundException(File404Message, objectKey);
+                return null;
             }
             catch (AmazonS3Exception s3e)
             {

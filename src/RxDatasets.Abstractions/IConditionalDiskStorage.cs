@@ -11,8 +11,8 @@ public interface IConditionalDiskStorage<T> : IDiskStorage<T>
     /// <summary>
     /// Download an object together with its current version.
     /// </summary>
-    /// <exception cref="FileNotFoundException">In case the object does not exist</exception>
-    Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey);
+    /// <returns>The bytes and version, or null if the object does not exist</returns>
+    Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey);
 
     /// <summary>
     /// Write an object only if its current version equals <paramref name="expectedVersion"/>,

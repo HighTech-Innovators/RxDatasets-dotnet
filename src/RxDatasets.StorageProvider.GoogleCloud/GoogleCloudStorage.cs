@@ -411,7 +411,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             throw finalEx;
         }
 
-        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+        public async Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey)
         {
             await EnsureInitialized();
             try
@@ -426,7 +426,7 @@ namespace RxDatasets.StorageProvider.GoogleCloud
             catch (Google.GoogleApiException e) when (e.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 SetHealthy();
-                throw new FileNotFoundException("File not found in Google Cloud Storage", objectKey, e);
+                return null;
             }
             catch (Exception ex)
             {

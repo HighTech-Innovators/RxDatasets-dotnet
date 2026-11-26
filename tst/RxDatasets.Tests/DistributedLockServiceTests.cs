@@ -31,7 +31,7 @@ public class DistributedLockServiceTests : IDisposable
     private string? _lastWrittenToken;
     private readonly TestScheduler _scheduler;
     private readonly ParkSignallingClock _clock;
-    private Func<string, Task<ReadOnlyMemory<byte>>> _requestLockHandler;
+    private Func<string, byte[]?> _requestLockHandler;
 
     public DistributedLockServiceTests()
     {
@@ -42,7 +42,7 @@ public class DistributedLockServiceTests : IDisposable
         _lockOptions = new DistributedLockOptions(); // use defaults
         _notifications = new List<DistributedLockNotification>();
         _testCts = new CancellationTokenSource();
-        _requestLockHandler = _ => Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException());
+        _requestLockHandler = _ => null;
 
         _notificationsHubMock.Notify(Arg.Any<DistributedLockNotification>())
                 .Returns(Task.CompletedTask)
@@ -87,7 +87,7 @@ public class DistributedLockServiceTests : IDisposable
         // Assert: exactly 3 write attempts (acquire + failed renewal + successful renewal);
         // renewals are compare-and-swap on our own version, so only the acquisition reads the lock file
         await _storageMock.Received(3).TryUploadBytes(IsLockFile(), Arg.Any<byte[]>(), Arg.Any<string?>());
-        await _storageMock.Received(1).DownloadBytesWithVersion(IsLockFile());
+        await _storageMock.Received(1).TryDownloadBytesWithVersion(IsLockFile());
         service.HasLock.Should().BeTrue();
         _notifications.Should().NotContain(n => n.LockStatus == DistirbutedLockStatus.Lost);
     }
@@ -391,8 +391,8 @@ public class DistributedLockServiceTests : IDisposable
 
         // Phase 1: Simulate persistent IO errors until the lock expires
         SetupWriteFailures(_ => true, "IO error");
-        _storageMock.DownloadBytesWithVersion(IsLockFile())
-                   .Returns(Task.FromException<(ReadOnlyMemory<byte>, string)>(new Exception("IO error")));
+        _storageMock.TryDownloadBytesWithVersion(IsLockFile())
+                   .Returns(Task.FromException<(ReadOnlyMemory<byte>, string)?>(new Exception("IO error")));
         Advance(TimeSpan.FromMinutes(6));
         service.HasLock.Should().BeFalse();
 
@@ -494,7 +494,7 @@ public class DistributedLockServiceTests : IDisposable
         var otherToken = Guid.NewGuid().ToString();
         var requestFileContent = Encoding.UTF8.GetBytes(otherToken);
 
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(requestFileContent));
+        _requestLockHandler = _ => requestFileContent;
 
         // Assert
         // Lock should be released (Yielded)
@@ -538,7 +538,7 @@ public class DistributedLockServiceTests : IDisposable
             });
 
         // Dynamically return captured content
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(capturedRequestBytes));
+        _requestLockHandler = _ => capturedRequestBytes;
 
         var service = CreateService();
         await StartServiceAsync(service);
@@ -576,7 +576,7 @@ public class DistributedLockServiceTests : IDisposable
 
         // Simulate Request
         var requestFileContent = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(requestFileContent));
+        _requestLockHandler = _ => requestFileContent;
 
         // Wait for yield
         await WaitUntilAdvancingAsync(() => !service.HasLock, TimeSpan.FromSeconds(1), 200);
@@ -616,7 +616,7 @@ public class DistributedLockServiceTests : IDisposable
         // Arrange
         // Verify current behavior: File exists with DIFFERENT token
         var otherToken = "other-instance-id";
-        _requestLockHandler = _ => Task.FromResult(new ReadOnlyMemory<byte>(Encoding.UTF8.GetBytes(otherToken)));
+        _requestLockHandler = _ => Encoding.UTF8.GetBytes(otherToken);
 
         SetupStorageRead(null);
         SetupStorageWriteSuccess();
@@ -639,6 +639,8 @@ public class DistributedLockServiceTests : IDisposable
 
     private static string IsLockFile() => Arg.Is<string>(s => s.EndsWith("lock-file", StringComparison.Ordinal));
 
+    private static string IsRequestLockFile() => Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal));
+
     private static string? TokenOf(byte[] lockBytes)
     {
         var content = Encoding.UTF8.GetString(lockBytes);
@@ -651,20 +653,27 @@ public class DistributedLockServiceTests : IDisposable
     /// </summary>
     private void SetupStorageRead((string Token, DateTimeOffset Expiry)? lockData)
     {
-        // Default behavior for request-lock: return Not Found (404) so we don't accidentally yield
-        _storageMock.DownloadBytes(Arg.Is<string>(s => s.EndsWith("request-lock", StringComparison.Ordinal)))
-            .Returns(ci => _requestLockHandler(ci.Arg<string>()));
+        // Request-lock: absent (null) by default so we don't accidentally yield. The lock loop polls it
+        // with TryDownloadBytesWithVersion; StopAsync still reads it with DownloadBytes.
+        _storageMock.TryDownloadBytesWithVersion(IsRequestLockFile())
+            .Returns(ci => _requestLockHandler(ci.Arg<string>()) is byte[] requestBytes
+                ? Task.FromResult<(ReadOnlyMemory<byte>, string)?>((new ReadOnlyMemory<byte>(requestBytes), "v-request"))
+                : Task.FromResult<(ReadOnlyMemory<byte>, string)?>(null));
+        _storageMock.DownloadBytes(IsRequestLockFile())
+            .Returns(ci => _requestLockHandler(ci.Arg<string>()) is byte[] requestBytes
+                ? Task.FromResult(new ReadOnlyMemory<byte>(requestBytes))
+                : Task.FromException<ReadOnlyMemory<byte>>(new FileNotFoundException()));
 
         if (lockData == null)
         {
-            _storageMock.DownloadBytesWithVersion(IsLockFile())
-                       .Returns(Task.FromException<(ReadOnlyMemory<byte>, string)>(new FileNotFoundException()));
+            _storageMock.TryDownloadBytesWithVersion(IsLockFile())
+                       .Returns(Task.FromResult<(ReadOnlyMemory<byte>, string)?>(null));
         }
         else
         {
             var bytes = Encoding.UTF8.GetBytes($"{lockData.Value.Token}\n{lockData.Value.Expiry:o}");
-            _storageMock.DownloadBytesWithVersion(IsLockFile())
-                       .Returns(Task.FromResult((new ReadOnlyMemory<byte>(bytes), ReadVersion)));
+            _storageMock.TryDownloadBytesWithVersion(IsLockFile())
+                       .Returns(Task.FromResult<(ReadOnlyMemory<byte>, string)?>((new ReadOnlyMemory<byte>(bytes), ReadVersion)));
         }
     }
 
@@ -706,10 +715,10 @@ public class DistributedLockServiceTests : IDisposable
         var writeCall = 0;
 
         SetupStorageRead(null); // request-lock handling
-        _storageMock.DownloadBytesWithVersion(IsLockFile())
+        _storageMock.TryDownloadBytesWithVersion(IsLockFile())
             .Returns(_ => stored is null
-                ? Task.FromException<(ReadOnlyMemory<byte>, string)>(new FileNotFoundException())
-                : Task.FromResult((new ReadOnlyMemory<byte>(stored), $"v{version}")));
+                ? Task.FromResult<(ReadOnlyMemory<byte>, string)?>(null)
+                : Task.FromResult<(ReadOnlyMemory<byte>, string)?>((new ReadOnlyMemory<byte>(stored), $"v{version}")));
 
         _storageMock.TryUploadBytes(IsLockFile(), Arg.Any<byte[]>(), Arg.Any<string?>())
             .Returns(ci =>

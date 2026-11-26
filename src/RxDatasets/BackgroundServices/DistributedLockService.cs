@@ -405,40 +405,39 @@ namespace RxDatasets.BackgroundServices
         /// </summary>
         private async Task<(string Token, DateTimeOffset Expiry, string Version)?> TryReadLockFile()
         {
-            try
-            {
-                var (lockBytes, version) = await storage.DownloadBytesWithVersion(_lockName);
-                string lockContent = System.Text.Encoding.UTF8.GetString(lockBytes.Span);
-                var lines = lockContent.Split('\n');
-                if (lines.Length >= 2 && DateTimeOffset.TryParse(lines[1], out var expiryTime))
-                {
-                    return (lines[0], expiryTime, version);
-                }
-
-                logger.LogWarning("Invalid lock file, treating it as expired.");
-                return (string.Empty, DateTimeOffset.MinValue, version);
-            }
-            catch (FileNotFoundException)
+            (ReadOnlyMemory<byte> Bytes, string Version)? lockFile = await storage.TryDownloadBytesWithVersion(_lockName);
+            if (lockFile == null)
             {
                 return null; // Lock file does not exist
             }
+
+            var (lockBytes, version) = lockFile.Value;
+            string lockContent = System.Text.Encoding.UTF8.GetString(lockBytes.Span);
+            var lines = lockContent.Split('\n');
+            if (lines.Length >= 2 && DateTimeOffset.TryParse(lines[1], out var expiryTime))
+            {
+                return (lines[0], expiryTime, version);
+            }
+
+            logger.LogWarning("Invalid lock file, treating it as expired.");
+            return (string.Empty, DateTimeOffset.MinValue, version);
         }
 
         private async Task<bool> ShouldYieldAsync()
         {
             try
             {
-                var bytes = await storage.DownloadBytes(_requestLockName);
+                (ReadOnlyMemory<byte> Bytes, string Version)? requestLock =
+                    await storage.TryDownloadBytesWithVersion(_requestLockName);
+                if (requestLock is null) return false;
+
+                ReadOnlyMemory<byte> bytes = requestLock.Value.Bytes;
                 if (bytes.IsEmpty) return false;
 
                 var content = System.Text.Encoding.UTF8.GetString(bytes.Span).Trim();
                 if (string.IsNullOrEmpty(content)) return false;
 
                 return content != _instanceId;
-            }
-            catch (FileNotFoundException)
-            {
-                return false;
             }
             catch (Exception ex)
             {

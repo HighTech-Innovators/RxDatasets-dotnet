@@ -301,7 +301,7 @@ public class MinioS3Storage<T> : IConditionalDiskStorage<T>
         }
     }
 
-    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)> DownloadBytesWithVersion(string objectKey)
+    public async Task<(ReadOnlyMemory<byte> Bytes, string Version)?> TryDownloadBytesWithVersion(string objectKey)
     {
         await EnsureInitialized();
         using var resultStream = new MemoryStream();
@@ -314,10 +314,10 @@ public class MinioS3Storage<T> : IConditionalDiskStorage<T>
             SetHealthy();
             return (resultStream.ToArray(), stat.ETag);
         }
-        catch (ObjectNotFoundException ex)
+        catch (ObjectNotFoundException)
         {
             SetHealthy();
-            throw new FileNotFoundException("File is not found.", objectKey, ex);
+            return null;
         }
         catch (MinioException ex)
         {
